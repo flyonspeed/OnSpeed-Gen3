@@ -572,6 +572,14 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskLogReplay);
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);
+                if (g_AHRS.IsEkfqActive())
+                    {
+                    g_Log.printf("%-16s  %u failed updates (last @ call #%u, %u total)\n",
+                                 "EKFQ",
+                                 g_AHRS.EkfqFailedUpdateCount(),
+                                 g_AHRS.EkfqLastFailedCallNum(),
+                                 g_AHRS.EkfqUpdateCallCount());
+                    }
                 } // end TASKS
 
             // BOOTLOG

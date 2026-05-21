@@ -25,6 +25,8 @@
 
 #include "src/Globals.h"
 
+#include <cstdint>
+
 #include <ahrs/Ahrs.h>
 #include <filters/EMAFilter.h>
 #include <filters/GOnsetFilter.h>
@@ -92,6 +94,20 @@ public:
     void    Init(float fSampleRate);
     void    Process();
     void    Process(float deltaTimeSeconds);
+
+    // === EKFQ Cholesky-failure observability (issue #593 item #1) ===
+    //
+    // Pass-through to core_.GetEkfqPipeline().getEkfq().getX(). Returns
+    // the underlying EKFQ instance's counters regardless of which
+    // algorithm is currently active — callers (ConsoleSerial TASKS)
+    // should gate display on IsEkfqActive() to avoid reporting
+    // failures for an algorithm not in use.
+    uint32_t EkfqUpdateCallCount()    const;
+    uint32_t EkfqFailedUpdateCount()  const;
+    uint32_t EkfqLastFailedCallNum()  const;
+
+    /// True if the active algorithm is EKFQ.
+    bool IsEkfqActive() const;
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();

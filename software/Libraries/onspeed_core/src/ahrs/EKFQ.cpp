@@ -482,6 +482,8 @@ void EKFQ::correct(float ax_meas, float ay_meas, float az_meas,
                    float tas, float tasDot,
                    float pitchRate, float yawRate,
                    float baroZ, bool updateBaro) {
+    ++updateCallCount_;
+
     // 1) Snapshot predict state.
     const float q0 = x_[Q0], q1 = x_[Q1], q2 = x_[Q2], q3 = x_[Q3];
     const float bp = x_[BP_IDX], bq = x_[BQ_IDX], br = x_[BR_IDX];
@@ -598,6 +600,11 @@ void EKFQ::correct(float ax_meas, float ay_meas, float az_meas,
             // S lost positive-definiteness due to fp32 round-off. Abort
             // the update — same failure mode as the Python try/except
             // around np.linalg.solve (LinAlgError on a singular S).
+            // Bump observability counters before returning so post-flight
+            // review (TASKS console command) can spot recurrence. See
+            // issue #593 item #1.
+            ++failedUpdateCount_;
+            lastFailedCallNum_ = updateCallCount_;
             return;
         }
         S[j][j] = std::sqrt(sum);
