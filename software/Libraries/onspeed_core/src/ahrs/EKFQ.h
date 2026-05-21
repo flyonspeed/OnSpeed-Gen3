@@ -222,6 +222,16 @@ public:
     /// Reference to the loaded config.
     const Config& getConfig() const { return config_; }
 
+    /// Lifetime count of update() invocations. Monotonic across init().
+    uint32_t getUpdateCallCount() const { return updateCallCount_; }
+
+    /// Number of correct() calls aborted at the Cholesky guard.
+    /// Monotonic across init() so a pre-reseed burst stays visible.
+    uint32_t getFailedUpdateCount() const { return failedUpdateCount_; }
+
+    /// Value of getUpdateCallCount() at the most recent failure; 0 if none.
+    uint32_t getLastFailedCallNum() const { return lastFailedCallNum_; }
+
     /// Replace the config. Does NOT reset state — call init() if needed.
     void setConfig(const Config& cfg) { config_ = cfg; }
 
@@ -247,6 +257,12 @@ private:
     float  x_[N_STATES];
     float  P_[N_STATES][N_STATES];
     bool   initialized_;
+
+    // Counters survive init() — a failure burst before a reseed stays visible.
+    // See issue #593 item #1.
+    uint32_t updateCallCount_   = 0;
+    uint32_t failedUpdateCount_ = 0;
+    uint32_t lastFailedCallNum_ = 0;
 
     static constexpr float GRAVITY = 9.80665f;
 
