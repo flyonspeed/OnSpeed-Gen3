@@ -145,10 +145,32 @@ void StartTask()
 {
     bool already = g_taskStarted.exchange(true, std::memory_order_acq_rel);
     if (already) return;
-    // Pinned to Core 0 (alongside WebServer/DataServer/Log), low priority,
+    // Pinned to Core 0 (alongside WebServer/DataServer/LogSensorCommit).
+    //
+    // Priority 1, not idle (priority 0). The 1 Hz drain needs to stay
+    // on schedule when other Core 0 tasks are busy. At priority 0 the
+    // dump task can be starved for >1 second under heavy Core 0 load —
+    // and when that happens, the histogram reset window stretches and
+    // "loops/s" appears proportionally LOWER than the actual producer
+    // rate.
+    //
+    // This was one of two distinct measurement bugs the high-rate IMU
+    // experiments surfaced, with similar-looking symptoms:
+    //   - "loops/s = 256 with drops > 0": ring saturation. The 1024-entry
+    //     universal ring × 4 events per IMU iteration capped reportable
+    //     loops at 256/sec. Fixed by per-task ring sizing (this PR).
+    //   - "loops/s = 208 with drops == 0": consumer-side starvation.
+    //     PerfDump priority 0 starved by other Core 0 tasks; histogram
+    //     reset every ~4 sec instead of every 1 sec; reported count was
+    //     833/4 = 208. Fixed by this priority bump.
+    //
+    // Priority 1 puts PerfDump on equal footing with WebServer (1) and
+    // LogSensorCommit (1). All Core 1 flight-critical tasks live at
+    // priority 4+; priority 1 on Core 0 cannot preempt them.
+    //
     // 4 KB stack — enough for the printf scratch + Consumer drain.
     xTaskCreatePinnedToCore(
-        DumpTask, "PerfDump", 4096, nullptr, /*pri=*/0, &g_taskHandle, /*core=*/0);
+        DumpTask, "PerfDump", 4096, nullptr, /*pri=*/1, &g_taskHandle, /*core=*/0);
 }
 
 void SetStreaming(bool on)

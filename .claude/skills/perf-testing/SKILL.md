@@ -18,7 +18,7 @@ The tool: `tools/perf-report/capture_perf_report.py`. The output: `docs/perf-rep
 - **Every release tag.** Capture a baseline named after the tag.
 - "Is feature X a perf regression?" — capture before/after, diff.
 - "How much CPU does EKFQ take?" — full snapshot is the answer.
-- "Will 833 Hz IMU fit?" — capture at 208, look at task headroom, extrapolate.
+- "Will 833 Hz IMU fit?" — flash the perf-synth env with kImuSampleRateHz=833 and capture directly. We've measured it (Core 1 ≈ 56%, drops=0); extrapolation from 208 isn't necessary anymore for rates the chip supports.
 
 **Don't use for** one-off curiosity numbers from a single snapshot — `perf dump` on the device console is faster. Use this when you want a comparable, durable artifact.
 
@@ -105,6 +105,7 @@ Look for:
 | Comparing perf-build to production-build | Don't. Production doesn't have PERF; nothing to capture. |
 | Reading only `Max` | Look at p50/p95 first. Max is often a one-shot SD wear pause. |
 | No conditions in the label | The label IS the conditions; future-you needs to know what was running. |
+| `Loops/s` reads as exactly 256 at high IMU rates | Pre-PR #626 only: 1024-entry universal ring × 4 events/IMU-iter saturated at 256 loops/s reported, regardless of actual rate. PR #626 sized the IMU ring to 8192. If you see this on a pre-#626 build, the IMU is actually running faster than 256 — reflash a post-#626 firmware before trusting the number. |
 
 ## When You Need More Detail
 
@@ -157,6 +158,8 @@ uv run ./capture_perf_report.py --label v4.24-synth-vn300
 
 Bench conditions: same as a normal perf capture (SD card in, no M5 unless intentional, WiFi state recorded). On the synth binary, `synth status` on the device console reports frames/bytes emitted since boot (sanity check: ~50 frames/sec for VN-300, ~50/sec for boom, ~20/sec for SkyView with the `!1`+`!3` alternation).
 
+Post-#626 only: perf-synth builds auto-enable PERF streaming at boot, before the IMU task starts. Reason: at high IMU rates (>208 Hz) the busy-wait pattern in ImuReadTask pins Core 1 enough that the Arduino loop task can't process `perf on` from the capture script — telemetry would never flow. Auto-enable sidesteps the race. The capture script's `perf on` send is harmless / idempotent.
+
 Diff against the real-sensor baseline:
 
 ```bash
@@ -176,6 +179,8 @@ Expected deltas (from #607's prototype):
 - PR #605 — PERF telemetry implementation (the runtime side this skill wraps)
 - PR #606 — fast CSV formatters (first measurable perf win after PERF landed)
 - Issue #607 — Synthetic VN-300 + boom inject (the perf-synth env is the answer)
+- PR #626 — Per-task PSRAM ring sizing + PerfDump priority 0→1 + auto-enable on perf-synth (unblocks high-rate IMU measurement; cured the "256 Hz fixed point" measurement artifact)
+- Issue #627 — High-rate IMU follow-ups (static-pressure read off IMU mutex, Core 0 rebalance, 833 Hz characterization)
 - `software/Libraries/onspeed_core/src/util/Perf.h` — instrumentation API + idiom doc
 - `software/Libraries/onspeed_core/src/test_frames/SynthFrames.h` — synth byte tables
 - `local-plans/PLAN_IMU_HIGHRATE_VN300_PARITY.md` — why this matters for the IMU-rate push

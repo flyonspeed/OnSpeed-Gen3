@@ -21,6 +21,7 @@ Do a text search for comments starting with "////"
 #include "src/Globals.h"
 #include <buildinfo.h>
 #include <util/Perf.h>
+#include "src/tasks/PerfDump.h"
 
 #ifdef ONSPEED_SYNTH_SENSORS
 #include "src/test/SyntheticStream.h"
@@ -356,6 +357,22 @@ void setup()
                 g_LogSensor.Open();
                 xSemaphoreGive(xWriteMutex);
                 }
+
+        // On perf-synth builds (esp32s3-v4p-perf-synth), auto-enable
+        // PERF streaming BEFORE the IMU task starts. At high IMU rates
+        // (>208 Hz) the ImuReadTask's busy-wait pattern keeps Core 1
+        // fully occupied — including the Arduino loop task that
+        // processes ConsoleSerial.Read. Without auto-enable, the
+        // capture script's `perf on` command sits in the UART RX buffer
+        // forever because the console parser never gets CPU.
+        //
+        // Production builds (esp32s3-v4p) don't define ONSPEED_PERF_ENABLED,
+        // so this block is compiled out — the manual `perf on` console
+        // command remains the only path.
+#if defined(ONSPEED_PERF_ENABLED) && defined(ONSPEED_SYNTH_SENSORS)
+        onspeed::perf_dump::SetStreaming(true);
+        g_Log.println("PERF streaming auto-enabled (perf-synth build)");
+#endif
 
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
         xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
