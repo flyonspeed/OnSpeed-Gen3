@@ -202,6 +202,28 @@ constexpr size_t kDefaultRingCapacity = 256;
 // AND an EKF predict/correct split (per issue #627) to fit the work.
 constexpr size_t kImuRingCapacity = 8192;
 
+// EfisRead task capacity. 2048 entries × 8 B = 16 KB. Each EfisRead
+// wake pushes 2 events (PerfLoop + the efis_read PerfScope). In the
+// perf-synth env an additional PerfScope(SynthBuild) event is pushed
+// per frame because SyntheticStream::ensureFrameReady runs in the
+// EfisRead task context — so the effective rate is up to ~3 events
+// per wake. Sizing target: 400 Hz VN-300 ingest × 3 events =
+// 1200 events/sec, drained at 1 Hz → 2048 holds ~1.7 s of events.
+// 256 (the default) overflows once the VN-300 publishes above ~50 Hz;
+// characterised on the bench at 100 Hz where the default ring took
+// ~44 drops over a 60 s capture.
+constexpr size_t kEfisRingCapacity = 2048;
+
+// BoomRead task capacity. 512 entries × 8 B = 4 KB. Boom protocol is
+// 50 Hz native and not slated for rate bumps. PerfLoop + boom_read
+// PerfScope + (synth only) SynthBuild = 3 events × 50 Hz = 150 ev/s.
+// But BoomRead also wakes from the IDF event queue more often than
+// once per frame on real hardware (UART event coalescing varies),
+// driving its observed rate to ~113 wakes/s and total ~340 ev/s —
+// overflowing the 256 default with ~194 drops/60 s on the bench.
+// 512 leaves comfortable headroom.
+constexpr size_t kBoomRingCapacity = 512;
+
 struct Ring {
     PerfEvent*            events;     ///< Per-task buffer (DRAM today; see Perf.cpp).
     uint32_t              mask;       ///< capacity - 1 (capacity is 2^n).

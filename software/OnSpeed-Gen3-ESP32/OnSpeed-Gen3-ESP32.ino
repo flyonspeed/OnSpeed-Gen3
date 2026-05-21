@@ -195,19 +195,31 @@ void setup()
     static SyntheticStream s_synthEfisStream(
         onspeed::test_frames::SkyviewFrames(),
         onspeed::test_frames::kSkyviewFrameCount,
-        onspeed::test_frames::kSkyviewPeriodMs);
+        onspeed::test_frames::kSkyviewPeriodUs);
     constexpr auto kSynthEfisType = EfisSerialPort::EnDynonSkyview;
     constexpr const char* kSynthEfisName = "skyview";
   #else
+    // VN-300 synth cadence in microseconds.
+    // Default = onspeed::test_frames::kVn300PeriodUs (20000 us = 50 Hz,
+    // the native VN-300 rate). Override at build time with
+    // -DONSPEED_SYNTH_VN300_PERIOD_US=N for rate-sweep PERF captures:
+    //   20000 →  50 Hz (native)
+    //   10000 → 100 Hz
+    //    5000 → 200 Hz   (#638 target)
+    //    2500 → 400 Hz
+    //    2000 → 500 Hz
+  #ifndef ONSPEED_SYNTH_VN300_PERIOD_US
+  #define ONSPEED_SYNTH_VN300_PERIOD_US onspeed::test_frames::kVn300PeriodUs
+  #endif
     static SyntheticStream s_synthEfisStream(
         onspeed::test_frames::Vn300Frame(),
-        onspeed::test_frames::kVn300PeriodMs);
+        ONSPEED_SYNTH_VN300_PERIOD_US);
     constexpr auto kSynthEfisType = EfisSerialPort::EnVN300;
     constexpr const char* kSynthEfisName = "vn300";
   #endif
     static SyntheticStream s_synthBoomStream(
         onspeed::test_frames::BoomFrame(),
-        onspeed::test_frames::kBoomPeriodMs);
+        onspeed::test_frames::kBoomPeriodUs);
     g_EfisSerial.InitWithStream(kSynthEfisType, &s_synthEfisStream);
     g_BoomSerial.Init(&s_synthBoomStream);
     g_Config.bReadEfisData = true;
@@ -425,6 +437,26 @@ void setup()
     // Stack sizes: 4 KB matches Display, plenty for the parser path.
     xTaskCreatePinnedToCore(EfisReadTask,         "EFIS Read",      4000,  NULL, 3, &xTaskEfisRead,      0);
     xTaskCreatePinnedToCore(BoomReadTask,         "Boom Read",      4000,  NULL, 3, &xTaskBoomRead,      0);
+
+#ifdef ONSPEED_SYNTH_SENSORS
+    // Bind synth streams to their consumer tasks, then arm the cadence
+    // timers. Order matters: SetConsumerTask must precede Start so the
+    // first timer-fired xTaskNotifyGive finds a non-null target.
+    if (g_pSynthEfisStream != nullptr) {
+        g_pSynthEfisStream->SetConsumerTask(xTaskEfisRead);
+        if (!g_pSynthEfisStream->Start()) {
+            g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
+                          "synth: EFIS cadence timer failed to start");
+        }
+    }
+    if (g_pSynthBoomStream != nullptr) {
+        g_pSynthBoomStream->SetConsumerTask(xTaskBoomRead);
+        if (!g_pSynthBoomStream->Start()) {
+            g_Log.println(MsgLog::EnBoom, MsgLog::EnError,
+                          "synth: boom cadence timer failed to start");
+        }
+    }
+#endif
 
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 

@@ -211,6 +211,39 @@ void test_default_ring_overflow_increments_drops(void)
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::Audio));
 }
 
+void test_efis_ring_overflow_increments_drops(void)
+{
+    // EfisRead gets its own kEfisRingCapacity buffer (separate from the
+    // default-capacity pool). Mirror of the IMU and default tests:
+    // verifies the per-task assignment in PerfRingsInit hooked up the
+    // larger buffer correctly. An off-by-one in the buffer indexing
+    // would either trigger an assert or yield wrong overflow behavior.
+    PerfLoop loop(TaskId::EfisRead, 2000);  // bind ring
+    const size_t overflowBy = 200;
+    const size_t pushes = onspeed::util::perf::kEfisRingCapacity + overflowBy;
+    for (size_t i = 0; i < pushes; ++i) {
+        PerfScope guard(ScopeId::EfisRead);
+    }
+    Consumer consumer;
+    consumer.drainAll();
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::EfisRead));
+}
+
+void test_boom_ring_overflow_increments_drops(void)
+{
+    // BoomRead gets its own kBoomRingCapacity buffer. Same shape as
+    // the EFIS test.
+    PerfLoop loop(TaskId::BoomRead, 2000);  // bind ring
+    const size_t overflowBy = 200;
+    const size_t pushes = onspeed::util::perf::kBoomRingCapacity + overflowBy;
+    for (size_t i = 0; i < pushes; ++i) {
+        PerfScope guard(ScopeId::BoomRead);
+    }
+    Consumer consumer;
+    consumer.drainAll();
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(100, consumer.taskDrops(TaskId::BoomRead));
+}
+
 void test_names(void)
 {
     TEST_ASSERT_EQUAL_STRING("ekfq.correct", scopeName(ScopeId::EkfqCorrect));
@@ -230,6 +263,8 @@ int main(int, char**)
     RUN_TEST(test_multi_producer_no_crosstalk);
     RUN_TEST(test_ring_overflow_increments_drops);
     RUN_TEST(test_default_ring_overflow_increments_drops);
+    RUN_TEST(test_efis_ring_overflow_increments_drops);
+    RUN_TEST(test_boom_ring_overflow_increments_drops);
     RUN_TEST(test_names);
     return UNITY_END();
 }

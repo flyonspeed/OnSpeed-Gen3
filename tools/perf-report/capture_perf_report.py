@@ -351,6 +351,8 @@ TASK_CORE = {
     "Log":          0,   # LogSensorCommit
     "WebServer":    0,
     "DataServer":   0,
+    "EfisRead":     0,   # PR #622 — dedicated EFIS UART task on Core 0
+    "BoomRead":     0,   # PR #622 — dedicated boom UART task on Core 0
 }
 
 # Tasks whose PerfLoop scope includes blocking / sleep time, not just

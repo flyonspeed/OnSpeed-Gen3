@@ -115,16 +115,18 @@ void EfisReadTask(void *pvParams)
     (void)pvParams;
 
 #ifdef ONSPEED_SYNTH_SENSORS
-    // Synth path: no UART, no event queue.  Tick at 10 ms — synth's
-    // available() returns 0 between emission windows (20 ms for VN-300),
-    // so calling Read() every 10 ms catches each new frame within one
-    // poll cycle.  Faster polling burns CPU on empty checks; slower
-    // polling lets frames stack (each SyntheticStream holds one frame
-    // at a time so they would just be overwritten).
-    constexpr TickType_t kPollPeriod = pdMS_TO_TICKS(10);
-    TickType_t xLastWake = xTaskGetTickCount();
+    // Synth path: SyntheticStream's esp_timer calls
+    // xTaskNotifyGive(this task) every periodUs.  We block on
+    // ulTaskNotifyTake, mirroring the real-hardware IDF event-queue
+    // wake-on-data shape below.  No fixed poll period — Loops/s on the
+    // PERF report reads as the actual frame rate.
+    //
+    // setup() in the .ino calls SetConsumerTask + Start on the synth
+    // stream *after* spawning this task, so the timer is armed before
+    // the first ulTaskNotifyTake here can return.  The first iteration
+    // may block briefly waiting for the first emit.
     for (;;) {
-        vTaskDelayUntil(&xLastWake, kPollPeriod);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::EfisRead,
