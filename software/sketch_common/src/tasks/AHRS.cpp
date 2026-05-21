@@ -214,3 +214,25 @@ float AHRS::PitchWithBias()         { return accelPitch(AccelFwdCorr,         Ac
 float AHRS::PitchWithBiasSmth()     { return accelPitch(AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
 float AHRS::RollWithBias()          { return accelRoll (AccelFwdCorr,         AccelLatCorr,         AccelVertCorr); }
 float AHRS::RollWithBiasSmth()      { return accelRoll (AccelFwdFilter.get(), AccelLatFilter.get(), AccelVertFilter.get()); }
+
+// ---- EKFQ observability pass-throughs (issue #593 item #1) ----
+
+uint32_t AHRS::EkfqUpdateCallCount() const
+{
+    return core_.GetEkfqPipeline().getEkfq().getUpdateCallCount();
+}
+
+uint32_t AHRS::EkfqFailedUpdateCount() const
+{
+    return core_.GetEkfqPipeline().getEkfq().getFailedUpdateCount();
+}
+
+uint32_t AHRS::EkfqLastFailedCallNum() const
+{
+    return core_.GetEkfqPipeline().getEkfq().getLastFailedCallNum();
+}
+
+bool AHRS::IsEkfqActive() const
+{
+    return core_.algorithm() == onspeed::ahrs::Algorithm::Ekfq;
+}
