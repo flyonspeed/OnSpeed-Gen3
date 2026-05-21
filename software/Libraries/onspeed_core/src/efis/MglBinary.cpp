@@ -152,25 +152,44 @@ void MglBinaryParser::FeedByte(uint8_t b)
     }
 }
 
+bool MglBinaryParser::TryTakeFrame(EfisFrame& out)
+{
+    if (!pendingReady_) return false;
+    out = pending_;
+    pendingReady_ = false;
+    return true;
+}
+
 std::optional<EfisFrame> MglBinaryParser::TakeFrame()
 {
-    if (!pending_)
-        return std::nullopt;
-    EfisFrame out = *pending_;
-    pending_.reset();
+    if (!pendingReady_) return std::nullopt;
+    EfisFrame out = pending_;
+    pendingReady_ = false;
     return out;
 }
 
 void MglBinaryParser::Reset()
 {
-    bufLen_ = 0;
-    msgLen_ = 0;
-    pending_.reset();
+    bufLen_       = 0;
+    msgLen_       = 0;
+    pendingReady_ = false;
 }
 
 void MglBinaryParser::Decode()
 {
-    // Overlay the packed struct onto the raw buffer (verbatim from original).
+    // CONTRACT EXCEPTION — MGL binary has no per-field "unavailable"
+    // sentinel: every Msg1/Msg3 byte is a real integer, transmitted
+    // even when the underlying sensor is uninitialized. We therefore
+    // set EfisField presence bits for every numeric field in every
+    // decoded message. Consumer applyFrame() sees the bit set and
+    // copies the value into suEfis unconditionally.
+    //
+    // Consequence: when MGL transmits zero before a sensor warms up,
+    // suEfis sees zero (not the prior hold-last value). This differs
+    // from the Dynon/Garmin ASCII protocols, which can encode missing
+    // values via XXX/___ sentinels and preserve hold-last semantics.
+    // The MGL spec does not give us a way to do better; this is the
+    // honest behaviour to ship.
     const MglHeader* msg = reinterpret_cast<const MglHeader*>(buf_);
 
     switch (msg->MessageType)
@@ -189,6 +208,13 @@ void MglBinaryParser::Decode()
             out.vsiFpm     = static_cast<float>(msg->Msg1.VSI);
             out.oatCelsius = static_cast<float>(msg->Msg1.OAT);
             out.source     = EfisSource::Mgl;
+            out.fieldsPresent |=
+                onspeed::EfisField::Ias        |
+                onspeed::EfisField::Tas        |
+                onspeed::EfisField::Palt       |
+                onspeed::EfisField::AoaPercent |
+                onspeed::EfisField::Vsi        |
+                onspeed::EfisField::OatCelsius;
             // Time-of-day from packed Msg1 fields. MGL is binary so no
             // sentinel-byte gating; clamp the values to the valid HH:MM:SS
             // range as a defense against a corrupt or never-set RTC.
@@ -196,7 +222,8 @@ void MglBinaryParser::Decode()
                 snprintf(out.timeOfDayHms, sizeof(out.timeOfDayHms),
                          "%02u:%02u:%02u",
                          msg->Msg1.Hour, msg->Msg1.Minute, msg->Msg1.Second);
-            pending_ = out;
+            pending_      = out;
+            pendingReady_ = true;
             break;
         }
 
@@ -212,7 +239,14 @@ void MglBinaryParser::Decode()
             out.verticalG  = msg->Msg3.GForce     * 0.01f;
             out.lateralG   = msg->Msg3.LRForce    * 0.01f;
             out.source     = EfisSource::Mgl;
-            pending_ = out;
+            out.fieldsPresent |=
+                onspeed::EfisField::Heading   |
+                onspeed::EfisField::Pitch     |
+                onspeed::EfisField::Roll      |
+                onspeed::EfisField::VerticalG |
+                onspeed::EfisField::LateralG;
+            pending_      = out;
+            pendingReady_ = true;
             break;
         }
 

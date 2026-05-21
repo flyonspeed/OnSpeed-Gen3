@@ -420,6 +420,49 @@ void test_mgl_message_length_zero_wraps_to_256(void)
     TEST_ASSERT_FALSE(frame.has_value());
 }
 
+// EfisFrame::fieldsPresent bit assertions — MGL is binary, every field
+// is "present" regardless of sensor warm-up state. See MglBinary.cpp
+// Decode() for the documented contract exception.
+void test_mgl_msg1_presence_bits(void)
+{
+    uint8_t buf[44];
+    buildMglMsg1(buf, 5500, 500, 520, 0, 0, 20);
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 44);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Ias);
+    TEST_ASSERT_TRUE(fp & Tas);
+    TEST_ASSERT_TRUE(fp & Palt);
+    TEST_ASSERT_TRUE(fp & AoaPercent);
+    TEST_ASSERT_TRUE(fp & Vsi);
+    TEST_ASSERT_TRUE(fp & OatCelsius);
+    // Msg1 carries no attitude; those bits stay unset.
+    TEST_ASSERT_FALSE(fp & Pitch);
+    TEST_ASSERT_FALSE(fp & Roll);
+    TEST_ASSERT_FALSE(fp & Heading);
+}
+
+void test_mgl_msg3_presence_bits(void)
+{
+    uint8_t buf[40];
+    buildMglMsg3(buf, 2700, 25, 50, 100, 5);
+    MglBinaryParser parser;
+    auto frame = feedAll(parser, buf, 40);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Heading);
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & VerticalG);
+    TEST_ASSERT_TRUE(fp & LateralG);
+    // Msg3 carries no airspeed/altitude; those bits stay unset.
+    TEST_ASSERT_FALSE(fp & Ias);
+    TEST_ASSERT_FALSE(fp & Palt);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -443,5 +486,7 @@ int main(int, char**)
     RUN_TEST(test_mgl_msg1_wrong_body_length_rejected);
     RUN_TEST(test_mgl_msg3_wrong_body_length_rejected);
     RUN_TEST(test_mgl_message_length_zero_wraps_to_256);
+    RUN_TEST(test_mgl_msg1_presence_bits);
+    RUN_TEST(test_mgl_msg3_presence_bits);
     return UNITY_END();
 }

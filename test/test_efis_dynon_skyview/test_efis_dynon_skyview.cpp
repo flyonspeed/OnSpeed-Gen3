@@ -729,6 +729,80 @@ static void test_adahrs_system_time_one_second_before_midnight()
 // main
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// EfisFrame::fieldsPresent bit assertions. EfisSerialPort::applyFrame()
+// branches on these bits instead of std::isfinite(); a parser that
+// silently fails to set a bit would cause the consumer to hold-last
+// rather than apply, with no other test catching it (the float-value
+// tests would still pass because the field still got written).
+// ---------------------------------------------------------------------------
+
+void test_adahrs_presence_bits_set_on_valid_frame(void)
+{
+    char buf[74];
+    buildAdahrsFrame(buf, 2.3f, 5.0f, 270, 110.0f, 5500, 0.10f, 1.0f, 62, 5000, 8.0f, 118.0f);
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Ias);
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & Heading);
+    TEST_ASSERT_TRUE(fp & Palt);
+    TEST_ASSERT_TRUE(fp & AoaPercent);
+    TEST_ASSERT_TRUE(fp & LateralG);
+    TEST_ASSERT_TRUE(fp & VerticalG);
+    TEST_ASSERT_TRUE(fp & Vsi);
+    TEST_ASSERT_TRUE(fp & Tas);
+    TEST_ASSERT_TRUE(fp & OatCelsius);
+}
+
+void test_ems_presence_bits_set_on_valid_frame(void)
+{
+    char buf[225];
+    buildEmsFrame(buf);
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 225);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Rpm);
+    TEST_ASSERT_TRUE(fp & MapInchHg);
+    TEST_ASSERT_TRUE(fp & FuelFlowGph);
+    TEST_ASSERT_TRUE(fp & FuelRemainingGal);
+    TEST_ASSERT_TRUE(fp & PercentPower);
+    // EMS frame carries no airspeed/attitude — those bits must NOT be set.
+    TEST_ASSERT_FALSE(fp & Ias);
+    TEST_ASSERT_FALSE(fp & Pitch);
+}
+
+void test_adahrs_sentinel_field_clears_presence_bit(void)
+{
+    // Build a valid frame, then overwrite the IAS field with the
+    // sentinel and re-stamp the CRC. The IAS bit must NOT be set on
+    // the decoded frame; all other bits should remain set.
+    char buf[74];
+    buildAdahrsFrame(buf, 2.3f, 5.0f, 270, 110.0f, 5500, 0.10f, 1.0f, 62, 5000, 8.0f, 118.0f);
+    buf[23] = 'X'; buf[24] = 'X'; buf[25] = 'X'; buf[26] = 'X';
+    // Recompute checksum over bytes 0..69.
+    int crc = 0;
+    for (int i = 0; i <= 69; i++) crc += (unsigned char)buf[i];
+    crc &= 0xFF;
+    char hex[3]; snprintf(hex, sizeof(hex), "%02X", crc);
+    buf[70] = hex[0]; buf[71] = hex[1];
+    DynonSkyviewParser parser;
+    auto frame = feedAll(parser, buf, 74);
+    TEST_ASSERT_TRUE(frame.has_value());
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_FALSE(frame->fieldsPresent & Ias);
+    TEST_ASSERT_TRUE(frame->fieldsPresent  & Pitch);   // unchanged
+    TEST_ASSERT_TRUE(frame->fieldsPresent  & Roll);
+}
+
+// ---------------------------------------------------------------------------
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -766,5 +840,8 @@ int main(int, char**)
     RUN_TEST(test_adahrs_system_time_ss_out_of_range);
     RUN_TEST(test_adahrs_system_time_midnight);
     RUN_TEST(test_adahrs_system_time_one_second_before_midnight);
+    RUN_TEST(test_adahrs_presence_bits_set_on_valid_frame);
+    RUN_TEST(test_ems_presence_bits_set_on_valid_frame);
+    RUN_TEST(test_adahrs_sentinel_field_clears_presence_bit);
     return UNITY_END();
 }

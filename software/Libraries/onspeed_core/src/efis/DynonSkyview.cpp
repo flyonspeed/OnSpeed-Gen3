@@ -1,63 +1,54 @@
 // DynonSkyview.cpp
 //
-// Ported verbatim from EfisSerial.cpp (EnDynonSkyview branch). No algorithmic
-// changes — characterisation first, correctness improvements belong in a
-// follow-on PR once tests pin current behaviour.
+// Dynon SkyView serial parser. Hot-path optimizations:
+//   - FastParse fixed-decimal field reads (no strtof/strtol).
+//   - First-byte sentinel detection ('X') — exact for fully-repeated
+//     wire sentinels; no memcmp over the whole field.
+//   - Writes pending EfisFrame in place; TryTakeFrame() consumes it
+//     with a single bool check (no optional<> copy round-trip).
+//   - Sets EfisField presence bits on every written field so the
+//     consumer's apply path can branch on integer bitmask AND rather
+//     than std::isfinite() per float.
 
 #include <efis/DynonSkyview.h>
+#include <efis/FastParse.h>
 
 #include <climits>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 
 #include <types/EfisFrame.h>
 
 namespace onspeed::efis {
 
+using onspeed::EfisField::AoaPercent;
+using onspeed::EfisField::FuelFlowGph;
+using onspeed::EfisField::FuelRemainingGal;
+using onspeed::EfisField::Heading;
+using onspeed::EfisField::Ias;
+using onspeed::EfisField::LateralG;
+using onspeed::EfisField::MapInchHg;
+using onspeed::EfisField::OatCelsius;
+using onspeed::EfisField::Palt;
+using onspeed::EfisField::PercentPower;
+using onspeed::EfisField::Pitch;
+using onspeed::EfisField::Roll;
+using onspeed::EfisField::Rpm;
+using onspeed::EfisField::Tas;
+using onspeed::EfisField::VerticalG;
+using onspeed::EfisField::Vsi;
+using onspeed::efis::fastparse::isSentinel;
+using onspeed::efis::fastparse::parseFixedSigned;
+using onspeed::efis::fastparse::parseFixedUnsigned;
+using onspeed::efis::fastparse::parseHex2;
+using onspeed::efis::fastparse::sumChecksum;
+
 // ---------------------------------------------------------------------------
-// Internal field-parsing helpers (mirrors EfisSerial.cpp static helpers)
+// Dynon !1 System Time parser. Writes "HH:MM:SS" into `out` (which must
+// be at least 9 bytes) or leaves it empty when GPS hasn't locked
+// (sentinel '-' anywhere in HHMMSS).
 // ---------------------------------------------------------------------------
-
-// Parse len chars starting at pos as float.
-// Returns fallback when the field equals the sentinel string.
-static float parseFieldFloat(const char* buf, int pos, int len,
-                             const char* sentinel, float fallback, float scale)
-{
-    char tmp[16];
-    memcpy(tmp, buf + pos, static_cast<size_t>(len));
-    tmp[len] = '\0';
-    if (sentinel && memcmp(tmp, sentinel, static_cast<size_t>(len)) == 0)
-        return fallback;
-    return strtof(tmp, nullptr) / scale;
-}
-
-static int parseFieldInt(const char* buf, int pos, int len,
-                         const char* sentinel, int fallback, int scale)
-{
-    char tmp[16];
-    memcpy(tmp, buf + pos, static_cast<size_t>(len));
-    tmp[len] = '\0';
-    if (sentinel && memcmp(tmp, sentinel, static_cast<size_t>(len)) == 0)
-        return fallback;
-    return static_cast<int>(strtol(tmp, nullptr, 10)) * scale;
-}
-
-// Parse a 2-char hex CRC field at the given position
-static int parseHexCRC(const char* buf, int pos)
-{
-    char szCRC[3] = { buf[pos], buf[pos + 1], '\0' };
-    return static_cast<int>(strtol(szCRC, nullptr, 16));
-}
-
-// Parse Dynon !1 System Time bytes buf[3..8] ("HHMMSS" — the FF fraction
-// at buf[9..10] is ignored). Writes an 8-char "HH:MM:SS" NUL-terminated
-// string into `out` (which must be at least 9 bytes; current callers
-// pass `EfisFrame::timeOfDayHms`, sized 12 to fit the centisecond
-// formats produced by D10/G5/G3X/MGL — SkyView only fills the first 9).
-// Writes an empty string if any dash is present in the 6 HHMMSS bytes
-// or if H/M/S are out of range.
 static void parseSystemTime(const char* buf, char* out)
 {
     out[0] = '\0';
@@ -67,7 +58,6 @@ static void parseSystemTime(const char* buf, char* out)
         if (buf[i] == '-')
             return;
 
-    // Parse two-digit fields. Returns -1 if either char isn't 0-9.
     auto twoDigit = [](const char* p) -> int {
         if (p[0] < '0' || p[0] > '9' || p[1] < '0' || p[1] > '9') return -1;
         return (p[0] - '0') * 10 + (p[1] - '0');
@@ -94,7 +84,6 @@ void DynonSkyviewParser::FeedByte(uint8_t b)
     {
         if (c != '!')
             return;
-        // Start collecting — guard overflow.
         if (bufLen_ < static_cast<int>(kBufSize) - 1)
         {
             buf_[bufLen_++] = c;
@@ -102,8 +91,7 @@ void DynonSkyviewParser::FeedByte(uint8_t b)
         return;
     }
 
-    // Collecting — guard against overflow (matches original firmware: reset on
-    // iBufferLen > 230).
+    // Overflow guard (matches original firmware).
     if (bufLen_ > 230)
     {
         bufLen_ = 0;
@@ -112,28 +100,34 @@ void DynonSkyviewParser::FeedByte(uint8_t b)
 
     buf_[bufLen_++] = c;
 
-    // End-of-line: attempt decode then reset.
     if (c == '\n')
     {
-        buf_[bufLen_] = '\0';   // null-terminate for strtol/strtof safety
+        buf_[bufLen_] = '\0';
         Decode();
         bufLen_ = 0;
     }
 }
 
+bool DynonSkyviewParser::TryTakeFrame(EfisFrame& out)
+{
+    if (!pendingReady_) return false;
+    out = pending_;
+    pendingReady_ = false;
+    return true;
+}
+
 std::optional<EfisFrame> DynonSkyviewParser::TakeFrame()
 {
-    if (!pending_)
-        return std::nullopt;
-    EfisFrame out = *pending_;
-    pending_.reset();
+    if (!pendingReady_) return std::nullopt;
+    EfisFrame out = pending_;
+    pendingReady_ = false;
     return out;
 }
 
 void DynonSkyviewParser::Reset()
 {
-    bufLen_ = 0;
-    pending_.reset();
+    bufLen_       = 0;
+    pendingReady_ = false;
 }
 
 void DynonSkyviewParser::Decode()
@@ -142,7 +136,10 @@ void DynonSkyviewParser::Decode()
     {
         EfisFrame frame;
         if (DecodeAdahrs(frame))
-            pending_ = frame;
+        {
+            pending_      = frame;
+            pendingReady_ = true;
+        }
         return;
     }
 
@@ -150,7 +147,10 @@ void DynonSkyviewParser::Decode()
     {
         EfisFrame frame;
         if (DecodeEms(frame))
-            pending_ = frame;
+        {
+            pending_      = frame;
+            pendingReady_ = true;
+        }
         return;
     }
 
@@ -160,41 +160,84 @@ void DynonSkyviewParser::Decode()
 bool DynonSkyviewParser::DecodeAdahrs(EfisFrame& out)
 {
     // Checksum: sum bytes 0..69 mod 256, compare to hex digits at 70..71.
-    int calcCRC = 0;
-    for (int i = 0; i <= 69; i++)
-        calcCRC += static_cast<unsigned char>(buf_[i]);
-    calcCRC &= 0xFF;
-
-    if (calcCRC != parseHexCRC(buf_, 70))
+    const uint8_t calc = sumChecksum(buf_, 0, 70);
+    const int wireCrc  = parseHex2(buf_, 70);
+    if (wireCrc < 0 || static_cast<int>(calc) != wireCrc)
         return false;
 
-    // Sentinel = 'XXXX'. Fallback = NaN marks the field absent so applyFrame()
-    // will hold the prior suEfis value rather than overwrite with junk.
-    const float kNaN = kEfisFieldAbsent;
-    out.iasKt      = parseFieldFloat(buf_, 23, 4, "XXXX",   kNaN, 10.0f);
-    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "XXXX",   kNaN, 10.0f);
-    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "XXXXX",  kNaN, 10.0f);
+    // Per-field decode. Sentinel 'X' fills the entire field when the value
+    // is missing on the wire; first-byte test is exact (no memcmp). On
+    // sentinel match we leave the EfisFrame field at kEfisFieldAbsent (NaN)
+    // and do NOT set the presence bit — matches the prior semantics.
+
+    if (!isSentinel(buf_, 23, 'X'))
     {
-        const int raw = parseFieldInt(buf_, 20, 3, "XXX", INT32_MIN, 1);
-        out.headingDeg = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.iasKt = static_cast<float>(parseFixedUnsigned(buf_, 23, 4)) / 10.0f;
+        out.fieldsPresent |= Ias;
     }
-    out.lateralG   = parseFieldFloat(buf_, 37, 3, "XXX",    kNaN, 100.0f);
-    out.verticalG  = parseFieldFloat(buf_, 40, 3, "XXX",    kNaN, 10.0f);
+
+    if (!isSentinel(buf_, 11, 'X'))
     {
-        const int raw = parseFieldInt(buf_, 43, 2, "XX", INT32_MIN, 1);
-        out.aoaPercent = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.pitchDeg = static_cast<float>(parseFixedSigned(buf_, 11, 4)) / 10.0f;
+        out.fieldsPresent |= Pitch;
     }
+
+    if (!isSentinel(buf_, 15, 'X'))
     {
-        const int raw = parseFieldInt(buf_, 27, 6, "XXXXXX", INT32_MIN, 1);
-        out.paltFt = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.rollDeg = static_cast<float>(parseFixedSigned(buf_, 15, 5)) / 10.0f;
+        out.fieldsPresent |= Roll;
     }
+
+    if (!isSentinel(buf_, 20, 'X'))
     {
-        const int raw = parseFieldInt(buf_, 45, 4, "XXXX", INT32_MIN, 10);
-        out.vsiFpm = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.headingDeg = static_cast<float>(parseFixedUnsigned(buf_, 20, 3));
+        out.fieldsPresent |= Heading;
     }
-    out.tasKt      = parseFieldFloat(buf_, 52, 4, "XXXX",   kNaN, 10.0f);
-    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "XXX",    kNaN, 1.0f);
-    out.source     = EfisSource::Dynon;
+
+    if (!isSentinel(buf_, 37, 'X'))
+    {
+        out.lateralG = static_cast<float>(parseFixedSigned(buf_, 37, 3)) / 100.0f;
+        out.fieldsPresent |= LateralG;
+    }
+
+    if (!isSentinel(buf_, 40, 'X'))
+    {
+        out.verticalG = static_cast<float>(parseFixedSigned(buf_, 40, 3)) / 10.0f;
+        out.fieldsPresent |= VerticalG;
+    }
+
+    if (!isSentinel(buf_, 43, 'X'))
+    {
+        out.aoaPercent = static_cast<float>(parseFixedUnsigned(buf_, 43, 2));
+        out.fieldsPresent |= AoaPercent;
+    }
+
+    if (!isSentinel(buf_, 27, 'X'))
+    {
+        out.paltFt = static_cast<float>(parseFixedSigned(buf_, 27, 6));
+        out.fieldsPresent |= Palt;
+    }
+
+    if (!isSentinel(buf_, 45, 'X'))
+    {
+        // Legacy parser: signed int * 10 (the wire's hundreds-of-fpm units).
+        out.vsiFpm = static_cast<float>(parseFixedSigned(buf_, 45, 4) * 10);
+        out.fieldsPresent |= Vsi;
+    }
+
+    if (!isSentinel(buf_, 52, 'X'))
+    {
+        out.tasKt = static_cast<float>(parseFixedUnsigned(buf_, 52, 4)) / 10.0f;
+        out.fieldsPresent |= Tas;
+    }
+
+    if (!isSentinel(buf_, 49, 'X'))
+    {
+        out.oatCelsius = static_cast<float>(parseFixedSigned(buf_, 49, 3));
+        out.fieldsPresent |= OatCelsius;
+    }
+
+    out.source = EfisSource::Dynon;
     parseSystemTime(buf_, out.timeOfDayHms);
     return true;
 }
@@ -202,23 +245,40 @@ bool DynonSkyviewParser::DecodeAdahrs(EfisFrame& out)
 bool DynonSkyviewParser::DecodeEms(EfisFrame& out)
 {
     // Checksum: sum bytes 0..220 mod 256, compare to hex digits at 221..222.
-    int calcCRC = 0;
-    for (int i = 0; i <= 220; i++)
-        calcCRC += static_cast<unsigned char>(buf_[i]);
-    calcCRC &= 0xFF;
-
-    if (calcCRC != parseHexCRC(buf_, 221))
+    const uint8_t calc = sumChecksum(buf_, 0, 221);
+    const int wireCrc  = parseHex2(buf_, 221);
+    if (wireCrc < 0 || static_cast<int>(calc) != wireCrc)
         return false;
 
-    // Field offsets and scales: Dynon SkyView serial spec, EMS frame.
-    // Sentinel "XXX"/"XXXX" decodes to kEfisFieldAbsent so applyFrame()
-    // holds the prior value rather than overwriting with junk.
-    const float kNaN = kEfisFieldAbsent;
-    out.rpm              = parseFieldFloat(buf_, 18, 4, "XXXX", kNaN, 1.0f);
-    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "XXX",  kNaN, 10.0f);
-    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "XXX",  kNaN, 10.0f);
-    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "XXX",  kNaN, 10.0f);
-    out.percentPower     = parseFieldFloat(buf_, 217, 3, "XXX", kNaN, 1.0f);
+    if (!isSentinel(buf_, 18, 'X'))
+    {
+        out.rpm = static_cast<float>(parseFixedUnsigned(buf_, 18, 4));
+        out.fieldsPresent |= Rpm;
+    }
+
+    if (!isSentinel(buf_, 26, 'X'))
+    {
+        out.mapInchHg = static_cast<float>(parseFixedUnsigned(buf_, 26, 3)) / 10.0f;
+        out.fieldsPresent |= MapInchHg;
+    }
+
+    if (!isSentinel(buf_, 29, 'X'))
+    {
+        out.fuelFlowGph = static_cast<float>(parseFixedUnsigned(buf_, 29, 3)) / 10.0f;
+        out.fieldsPresent |= FuelFlowGph;
+    }
+
+    if (!isSentinel(buf_, 44, 'X'))
+    {
+        out.fuelRemainingGal = static_cast<float>(parseFixedUnsigned(buf_, 44, 3)) / 10.0f;
+        out.fieldsPresent |= FuelRemainingGal;
+    }
+
+    if (!isSentinel(buf_, 217, 'X'))
+    {
+        out.percentPower = static_cast<float>(parseFixedUnsigned(buf_, 217, 3));
+        out.fieldsPresent |= PercentPower;
+    }
 
     out.source = EfisSource::Dynon;
     return true;

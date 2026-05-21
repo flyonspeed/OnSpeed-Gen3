@@ -380,6 +380,48 @@ void test_g3x_buffer_overflow_resets_and_recovers(void)
     TEST_ASSERT_FLOAT_WITHIN(0.15f, 95.0f, frame->iasKt);
 }
 
+// EfisFrame::fieldsPresent bit assertions — see DynonSkyview test for rationale.
+void test_g3x_att_presence_bits_set_on_valid_frame(void)
+{
+    char buf[59];
+    buildG3XAttFrame(buf, 2.0f, 5.0f, 270, 110.0f, 5500, 0.1f, 1.0f, 62, 500, 8.0f);
+    GarminG3XParser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Ias);
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & Heading);
+    TEST_ASSERT_TRUE(fp & LateralG);
+    TEST_ASSERT_TRUE(fp & VerticalG);
+    TEST_ASSERT_TRUE(fp & AoaPercent);
+    TEST_ASSERT_TRUE(fp & Palt);
+    TEST_ASSERT_TRUE(fp & OatCelsius);
+    TEST_ASSERT_TRUE(fp & Vsi);
+}
+
+void test_g3x_ems_presence_bits_set_on_valid_frame(void)
+{
+    char buf[221];
+    buildG3XEmsFrame(buf);
+    GarminG3XParser parser;
+    auto frame = feedAll(parser, buf, 221);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Rpm);
+    TEST_ASSERT_TRUE(fp & MapInchHg);
+    TEST_ASSERT_TRUE(fp & FuelFlowGph);
+    TEST_ASSERT_TRUE(fp & FuelRemainingGal);
+    // G3X EMS carries no PercentPower (Dynon SkyView's wire does); leave absent.
+    TEST_ASSERT_FALSE(fp & PercentPower);
+    // EMS frame has no attitude/airspeed.
+    TEST_ASSERT_FALSE(fp & Ias);
+    TEST_ASSERT_FALSE(fp & Pitch);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -402,5 +444,7 @@ int main(int, char**)
     RUN_TEST(test_g3x_garbage_then_valid_parses);
     RUN_TEST(test_g3x_ems_corrupted_crc_no_output);
     RUN_TEST(test_g3x_buffer_overflow_resets_and_recovers);
+    RUN_TEST(test_g3x_att_presence_bits_set_on_valid_frame);
+    RUN_TEST(test_g3x_ems_presence_bits_set_on_valid_frame);
     return UNITY_END();
 }

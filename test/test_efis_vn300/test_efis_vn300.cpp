@@ -365,6 +365,29 @@ void test_vn300_time_utc_zero_pads_single_digits(void)
     TEST_ASSERT_EQUAL_STRING("01:02:03.004", data->szTimeUTC);
 }
 
+// EfisFrame::fieldsPresent bit assertions — VN-300 populates only the
+// attitude triple on the EfisFrame; the full IMU/GPS dataset is on
+// Vn300Data via TakeVn300Data().
+void test_vn300_presence_bits_attitude_only(void)
+{
+    uint8_t buf[127];
+    buildVn300Packet(buf, 3.5f, 10.0f, 270.0f);
+    Vn300Parser parser;
+    feedAll(parser, buf, 127);
+    auto frame = parser.TakeFrame();
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & Heading);
+    // VN-300 does not populate airspeed/altitude on the EfisFrame.
+    TEST_ASSERT_FALSE(fp & Ias);
+    TEST_ASSERT_FALSE(fp & Palt);
+    TEST_ASSERT_FALSE(fp & Vsi);
+    TEST_ASSERT_FALSE(fp & OatCelsius);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -386,5 +409,6 @@ int main(int, char**)
     RUN_TEST(test_vn300_est_alt_meters_in_data);
     RUN_TEST(test_vn300_time_utc_includes_ms);
     RUN_TEST(test_vn300_time_utc_zero_pads_single_digits);
+    RUN_TEST(test_vn300_presence_bits_attitude_only);
     return UNITY_END();
 }

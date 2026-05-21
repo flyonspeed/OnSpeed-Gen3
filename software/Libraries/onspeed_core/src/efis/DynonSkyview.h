@@ -28,13 +28,11 @@ namespace onspeed::efis {
 
 // DynonSkyviewParser — state machine for Dynon SkyView serial output.
 //
-// Feed one byte at a time with FeedByte(). After each call, check TakeFrame()
-// to see if a complete, CRC-valid frame is available. If so, TakeFrame()
-// returns the frame and clears the pending slot; subsequent calls return
-// std::nullopt until the next complete frame arrives.
-//
-// The parser handles interleaved !1 and !3 frames and silently discards bytes
-// that don't match the expected framing (wrong magic, wrong length, bad CRC).
+// Feed one byte at a time with FeedByte(). After each call, check
+// TryTakeFrame()/TakeFrame() to see if a complete, CRC-valid frame is
+// available. The parser handles interleaved !1 and !3 frames and silently
+// discards bytes that don't match the expected framing (wrong magic,
+// wrong length, bad CRC).
 //
 // State machine:
 //   WAIT_MAGIC — discards bytes until '!' is seen; transition to COLLECT.
@@ -49,6 +47,13 @@ public:
     DynonSkyviewParser() = default;
 
     void FeedByte(uint8_t b);
+
+    // Copy-free frame retrieval. Returns true and fills `out` when a
+    // complete frame is ready; returns false otherwise. Consumes the
+    // pending frame on success.
+    bool TryTakeFrame(EfisFrame& out);
+
+    // Legacy optional-returning API.
     std::optional<EfisFrame> TakeFrame();
     void Reset();
 
@@ -57,9 +62,10 @@ private:
     // When bufLen_ > 0 we are collecting.
     static constexpr size_t kBufSize = 256;
 
-    char   buf_[kBufSize] = {};
-    int    bufLen_         = 0;
-    std::optional<EfisFrame> pending_;
+    char       buf_[kBufSize] = {};
+    int        bufLen_         = 0;
+    EfisFrame  pending_;
+    bool       pendingReady_   = false;
 
     void   Decode();
     bool   DecodeAdahrs(EfisFrame& out);   // !1 frame

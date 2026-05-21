@@ -62,16 +62,18 @@ public:
     MglBinaryParser() = default;
 
     void FeedByte(uint8_t b);
+    bool TryTakeFrame(EfisFrame& out);
     std::optional<EfisFrame> TakeFrame();
     void Reset();
 
 private:
     static constexpr size_t kBufSize = 512;
 
-    uint8_t buf_[kBufSize] = {};
-    int     bufLen_         = 0;
-    int     msgLen_         = 0;   // computed target length (MessageLength + 20)
-    std::optional<EfisFrame> pending_;
+    uint8_t    buf_[kBufSize] = {};
+    int        bufLen_         = 0;
+    int        msgLen_         = 0;   // computed target length (MessageLength + 20)
+    EfisFrame  pending_;
+    bool       pendingReady_   = false;
 
     void Decode();
 };

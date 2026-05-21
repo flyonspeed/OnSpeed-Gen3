@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include <test_frames/SynthFrames.h>
+#include <boom/BoomParser.h>
 #include <efis/Vn300.h>
 #include <efis/DynonSkyview.h>
 #include <types/EfisFrame.h>
@@ -116,11 +117,9 @@ void test_skyview_ems_synth_decodes(void) {
 }
 
 // ---------------------------------------------------------------------------
-// Boom — we don't have a public BoomSerial parse method, so this test
-// re-implements the parser's framing logic just enough to verify the
-// frame is well-formed: $ start, length >= 21, ends with *XX\r\n, CRC
-// matches sum-of-bytes-mod-256 over the pre-asterisk range. Catches
-// drift in the wire format itself.
+// Boom — drive the synth bytes through onspeed::boom::Decode and assert
+// it decodes to the values BuildBoom() seeded. Catches drift in either
+// the synth wire format or the parser.
 // ---------------------------------------------------------------------------
 void test_boom_synth_well_formed(void) {
     const Frame& f = BoomFrame();
@@ -129,25 +128,28 @@ void test_boom_synth_well_formed(void) {
     TEST_ASSERT_EQUAL_CHAR('$', static_cast<char>(f.bytes[0]));
     TEST_ASSERT_EQUAL_CHAR('\r', static_cast<char>(f.bytes[f.len - 2]));
     TEST_ASSERT_EQUAL_CHAR('\n', static_cast<char>(f.bytes[f.len - 1]));
-    TEST_ASSERT_EQUAL_CHAR('*',  static_cast<char>(f.bytes[f.len - 5]));
 
-    // CRC = sum of bytes [0..asterisk-position - 1] mod 256.
-    int calcCrc = 0;
-    for (std::size_t i = 0; i + 5 < f.len; i++) calcCrc += f.bytes[i];
-    calcCrc &= 0xFF;
+    // Real $AIRDAQ uses ',' as the separator before the CRC. The synth
+    // matches the real wire format (see SynthFrames.cpp::BuildBoom).
+    TEST_ASSERT_EQUAL_CHAR(',', static_cast<char>(f.bytes[f.len - 5]));
 
-    // The two hex chars after '*' must parse to calcCrc.
-    char hex[3] = {
-        static_cast<char>(f.bytes[f.len - 4]),
-        static_cast<char>(f.bytes[f.len - 3]),
-        '\0'
-    };
-    const int parsedCrc = static_cast<int>(std::strtol(hex, nullptr, 16));
-    TEST_ASSERT_EQUAL_MESSAGE(calcCrc, parsedCrc,
-                              "Boom synth frame CRC does not match sum-of-bytes");
-
-    // Frame must look parseable to BoomSerialIO: first int starts at offset 21.
+    // First int must start at offset 21 — that's BoomSerial.cpp / boom::Decode's
+    // fixed anchor for the comma-separated integer fields.
     TEST_ASSERT_EQUAL_CHAR(',', static_cast<char>(f.bytes[20]));
+
+    // Round-trip through the pure parser. Strip CR/LF before decode, as
+    // BoomSerial.cpp does at the framing layer.
+    const int decodeLen = static_cast<int>(f.len) - 2;
+    onspeed::boom::BoomFrame parsed =
+        onspeed::boom::Decode(reinterpret_cast<const char*>(f.bytes),
+                              decodeLen, /*checkCrc=*/true);
+    TEST_ASSERT_TRUE_MESSAGE(parsed.valid,
+                             "Boom synth frame failed to round-trip through Decode");
+    // BuildBoom seeds 9842, 8152, 3942, 4006.
+    TEST_ASSERT_EQUAL_INT(9842, parsed.staticCounts);
+    TEST_ASSERT_EQUAL_INT(8152, parsed.dynamicCounts);
+    TEST_ASSERT_EQUAL_INT(3942, parsed.alphaCounts);
+    TEST_ASSERT_EQUAL_INT(4006, parsed.betaCounts);
 }
 
 // ---------------------------------------------------------------------------
