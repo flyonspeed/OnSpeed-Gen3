@@ -11,11 +11,29 @@ capture_perf_report.py — capture a standardized PERF report from V4P.
 What this does
 ==============
 
-Reads the PERF telemetry stream off USB serial (firmware built with
-`pio run -e esp32s3-v4p-perf`, then `perf on` sent over the console),
-accumulates N seconds of `==== PERF ====` snapshots, and writes a
-Markdown report with a stable schema. The report is comparable across
-firmware versions / releases via plain `diff`.
+Reads the PERF telemetry stream off USB serial and writes a Markdown
+report with a stable schema. The report is comparable across firmware
+versions / releases via plain `diff`.
+
+The firmware must be built with PERF telemetry enabled. Two envs ship
+this:
+
+  - `pio run -e esp32s3-v4p-perf` — plain PERF telemetry on real
+    hardware. Use this for in-flight / on-bench captures with real
+    EFIS + boom attached.
+  - `pio run -e esp32s3-v4p-perf-synth` — PERF telemetry plus
+    SyntheticStream injection of VN-300 + boom bytes. Use this for
+    headroom / max-load measurement when you don't have the EFIS
+    hardware wired up. Auto-streams PERF at boot (no `perf on`
+    needed).
+
+The non-synth env requires `perf on` from the console to start
+streaming; the capture script sends that automatically. The synth env
+already streams, so the `perf on` is a harmless no-op there.
+
+The script auto-detects which env is on the bench from markers in the
+captured serial text and writes the correct env into the report
+header. Pass `--build-env` to override.
 
 The output schema is stable — we add columns at the bottom, never
 reorder, never rename. Old reports diff cleanly against new ones.
@@ -162,7 +180,7 @@ def parse_snapshot_block(lines: list[str]) -> dict:
     return snapshot
 
 
-def detect_build_env(raw_text: str) -> str:
+def detect_build_env(raw_text: str) -> tuple[str, bool]:
     """Detect which PIO env produced the captured output.
 
     The perf-synth build (esp32s3-v4p-perf-synth) feeds VN-300 + boom
@@ -170,16 +188,60 @@ def detect_build_env(raw_text: str) -> str:
     EFIS=... boom=boom perf-synth build active" banner at boot. The
     non-synth perf build (esp32s3-v4p-perf) doesn't.
 
-    Returns the env name as a string. Falls back to esp32s3-v4p-perf
-    if neither marker is found (e.g. a partial capture that missed the
-    banner — caller can override via --build-env).
+    Returns (env, found_marker). `found_marker` is True when a synth
+    marker was detected (banner or subsys.synth_build); False when we
+    fell back to the non-synth default with no positive signal. Callers
+    use the False signal to warn when --from-file captures may have
+    started after boot and missed the banner.
     """
     if "perf-synth build active" in raw_text:
-        return "esp32s3-v4p-perf-synth"
+        return "esp32s3-v4p-perf-synth", True
     # Secondary signal: subsys.synth_build only emits in the synth env.
     if "subsys.synth_build" in raw_text:
-        return "esp32s3-v4p-perf-synth"
-    return "esp32s3-v4p-perf"
+        return "esp32s3-v4p-perf-synth", True
+    return "esp32s3-v4p-perf", False
+
+
+def resolve_build_env(raw_text: str,
+                      explicit_arg: Optional[str],
+                      from_file: bool) -> tuple[str, list[str]]:
+    """Resolve the final build-env label + collect warnings.
+
+    Returns (env, warnings). The env is used in the report header; the
+    warnings list (possibly empty) is emitted to stderr by the caller.
+
+    Three cases:
+      1. `explicit_arg` set: use it. If the auto-detected env disagrees,
+         warn — a stale --build-env arg with a synth firmware was the
+         original wrong-label bug, and we shouldn't let the inverse
+         (explicit non-synth arg with synth firmware) silently slip
+         through.
+      2. `explicit_arg` is None and a marker was found: use detected, no
+         warning.
+      3. `explicit_arg` is None, no marker found: use default
+         (esp32s3-v4p-perf). Warn ONLY when --from-file is in use —
+         then the capture may have started mid-session and the user
+         needs to be told to override if they know the env. For live
+         captures the bench is fresh and the boot banner will be in
+         the buffer, so no warning is needed there.
+    """
+    warnings: list[str] = []
+    detected_env, found_marker = detect_build_env(raw_text)
+    if explicit_arg is not None:
+        if found_marker and detected_env != explicit_arg:
+            warnings.append(
+                f"auto-detect chose {detected_env!r} but --build-env="
+                f"{explicit_arg!r} was passed. Using the explicit value. "
+                f"If the bench is actually running {detected_env}, drop "
+                f"the --build-env flag.")
+        return explicit_arg, warnings
+    if not found_marker and from_file:
+        warnings.append(
+            f"no synth markers found in --from-file capture. Defaulting "
+            f"to {detected_env!r}. If the capture is from a synth-env "
+            f"firmware that started mid-session (missed the boot "
+            f"banner), pass --build-env esp32s3-v4p-perf-synth.")
+    return detected_env, warnings
 
 
 def split_snapshots(raw_text: str) -> list[list[str]]:
@@ -673,14 +735,15 @@ def main() -> int:
                              verbose=args.verbose)
 
     # Resolve build env. Explicit --build-env wins; otherwise auto-detect
-    # from the captured text (perf vs perf-synth). The report header should
-    # always reflect what was actually on the bench, not a stale default.
-    if args.build_env is None:
-        args.build_env = detect_build_env(raw)
-        print(f"# detected build env: {args.build_env}", file=sys.stderr)
-    else:
-        print(f"# using user-supplied build env: {args.build_env}",
-              file=sys.stderr)
+    # from the captured text (perf vs perf-synth). resolve_build_env
+    # collects any disagreement warnings so the user is told when an
+    # explicit arg contradicts detection, or when --from-file fell back
+    # to the default without finding a positive marker.
+    args.build_env, env_warnings = resolve_build_env(
+        raw, args.build_env, from_file=bool(args.from_file))
+    print(f"# build env: {args.build_env}", file=sys.stderr)
+    for w in env_warnings:
+        print(f"# WARNING: {w}", file=sys.stderr)
 
     # Parse + aggregate.
     snapshots = [parse_snapshot_block(b) for b in split_snapshots(raw)]
