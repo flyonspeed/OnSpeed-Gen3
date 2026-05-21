@@ -386,12 +386,20 @@ void loop()
     // function, again doing nothing. So do serial I/O the old fashioned way.
     // That is, in line with everything else that needs a chance to run.
 
-    // PERF: wrap the loop body. loop() is Arduino's task (Core 1, prio 1)
-    // and it does the EFIS and Boom UART reads — the parser + CRC work is
-    // hidden here without instrumentation.
-    onspeed::util::perf::PerfLoop perfGuard(
-        onspeed::util::perf::TaskId::ArduinoLoop,
-        uxTaskGetStackHighWaterMark(nullptr));
+    // NOTE: no PerfLoop on loop() — Arduino's loopTask has no explicit
+    // sleep, so the wake-to-wake period is dominated by preemption from
+    // higher-priority tasks. A PerfLoop here measured ~11 ms/iter avg
+    // (almost all preemption) and rolled up to a misleading 98% CPU%.
+    // The honest cost lives in the inner subsystem scopes below
+    // (efis_read + boom_read).
+    //
+    // Bind the loopTask's ring explicitly so the EfisRead / BoomRead
+    // PerfScope events get recorded. Without this binding,
+    // PerfScope::ringForCurrentTask returns nullptr and the scopes are
+    // silent no-ops. bindCurrentTaskToRing is idempotent; the
+    // existing-entry hot path is one table walk.
+    onspeed::util::perf::bindCurrentTaskToRing(
+        onspeed::util::perf::TaskId::ArduinoLoop);
 
 //    readWifiSerial();
     g_ConsoleSerial.Read();

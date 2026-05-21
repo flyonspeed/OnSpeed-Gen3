@@ -26,13 +26,38 @@
 extern "C" {
     int64_t esp_timer_get_time(void);
 }
-// FreeRTOS thread-local storage. Slot 0 is reserved by ESP-IDF; we use
-// slot 1 to stash the per-task PerfRing pointer. PerfLoop binds it at
-// the top of every loop iteration so PerfScope can find it without a
-// table lookup.
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-static constexpr BaseType_t kPerfTlsSlot = 1;
+
+// Per-task ring lookup. We CAN'T use vTaskSetThreadLocalStoragePointer
+// here because the Arduino-ESP32 SDK is built with
+//   CONFIG_FREERTOS_THREAD_LOCAL_STORAGE_POINTERS = 1
+//   CONFIG_FREERTOS_TLSP_DELETION_CALLBACKS       = 1
+// In TLSP_DELETION_CALLBACKS mode, configNUM_THREAD_LOCAL_STORAGE_POINTERS
+// doubles to 2, and the upper half of pvThreadLocalStoragePointers
+// stores deletion callback function pointers — not user TLSPs.
+// User-callable slots are only [0, N) where N is the raw config value.
+// With N=1, slot 0 is the only user slot, and it's taken by ESP-IDF's
+// pthread layer (components/pthread/pthread_local_storage.c) and lwIP
+// (components/lwip/.../sys_arch.c).
+//
+// Writing to "slot 1" via vTaskSetThreadLocalStoragePointer succeeds
+// (bounds check is xIndex < 2), but it clobbers the deletion-callback
+// storage for slot 0. When pthread or lwIP later installs a real del
+// callback via vTaskSetThreadLocalStoragePointerAndDelCallback, that
+// callback overwrites our ring pointer. The next PerfScope read pulls
+// back a function pointer to flash, and the atomic CAS faults on
+// LoadStoreError when it tries to S32C1I to a flash address.
+//
+// Reproduction: this surfaced on V4P bench, master tip + `perf on`,
+// at PR #605. Crash signature was LoadStoreError in pushEvent at the
+// drops.fetch_add() branch with EXCVADDR in the 0x420xxxxx flash
+// range.
+//
+// Fix: small registry mapping TaskHandle_t → Ring*. Lookup is O(N)
+// where N == kTaskCount (12 today). Each PerfScope ctor walks the
+// table once. On Xtensa LX7 that's ~30 cycles for a typical hit —
+// same order as the atomic store on the hot path it replaces.
 #else
 #include <chrono>
 #include <thread>
@@ -123,11 +148,59 @@ std::atomic<uint32_t> g_spi_max_xfer_us_[kScopeCount];
 std::atomic<bool> g_perfEnabled{false};
 
 #ifdef ARDUINO_ARCH_ESP32
+// Per-task ring registry. See the header comment about why this is NOT
+// a FreeRTOS TLS slot lookup.
+//
+// 16-entry table: { TaskHandle_t, Ring* }. Linear scan on lookup;
+// insertion via lock-free CAS into the first nullptr-handle slot.
+// Sized to kTaskCount (12) + 4 headroom for any non-instrumented task
+// that might happen to call PerfScope (which falls through to nullptr
+// and bails harmlessly).
+//
+// Writes are infrequent: one per task per `setPerfEnabled(true)`
+// transition (or first PerfLoop iteration after enable). Reads happen
+// on every PerfScope construction — that's the hot path.
+struct RingRegistryEntry {
+    std::atomic<TaskHandle_t> handle{nullptr};
+    Ring*                     ring{nullptr};
+};
+constexpr size_t kRingRegistryCap = 16;
+RingRegistryEntry g_ringRegistry[kRingRegistryCap];
+
 inline Ring* getTlsRing() {
-    return static_cast<Ring*>(pvTaskGetThreadLocalStoragePointer(nullptr, kPerfTlsSlot));
+    const TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    if (self == nullptr) return nullptr;
+    for (auto& entry : g_ringRegistry) {
+        if (entry.handle.load(std::memory_order_acquire) == self) {
+            return entry.ring;
+        }
+    }
+    return nullptr;
 }
+
 inline void setTlsRing(Ring* r) {
-    vTaskSetThreadLocalStoragePointer(nullptr, kPerfTlsSlot, r);
+    const TaskHandle_t self = xTaskGetCurrentTaskHandle();
+    if (self == nullptr) return;
+    // First: if we already have an entry, update its ring pointer.
+    for (auto& entry : g_ringRegistry) {
+        if (entry.handle.load(std::memory_order_acquire) == self) {
+            entry.ring = r;
+            return;
+        }
+    }
+    // Otherwise: claim the first free slot via CAS.
+    for (auto& entry : g_ringRegistry) {
+        TaskHandle_t expected = nullptr;
+        if (entry.handle.compare_exchange_strong(expected, self,
+                                                  std::memory_order_acq_rel,
+                                                  std::memory_order_relaxed)) {
+            entry.ring = r;
+            return;
+        }
+    }
+    // Registry full. Silently drop — this task's PerfScope events will
+    // route to nullptr and be no-ops. kRingRegistryCap = 16 > kTaskCount
+    // = 12, so we should never hit this in practice.
 }
 #else
 // Native side uses thread_local. Map from thread id is overkill; the
@@ -150,6 +223,11 @@ Ring* PerfScope::ringForCurrentTask() {
 
 void PerfLoop::bindRingToCurrentTask(Ring* r) {
     setTlsRing(r);
+}
+
+void bindCurrentTaskToRing(TaskId id) {
+    Ring* r = ringForTask(id);
+    if (r != nullptr) setTlsRing(r);
 }
 
 bool perfEnabled() {
