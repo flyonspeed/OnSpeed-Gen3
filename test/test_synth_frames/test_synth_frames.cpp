@@ -10,6 +10,7 @@
 #include <unity.h>
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 #include <test_frames/SynthFrames.h>
