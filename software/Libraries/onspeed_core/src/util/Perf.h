@@ -200,6 +200,19 @@ bool perfEnabled();
 void setPerfEnabled(bool e);
 
 // ===========================================================================
+// Bind the calling task's TaskHandle to the ring for `id`, without
+// constructing a PerfLoop. Use this from tasks that have meaningful
+// PerfScope events but no natural place for a PerfLoop — Arduino's
+// loopTask is the canonical example (no explicit sleep means a
+// PerfLoop period measurement is dominated by preemption and not
+// meaningful).
+//
+// Idempotent. Safe to call repeatedly. Cheap on hot-path callers
+// that already have the binding (returns after one table walk).
+// ===========================================================================
+void bindCurrentTaskToRing(TaskId id);
+
+// ===========================================================================
 // Producer-side push. Hot path; keep tiny.
 // ===========================================================================
 inline void pushEvent(Ring* r, const PerfEvent& ev) {
@@ -356,6 +369,7 @@ public:
 inline void recordSpiTransfer(ScopeId, uint32_t, uint32_t) {}
 inline bool perfEnabled() { return false; }
 inline void setPerfEnabled(bool) {}
+inline void bindCurrentTaskToRing(TaskId) {}
 
 #endif  // ONSPEED_PERF_ENABLED
 

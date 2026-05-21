@@ -391,7 +391,15 @@ void loop()
     // higher-priority tasks. A PerfLoop here measured ~11 ms/iter avg
     // (almost all preemption) and rolled up to a misleading 98% CPU%.
     // The honest cost lives in the inner subsystem scopes below
-    // (efis_read + boom_read, ~0.2% combined).
+    // (efis_read + boom_read).
+    //
+    // Bind the loopTask's ring explicitly so the EfisRead / BoomRead
+    // PerfScope events get recorded. Without this binding,
+    // PerfScope::ringForCurrentTask returns nullptr and the scopes are
+    // silent no-ops. bindCurrentTaskToRing is idempotent; the
+    // existing-entry hot path is one table walk.
+    onspeed::util::perf::bindCurrentTaskToRing(
+        onspeed::util::perf::TaskId::ArduinoLoop);
 
 //    readWifiSerial();
     g_ConsoleSerial.Read();

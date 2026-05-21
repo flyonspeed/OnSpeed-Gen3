@@ -225,6 +225,11 @@ void PerfLoop::bindRingToCurrentTask(Ring* r) {
     setTlsRing(r);
 }
 
+void bindCurrentTaskToRing(TaskId id) {
+    Ring* r = ringForTask(id);
+    if (r != nullptr) setTlsRing(r);
+}
+
 bool perfEnabled() {
     return g_perfEnabled.load(std::memory_order_acquire);
 }
