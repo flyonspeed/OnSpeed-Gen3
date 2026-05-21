@@ -168,31 +168,45 @@ constexpr uint8_t kFlagLoop = 0x01;
 constexpr uint8_t kLoopSentinelScopeId = 0xFF;  // unused as scope; marks loop
 
 // ===========================================================================
-// Ring — single producer, single consumer. 1024 entries = 8 KB.
+// Ring — single producer, single consumer.
 //
 // Power-of-two capacity so we can use bitmask wrap. head and tail are
 // monotonic uint32_t (never wrap in practice within a multi-decade
 // uptime); the bitmask handles physical index.
-// ===========================================================================
-// 1024 entries × 8 B = 8 KB per task ring. 12 task rings = 96 KB,
-// fits in internal DRAM. SPI events route through the lock-free
-// SpiCounter (NOT the ring), so the ring only carries scope timing
-// + loop events — ~4/sec for slow tasks, ~830/sec for the IMU task at
-// 208 Hz (PerfLoop + predict + correct + alpha = 4 events/step).
-// Comfortable; ~20% headroom against the 1 Hz consumer drain.
 //
-// If we ever push IMU to 1.66 kHz, this needs to grow to 2048 — and
-// then we'll need to either drop some other big DRAM consumer or
-// move other instrumentation out of DRAM.
-constexpr size_t kRingCapacity = 1024;
-constexpr size_t kRingMask     = kRingCapacity - 1;
-static_assert((kRingCapacity & kRingMask) == 0, "ring capacity must be 2^n");
+// Per-task sizing: the IMU task generates ~4 events per iteration
+// (PerfLoop + 3 EKF subscopes). At 208 Hz that's 832 events/sec; at
+// 416 Hz it's 1664; at 833 Hz it's 3332. Other tasks are vastly slower
+// (Switch at 100 Hz × 1 event = 100/sec; most are < 10/sec).
+//
+// Sizing rule of thumb: ring should hold ≥ 1 second of events so the
+// 1 Hz consumer drain has headroom. IMU gets a big buffer; everyone
+// else gets a small one.
+//
+// Memory placement: the events array is plain memory (no atomic access
+// to individual slots — SPSC ordering is via head/tail). Placed in
+// PSRAM (~70 ns access) on ESP32-S3 to keep all event buffers out of
+// internal DRAM (which is precious — 76% used as of perf-2026-05-20).
+// head/tail/drops stay in DRAM where atomics are cheap.
+// ===========================================================================
+
+// Default capacity for tasks that don't override. 256 entries × 8 B =
+// 2 KB per task. Adequate for everything except the IMU task.
+constexpr size_t kDefaultRingCapacity = 256;
+
+// IMU task capacity. 8192 entries × 8 B = 64 KB. Supports IMU rates up
+// to ~2 kHz before drops at the 1 Hz consumer drain. Sized for the
+// 833 Hz ODR step (next above 416 Hz on the ISM330DHCX) with a comfortable
+// margin so we're not at the edge.
+constexpr size_t kImuRingCapacity = 8192;
 
 struct Ring {
-    PerfEvent             events[kRingCapacity];
-    std::atomic<uint32_t> head{0};   ///< Producer-only write.
-    std::atomic<uint32_t> tail{0};   ///< Consumer-only write.
-    std::atomic<uint32_t> drops{0};  ///< Producer increments when full.
+    PerfEvent*            events;     ///< Points at per-task PSRAM buffer.
+    uint32_t              mask;       ///< capacity - 1 (capacity is 2^n).
+    uint32_t              capacity;   ///< Number of slots in events[].
+    std::atomic<uint32_t> head{0};    ///< Producer-only write.
+    std::atomic<uint32_t> tail{0};    ///< Consumer-only write.
+    std::atomic<uint32_t> drops{0};   ///< Producer increments when full.
 };
 
 // Per-task producer rings are file-static in Perf.cpp. Producers find
@@ -226,11 +240,11 @@ void bindCurrentTaskToRing(TaskId id);
 inline void pushEvent(Ring* r, const PerfEvent& ev) {
     const uint32_t h = r->head.load(std::memory_order_relaxed);
     const uint32_t t = r->tail.load(std::memory_order_acquire);
-    if ((h - t) >= kRingCapacity) {
+    if ((h - t) >= r->capacity) {
         r->drops.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    r->events[h & kRingMask] = ev;
+    r->events[h & r->mask] = ev;
     r->head.store(h + 1, std::memory_order_release);
 }
 

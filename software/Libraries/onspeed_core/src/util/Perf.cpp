@@ -139,6 +139,48 @@ namespace {
 
 Ring g_rings[kTaskCount];
 
+// Per-task event buffers, placed in PSRAM so they don't compete with
+// the 76%-used internal DRAM. IMU gets the big one; everyone else uses
+// the smaller default size.
+//
+// On ESP32 the EXT_RAM_BSS_ATTR macro (from esp_attr.h) places the
+// symbol in the .ext_ram.bss section, which is PSRAM-backed BSS. On
+// native builds we fall back to plain BSS.
+#ifdef ARDUINO_ARCH_ESP32
+#include "esp_attr.h"
+#define ONSPEED_PSRAM_BSS_ATTR EXT_RAM_BSS_ATTR
+#else
+#define ONSPEED_PSRAM_BSS_ATTR
+#endif
+
+ONSPEED_PSRAM_BSS_ATTR PerfEvent g_imu_events  [kImuRingCapacity];
+ONSPEED_PSRAM_BSS_ATTR PerfEvent g_other_events[kTaskCount - 1][kDefaultRingCapacity];
+
+// Static initializer: wires each Ring's events pointer + mask + capacity
+// at module construction time. Runs before any task calls pushEvent
+// because the rings are global statics with no dynamic dependencies.
+struct PerfRingsInit {
+    PerfRingsInit() {
+        // Imu task gets the big buffer.
+        const size_t imuIdx = static_cast<size_t>(TaskId::Imu);
+        g_rings[imuIdx].events   = g_imu_events;
+        g_rings[imuIdx].capacity = kImuRingCapacity;
+        g_rings[imuIdx].mask     = kImuRingCapacity - 1;
+
+        // All other tasks share the small-buffer pool. The buffer index
+        // is "task ordinal minus 1 if past Imu, else task ordinal".
+        size_t otherIdx = 0;
+        for (size_t t = 0; t < kTaskCount; ++t) {
+            if (t == imuIdx) continue;
+            g_rings[t].events   = g_other_events[otherIdx];
+            g_rings[t].capacity = kDefaultRingCapacity;
+            g_rings[t].mask     = kDefaultRingCapacity - 1;
+            ++otherIdx;
+        }
+    }
+};
+static PerfRingsInit s_perfRingsInit;
+
 // SPI counters: direct atomic accumulators, not events in a ring.
 // Sized per-scope (one slot per ScopeId, but only SPI scopes used).
 // Drained read-and-reset by the consumer 1× per snapshot.
@@ -381,7 +423,7 @@ void Consumer::drainAll() {
         const uint32_t head = r.head.load(std::memory_order_acquire);
         uint32_t tail = r.tail.load(std::memory_order_relaxed);
         while (tail != head) {
-            const PerfEvent& ev = r.events[tail & kRingMask];
+            const PerfEvent& ev = r.events[tail & r.mask];
             if (ev.flags & kFlagLoop) {
                 g_task_hist[ti].add(ev.durationUs);
                 if (ev.stackHighWaterWords < g_task_stack_min[ti]) {

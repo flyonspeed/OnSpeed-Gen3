@@ -178,10 +178,12 @@ void test_multi_producer_no_crosstalk(void)
 void test_ring_overflow_increments_drops(void)
 {
     PerfLoop loop(TaskId::Imu, 2000);  // bind ring
-    // Push well beyond kRingCapacity without draining. Need
-    // kRingCapacity + 100 minimum to be sure overflow happens.
+    // Push well beyond IMU ring capacity without draining. Need
+    // capacity + 100 minimum to be sure overflow happens. The IMU
+    // task has a bigger ring than other tasks (kImuRingCapacity);
+    // size the test to it.
     const size_t overflowBy = 200;
-    const size_t pushes = onspeed::util::perf::kRingCapacity + overflowBy;
+    const size_t pushes = onspeed::util::perf::kImuRingCapacity + overflowBy;
     for (size_t i = 0; i < pushes; ++i) {
         PerfScope guard(ScopeId::EkfqCorrect);
     }
