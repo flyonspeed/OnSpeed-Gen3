@@ -145,10 +145,26 @@ void StartTask()
 {
     bool already = g_taskStarted.exchange(true, std::memory_order_acq_rel);
     if (already) return;
-    // Pinned to Core 0 (alongside WebServer/DataServer/Log), low priority,
+    // Pinned to Core 0 (alongside WebServer/DataServer/LogSensorCommit).
+    //
+    // Priority 1, not idle (priority 0). The 1 Hz drain needs to stay
+    // on schedule when other Core 0 tasks are busy. At priority 0 the
+    // dump task can be starved for >1 second under heavy Core 0 load —
+    // and when that happens, the histogram reset window stretches and
+    // "loops/s" appears proportionally LOWER than the actual producer
+    // rate. (That's the bug behind the "208 Hz fixed point" we kept
+    // hitting at 833 Hz IMU experiments: producer was actually running
+    // at 833 but PerfDump was running every ~4 sec under load, so the
+    // drain population was 833 events from the last 1 sec of a 4-sec
+    // window — and the "loops/s = count" report read as 208.)
+    //
+    // Priority 1 puts PerfDump on equal footing with WebServer (1) and
+    // LogSensorCommit (1). All Core 1 flight-critical tasks live at
+    // priority 4+; priority 1 on Core 0 cannot preempt them.
+    //
     // 4 KB stack — enough for the printf scratch + Consumer drain.
     xTaskCreatePinnedToCore(
-        DumpTask, "PerfDump", 4096, nullptr, /*pri=*/0, &g_taskHandle, /*core=*/0);
+        DumpTask, "PerfDump", 4096, nullptr, /*pri=*/1, &g_taskHandle, /*core=*/0);
 }
 
 void SetStreaming(bool on)
