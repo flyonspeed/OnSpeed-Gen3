@@ -30,8 +30,13 @@ SdFileSys::SdFileSys() :
         // task loops/s range widens from 182..208 to 79..208 — a real
         // SD stall) without buying meaningful steady-state improvement,
         // so 20 MHz is the sweet spot for this card on this board.
-        // SdFat auto-negotiates down at init if a card can't sustain
-        // this clock; worst case is fallback to a lower speed.
+        //
+        // Failure mode if a card can't sustain 20 MHz: SdFileSys::Init
+        // retries uSD_FAT.begin(SpiConfig) up to 5 times at THIS clock
+        // (not a lower one), then leaves bSdAvailable=false and SD
+        // logging is disabled for the session.  No automatic
+        // fallback to a slower clock — if a deployment hits this, the
+        // user sees "SD card couldn't be initialized" at boot.
         SpiConfig(kSdCs, USER_SPI_BEGIN, SD_SCK_MHZ(20), &uSD_SPI)
     {
     }
