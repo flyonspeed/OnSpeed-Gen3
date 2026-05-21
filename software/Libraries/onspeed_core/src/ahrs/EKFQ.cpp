@@ -171,7 +171,6 @@ void EKFQ::renormaliseQuaternion() {
 
 void EKFQ::update(const Measurements& m, float dt) {
     if (!initialized_) init();
-    ++updateCallCount_;
     predict(m.p, m.q, m.r, m.ax, m.ay, m.az, m.tasMps, dt);
     correct(m.ax, m.ay, m.az, m.tasMps, m.tasDotMps2,
             m.q, m.r, m.baroAltMeters, m.updateBaro);
@@ -483,6 +482,8 @@ void EKFQ::correct(float ax_meas, float ay_meas, float az_meas,
                    float tas, float tasDot,
                    float pitchRate, float yawRate,
                    float baroZ, bool updateBaro) {
+    ++updateCallCount_;
+
     // 1) Snapshot predict state.
     const float q0 = x_[Q0], q1 = x_[Q1], q2 = x_[Q2], q3 = x_[Q3];
     const float bp = x_[BP_IDX], bq = x_[BQ_IDX], br = x_[BR_IDX];

@@ -252,6 +252,23 @@ void test_ekfq_counter_increments_by_one_on_batch_failure(void) {
     TEST_ASSERT_EQUAL_UINT32(1u, ekfq.getFailedUpdateCount());
 }
 
+void test_ekfq_counter_advances_via_direct_predict_correct(void) {
+    // Production path: EkfqPipeline::Step() calls predict() and
+    // correct() separately. Confirms the counter increments in that
+    // path, not just via the update() convenience wrapper.
+    EKFQ ekfq;
+    ekfq.init();
+    const float ax = 0.0f, ay = 0.0f, az = -G;
+    const float p = 0.0f, q = 0.0f, r = 0.0f;
+    const float tas = 0.0f, tasDot = 0.0f, baro = 0.0f;
+    for (int i = 0; i < 5; ++i) {
+        ekfq.predict(p, q, r, ax, ay, az, tas, DT);
+        ekfq.correct(ax, ay, az, tas, tasDot, q, r, baro, true);
+    }
+    TEST_ASSERT_EQUAL_UINT32(5u, ekfq.getUpdateCallCount());
+    TEST_ASSERT_EQUAL_UINT32(0u, ekfq.getFailedUpdateCount());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_ekfq_init_default);
@@ -266,5 +283,6 @@ int main(int, char**) {
     RUN_TEST(test_ekfq_counter_bumps_on_degenerate_S);
     RUN_TEST(test_ekfq_counter_persists_across_init);
     RUN_TEST(test_ekfq_counter_increments_by_one_on_batch_failure);
+    RUN_TEST(test_ekfq_counter_advances_via_direct_predict_correct);
     return UNITY_END();
 }
