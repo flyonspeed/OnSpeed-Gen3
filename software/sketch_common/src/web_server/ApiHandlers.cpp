@@ -135,8 +135,23 @@ bool IsActiveLogFile(const String& sFilename) {
 
 bool TryReadLogMeta(const char* sCsvName, ::onspeed::log::LogMeta* out) {
     char sMeta[32];
+    // Maximum input length that snprintf can safely transform into a
+    // ".meta" name within sMeta. Worst case: dot at the last position
+    // of sCsvName (e.g. a name ending in "."), so dotIdx == len - 1.
+    // snprintf writes ".meta\0" (6 bytes including NUL) starting at
+    // dotIdx, which must fit: dotIdx + 6 <= sizeof(sMeta), i.e.
+    // len <= sizeof(sMeta) - 5. Pinning the bound to the buffer size
+    // (not a magic 27) closes the bulldog #583 finding — bump sMeta and
+    // the cap follows.
+    //
+    // sizeof(".meta") == 6 (5 chars + NUL), so:
+    //   kMaxCsvNameLen = sizeof(sMeta) - sizeof(".meta") + 1
+    //                  = 32 - 6 + 1 = 27.
+    constexpr size_t kMaxCsvNameLen = sizeof(sMeta) - sizeof(".meta") + 1;
+    static_assert(kMaxCsvNameLen == 27,
+                  "kMaxCsvNameLen drifted; bump sMeta if real log names grow");
     size_t len = std::strlen(sCsvName);
-    if (len < 5 || len > 27) return false;
+    if (len < 5 || len > kMaxCsvNameLen) return false;
     std::memcpy(sMeta, sCsvName, len);
     sMeta[len] = '\0';
     const char* dot = std::strrchr(sMeta, '.');
