@@ -14,6 +14,20 @@
 #include <types/LogRow.h>
 #include <util/Perf.h>
 
+#include <type_traits>
+
+// PR #608: LogRow is sent through the logging ring buffer as raw bytes
+// (xRingbufferSend(&row, sizeof(row))) and received on the consumer
+// task into a stack-local LogRow via memcpy.  Both ends rely on the
+// struct being trivially copyable so that byte-for-byte transport is
+// safe; if a future change adds a std::string, std::vector, or any
+// member that needs constructor/destructor calls, this assert fires
+// at compile time before we can ship a wire-format-incompatible row.
+static_assert(std::is_trivially_copyable_v<onspeed::LogRow>,
+              "LogRow must remain trivially copyable; the logging ring "
+              "buffer passes it byte-for-byte between producer and "
+              "consumer tasks.");
+
 using onspeed::m2ft;
 using onspeed::mps2fpm;
 using onspeed::mps2kts;
@@ -270,6 +284,12 @@ void LogSensorCommitTask(void *pvParams)
             bGotData = true;
             }
 
+        // Scratch buffer for formatting one row at a time on this
+        // (consumer) task.  PR #608: FormatRow moved here from the
+        // producer side to get its ~150 µs/row cost off Core 1.
+        // +2 holds the trailing "\n\0".
+        static char szLogLine[onspeed::proto::log_csv::kRowMaxBytes + 2];
+
         while (true)
             {
             // If we already have carryover, don't receive more — first
@@ -282,34 +302,86 @@ void LogSensorCommitTask(void *pvParams)
             if (pchIn == NULL)
                 break;
 
-            // If the received item won't fit in the staging buffer, park
-            // it in the carryover slot. We CAN'T return-without-copy
-            // because the ring has already advanced past these bytes —
-            // vRingbufferReturnItem frees them but doesn't put them back
-            // into the readable stream. Copying to carryover preserves
-            // the row for the next iteration.
-            if (uBufUsed + iPrintLen > WRITE_BUF_SIZE)
+            // Each ring item is a serialized LogRow struct.  Copy it
+            // into an aligned local before formatting — pchIn points
+            // into the ring buffer's internal storage, which gives no
+            // alignment guarantee for the 8-byte members (uint64_t,
+            // double) inside LogRow.  Using the bytes directly via
+            // reinterpret_cast<LogRow*> would be UB on a misaligned
+            // address.  A 700-byte memcpy is ~0.5 µs on the S3 — well
+            // inside the noise floor of this task's work budget.
+            //
+            // If the ring delivers a wrong-sized blob (producer-side
+            // regression), skip with a rate-limited warning rather
+            // than reinterpreting a surprise byte shape.
+            size_t lineLen = 0;
+            if (iPrintLen == sizeof(onspeed::LogRow)) {
+                onspeed::LogRow row;
+                memcpy(&row, pchIn, sizeof(row));
+                lineLen = onspeed::proto::log_csv::FormatRow(
+                    row, szLogLine, sizeof(szLogLine));
+                if (lineLen > 0 && lineLen + 1 < sizeof(szLogLine)) {
+                    szLogLine[lineLen]     = '\n';
+                    szLogLine[lineLen + 1] = '\0';
+                    lineLen += 1;
+                } else {
+                    // FormatRow either returned 0 (overflow) or filled
+                    // the buffer with no room for the newline.  Drop.
+                    lineLen = 0;
+                    static unsigned long uLastWarnMs = 0;
+                    unsigned long uNow = millis();
+                    if ((uNow - uLastWarnMs) > 2000) {
+                        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                                      "FormatRow overflow on writer; dropping row");
+                        uLastWarnMs = uNow;
+                    }
+                }
+            } else {
+                // Wrong-sized item.  Producer regression or stale data;
+                // skip with a rate-limited warning so the cause is
+                // visible.
+                static unsigned long uLastWarnMs = 0;
+                unsigned long uNow = millis();
+                if ((uNow - uLastWarnMs) > 2000) {
+                    g_Log.printf(MsgLog::EnDisk, MsgLog::EnError,
+                                 "Ring item size %u != sizeof(LogRow) %u; skipping\n",
+                                 static_cast<unsigned>(iPrintLen),
+                                 static_cast<unsigned>(sizeof(onspeed::LogRow)));
+                    uLastWarnMs = uNow;
+                }
+            }
+
+            // If the formatted line won't fit in the staging buffer,
+            // park it in the carryover slot. We CAN'T return-without-copy
+            // because the ring has already advanced past the source
+            // bytes — vRingbufferReturnItem frees them but doesn't put
+            // them back into the readable stream. Copying to carryover
+            // preserves the row for the next iteration.
+            if (lineLen > 0 && uBufUsed + lineLen > WRITE_BUF_SIZE)
                 {
-                __atomic_fetch_add(&s_uDrainOverflowCount, 1u,           __ATOMIC_RELAXED);
-                __atomic_fetch_add(&s_uDrainOverflowBytes, (uint32_t)iPrintLen, __ATOMIC_RELAXED);
-                if (iPrintLen <= sizeof(szCarryoverBuf))
+                __atomic_fetch_add(&s_uDrainOverflowCount, 1u,                   __ATOMIC_RELAXED);
+                __atomic_fetch_add(&s_uDrainOverflowBytes, (uint32_t)lineLen,     __ATOMIC_RELAXED);
+                if (lineLen <= sizeof(szCarryoverBuf))
                     {
-                    memcpy(szCarryoverBuf, pchIn, iPrintLen);
-                    uCarryoverLen = iPrintLen;
+                    memcpy(szCarryoverBuf, szLogLine, lineLen);
+                    uCarryoverLen = lineLen;
                     }
                 // If the row is larger than the carryover buffer it's
                 // a row-format bug (rows shouldn't exceed kRowMaxBytes);
-                // s_uDrainOverflowCount already counted it. Drop it.
+                // s_uDrainOverflowCount already counted it.  Drop.
                 vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
                 pchIn = NULL;
                 break;
                 }
 
-            memcpy(szWriteBuf + uBufUsed, pchIn, iPrintLen);
-            uBufUsed += iPrintLen;
+            if (lineLen > 0)
+                {
+                memcpy(szWriteBuf + uBufUsed, szLogLine, lineLen);
+                uBufUsed += lineLen;
+                bGotData = true;
+                }
             vRingbufferReturnItem(xLoggingRingBuffer, pchIn);
             pchIn = NULL;
-            bGotData = true;
             }
 
         if (g_Log.Test(MsgLog::EnDisk, MsgLog::EnDebug) && bGotData)
@@ -872,8 +944,6 @@ void LogSensor::Close()
 
 void LogSensor::Write()
 {
-    static char szLogLine[onspeed::proto::log_csv::kRowMaxBytes + 2]; // +2 for "\n\0"
-
     // g_bPause is held by HandleDownload and the bulk-delete handlers,
     // which sit on xWriteMutex for many seconds; pausing the producer
     // there prevents the ring from overflowing during that window.
@@ -1033,31 +1103,15 @@ void LogSensor::Write()
         m_metaBuilder.OnRow(row, hmsOrNull, utcOrNull);
     }
 
-    // --- Format the row into the log line buffer ---
-    size_t lineLen = onspeed::proto::log_csv::FormatRow(row, szLogLine, sizeof(szLogLine));
-    if (lineLen == 0)
-        {
-        static unsigned long uLastWarnMs = 0;
-        unsigned long uNow = millis();
-        if ((uNow - uLastWarnMs) > 2000)
-            {
-            g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Log line overflow; dropping line");
-            uLastWarnMs = uNow;
-            }
-        return;
-        }
-
-    // Append the newline that the SD write task expects.
-    szLogLine[lineLen]     = '\n';
-    szLogLine[lineLen + 1] = '\0';
-    lineLen += 1;
-
-    // Send to the ring buffer for writing.
+    // Send the LogRow struct (not the formatted CSV) to the ring.
+    // The consumer task (LogSensorCommitTask on Core 0) runs FormatRow
+    // and writes to SD.  Issue #608: this moves ~150 µs of CSV
+    // formatting per row off the IMU/Sensors tasks on Core 1.
     //
     // Defense-in-depth: Write() is only called from SensorReadTask and
     // ImuReadTask, both pinned to Core 1 and created after setup()
     // allocates the ring buffer, so a null handle here means a
-    // regression. Warn (rate-limited) and drop the line; never mutate
+    // regression. Warn (rate-limited) and drop the row; never mutate
     // g_Config.bSdLogging — see the matching note in Open() above.
     if (xLoggingRingBuffer == nullptr)
         {
@@ -1065,13 +1119,17 @@ void LogSensor::Write()
         unsigned long uNow = millis();
         if ((uNow - uLastWarnMs) > 2000)
             {
-            g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Logging ring buffer not allocated; dropping log line");
+            g_Log.println(MsgLog::EnDisk, MsgLog::EnError, "Logging ring buffer not allocated; dropping log row");
             uLastWarnMs = uNow;
             }
         return;
         }
 
-    bool bSendOK = xRingbufferSend(xLoggingRingBuffer, szLogLine, lineLen, 0);
+    // sizeof(LogRow) is on the order of 700 B (vs ~250 B for a typical
+    // formatted CSV line).  At 208 Hz this is ~145 KB/s of producer
+    // traffic, well under the 256 KB ring's capacity even allowing for
+    // SD write pauses.
+    bool bSendOK = xRingbufferSend(xLoggingRingBuffer, &row, sizeof(row), 0);
     if (!bSendOK)
         __atomic_fetch_add(&s_uRingDropCount, 1u, __ATOMIC_RELAXED);
 
