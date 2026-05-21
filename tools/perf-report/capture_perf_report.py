@@ -328,6 +328,57 @@ def fmt_range(field: dict) -> str:
     return f"{med:,} ({lo:,}..{hi:,})"
 
 
+def fmt_pct(us: float) -> str:
+    """Format µs/sec as a CPU% of one core. 10000 µs = 1%."""
+    if us is None:
+        return "—"
+    return f"{us / 10000.0:5.2f}%"
+
+
+# Task → core mapping for OnSpeed Gen3. Derived from xTaskCreatePinnedToCore
+# call sites in the firmware. Used to roll up per-core CPU% totals.
+TASK_CORE = {
+    "Imu":          1,
+    "Sensors":      1,
+    "Audio":        1,
+    "Display":      1,
+    "Switch":       1,
+    "Housekeeping": 1,
+    "LogReplay":    1,   # bench-mode replay variant
+    "TestPot":      1,   # bench-mode variant
+    "RangeSweep":   1,   # bench-mode variant
+    "ArduinoLoop":  1,   # Arduino's loop() task default core
+    "Log":          0,   # LogSensorCommit
+    "WebServer":    0,
+    "DataServer":   0,
+}
+
+# Tasks whose PerfLoop scope includes blocking / sleep time, not just
+# CPU work. For these, the "loops × avg" CPU% is OVERSTATED — it
+# reflects the wake-to-wake period, not actual CPU consumption.
+#
+# These tasks need their PerfLoop placement fixed (issue #611), or
+# subsystem-level CPU% (the rows in the per-subsystem table) is the
+# honest number to look at.
+TASKS_WITH_BLOCKING_IN_SCOPE = {
+    "Log",          # PerfLoop wraps xRingbufferReceive (100ms timeout)
+                    # — see issue #611 finding 1
+    "ArduinoLoop",  # loop() has no explicit sleep; period is dominated
+                    # by preemption from higher-priority tasks (Audio @
+                    # prio 6, IMU @ 5). Real work is the inner
+                    # efis_read + boom_read subsystems (~0.2% total).
+}
+
+
+def task_cpu_us_per_sec(t: dict) -> float | None:
+    """Per-task µs/sec consumed = loops × avg. None if either missing."""
+    loops = t.get("loops", {}).get("median")
+    avg   = t.get("avg",   {}).get("median")
+    if loops is None or avg is None:
+        return None
+    return float(loops) * float(avg)
+
+
 def get_git_sha(repo_dir: Path) -> str:
     try:
         out = subprocess.check_output(
@@ -383,22 +434,91 @@ def write_report(agg: dict, args: argparse.Namespace, out_path: Path,
         lines.append(f"- **Notes:** {args.notes}")
     lines.append("")
 
+    # --- Core summary (CPU% rollup) ------------------------------------------
+    # Computed from per-task `loops × avg` for every instrumented task,
+    # mapped to its FreeRTOS-pinned core via TASK_CORE. This is the
+    # number to watch when sizing future features / IMU rate pushes.
+    # Two accumulators per core:
+    #  - reliable: tasks whose PerfLoop scope honestly bounds CPU work
+    #  - blocking_excluded: tasks where the scope includes blocking time
+    #    (Log, ArduinoLoop) — these are reported separately because
+    #    summing them into Core% would be misleading.
+    core_us = {0: 0.0, 1: 0.0}
+    blocking_us = {0: 0.0, 1: 0.0}
+    unknown_tasks = []
+    for name, t in agg["tasks"].items():
+        us = task_cpu_us_per_sec(t)
+        if us is None:
+            continue
+        core = TASK_CORE.get(name)
+        if core is None:
+            unknown_tasks.append(name)
+            continue
+        if name in TASKS_WITH_BLOCKING_IN_SCOPE:
+            blocking_us[core] += us
+        else:
+            core_us[core] += us
+
+    lines.append("## Core summary (CPU% rollup)")
+    lines.append("")
+    lines.append("One core = 1,000,000 µs/sec. **Used (reliable)** sums "
+                 "CPU% of every instrumented task whose scope honestly "
+                 "bounds work (excludes vTaskDelay / xRingbufferReceive "
+                 "blocking time). **Headroom** is what's left for new "
+                 "features at the current bench configuration.")
+    lines.append("")
+    lines.append("Tasks where the PerfLoop scope still includes blocking "
+                 "time are reported separately as **Blocking-included** — "
+                 "their `loops × avg` figure overstates real CPU consumption "
+                 "and shouldn't be summed into Used. For honest CPU% of those "
+                 "tasks, look at their subsystem-level scopes (e.g. "
+                 "`log_write` + `log_sync` for the Log task). See issue #611 "
+                 "for the planned scope reshape.")
+    lines.append("")
+    lines.append("| Core | Used (reliable) | Headroom | Blocking-included |")
+    lines.append("|---|---:|---:|---:|")
+    for core in (0, 1):
+        used_pct = core_us[core] / 10000.0
+        headroom_pct = 100.0 - used_pct
+        blocking_pct = blocking_us[core] / 10000.0
+        lines.append(
+            f"| Core {core} | {used_pct:5.2f}% | {headroom_pct:5.2f}% "
+            f"| {blocking_pct:5.2f}% |"
+        )
+    if unknown_tasks:
+        lines.append("")
+        lines.append(f"> ⚠ Tasks not mapped to a core (update TASK_CORE in "
+                     f"capture_perf_report.py): {', '.join(unknown_tasks)}")
+    lines.append("")
+
     # --- Per-task CPU --------------------------------------------------------
-    lines.append("## Per-task CPU (work-only, µs across snapshots)")
+    lines.append("## Per-task CPU (work-only)")
     lines.append("")
     lines.append("Values are median across all snapshots, with (min..max) "
                  "shown in parens when the range is non-trivial. `loops/s` is "
                  "actual measured iterations per second (not the configured "
-                 "rate).")
+                 "rate). **`CPU%`** is `loops × avg ÷ 10,000` — fraction of "
+                 "one core consumed by this task's instrumented work.")
     lines.append("")
-    lines.append("| Task | Loops/s | Avg µs | p50 | p95 | p99 | Max | Stack free | Drops |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
-    for name in sorted(agg["tasks"]):
-        t = agg["tasks"][name]
+    lines.append("| Task | Core | Loops/s | Avg µs | **CPU%** | p50 | p95 | p99 | Max | Stack free | Drops |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    # Sort by CPU% descending so the optimization-worthy ones come first.
+    sorted_tasks = sorted(
+        agg["tasks"].items(),
+        key=lambda kv: -(task_cpu_us_per_sec(kv[1]) or 0)
+    )
+    for name, t in sorted_tasks:
+        core = TASK_CORE.get(name, "?")
+        cpu_us = task_cpu_us_per_sec(t)
+        # Mark CPU% with † for tasks whose scope includes blocking time —
+        # the number overstates real CPU consumption.
+        suffix = "†" if name in TASKS_WITH_BLOCKING_IN_SCOPE else ""
         lines.append(
             f"| {name} "
+            f"| {core} "
             f"| {fmt_range(t['loops'])} "
             f"| {fmt_range(t['avg'])} "
+            f"| **{fmt_pct(cpu_us)}{suffix}** "
             f"| {fmt_range(t['p50'])} "
             f"| {fmt_range(t['p95'])} "
             f"| {fmt_range(t['p99'])} "
@@ -406,22 +526,34 @@ def write_report(agg: dict, args: argparse.Namespace, out_path: Path,
             f"| {fmt_range(t['stack'])} "
             f"| {fmt_range(t['drops'])} |"
         )
+    if any(n in TASKS_WITH_BLOCKING_IN_SCOPE for n in agg["tasks"]):
+        lines.append("")
+        lines.append("> † PerfLoop scope includes blocking time; CPU% is "
+                     "overstated. See subsystem-level scopes for honest cost.")
     lines.append("")
 
     # --- Per-subsystem timing -----------------------------------------------
-    lines.append("## Per-subsystem timing (µs)")
+    lines.append("## Per-subsystem timing")
     lines.append("")
-    lines.append("`total/s` is sum of all calls per second — useful for "
-                 "CPU%. Divide by 10,000 for %.")
+    lines.append("**`CPU%`** is `total ÷ 10,000` — fraction of one core "
+                 "spent in this subsystem per second. Sorted high to low. "
+                 "Subsystems nested inside a task contribute to that task's "
+                 "CPU% above (not additive — these are slices of, not extras "
+                 "on top of, the task totals).")
     lines.append("")
-    lines.append("| Subsystem | Calls/s | Total/s µs | p50 | p95 | p99 | Max |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|")
-    for name in sorted(agg["subsys"]):
-        s = agg["subsys"][name]
+    lines.append("| Subsystem | Calls/s | Total/s µs | **CPU%** | p50 | p95 | p99 | Max |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    sorted_subsys = sorted(
+        agg["subsys"].items(),
+        key=lambda kv: -(kv[1].get("total", {}).get("median") or 0)
+    )
+    for name, s in sorted_subsys:
+        total_us = s.get("total", {}).get("median")
         lines.append(
             f"| {name} "
             f"| {fmt_range(s['n'])} "
             f"| {fmt_range(s['total'])} "
+            f"| **{fmt_pct(total_us)}** "
             f"| {fmt_range(s['p50'])} "
             f"| {fmt_range(s['p95'])} "
             f"| {fmt_range(s['p99'])} "
