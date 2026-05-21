@@ -225,10 +225,13 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     namespace F = onspeed::EfisField;
 
     // Each parser sets EfisFrame::fieldsPresent bits for the fields it
-    // actually wrote this frame. Branching on an integer AND test is
-    // ~2-3x cheaper than std::isfinite() on a float and avoids the FPU.
-    // NaN sentinels remain in place as a fallback for any consumer that
-    // still tests std::isfinite() directly.
+    // actually wrote this frame. Branching on the bitmask is honest
+    // about intent ("did the parser write this field?") rather than
+    // inferring it from float-NaN tests. On Xtensa LX7 the codegen is
+    // comparable (isfinite emits as an integer mask on the float bit
+    // pattern, not via the FPU); the structural clarity is the real
+    // win. NaN sentinels remain in place as a fallback for any
+    // consumer that still tests std::isfinite() directly.
     const uint32_t fp = frame.fieldsPresent;
 
     if (fp & F::Ias)        suEfis.IAS         = frame.iasKt;
