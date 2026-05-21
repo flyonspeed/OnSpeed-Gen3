@@ -1126,6 +1126,62 @@ void test_write_header_null_buf_returns_zero(void)
     TEST_ASSERT_EQUAL(0u, len);
 }
 
+// Buffer-truncation regression test (issue raised by PR #606 bulldog
+// review).  FormatRow must:
+//   1. Return 0 on a buffer too small for the full row.
+//   2. NOT write past out[outCapacity-1] even when truncation occurs.
+//
+// We assert #2 by allocating a buffer larger than what FormatRow can
+// see, pre-filling the entire region with a canary byte, calling
+// FormatRow with a deliberately small `outCapacity`, and verifying the
+// canary is intact in the trailing region.  A canary check is the only
+// way to detect "wrote past the end" in unit tests; the trailing region
+// must remain untouched.
+void test_format_row_truncation_does_not_overflow(void)
+{
+    // Build a full row with every optional section enabled, so a single
+    // FormatRow call would emit several hundred bytes when unconstrained.
+    LogRow row = MakeTestRow(/*boom=*/true, /*efis=*/true, /*vn300=*/true,
+                             /*flapsRawAdc=*/true);
+
+    // First confirm the row is "full size" when unconstrained, so the
+    // test is meaningfully exercising the truncation path.
+    char fullBuf[2048];
+    size_t fullLen = csv::FormatRow(row, fullBuf, sizeof(fullBuf));
+    TEST_ASSERT_TRUE_MESSAGE(fullLen > 200,
+        "MakeTestRow(all=true) should produce a >200-byte row when "
+        "unconstrained; test isn't exercising truncation otherwise.");
+
+    // Canary test for buffer-overflow detection.  kHardLimit is the
+    // physical buffer; kCap is the capacity we tell FormatRow about;
+    // bytes between kCap..kHardLimit are the canary region that must
+    // stay intact for the call to be considered safe.
+    constexpr size_t kHardLimit = 1024;
+    constexpr size_t kCap       = 64;     // way smaller than the row
+    constexpr char   kCanary    = 0x5A;   // arbitrary non-printable
+
+    char buf[kHardLimit];
+    std::memset(buf, kCanary, sizeof(buf));
+
+    size_t len = csv::FormatRow(row, buf, kCap);
+
+    // (1) Returns 0 on truncation.
+    TEST_ASSERT_EQUAL_MESSAGE(0u, len,
+        "FormatRow with undersized cap must return 0");
+
+    // (2) Canary intact past out[kCap-1] — no write past outCapacity.
+    for (size_t i = kCap; i < kHardLimit; ++i) {
+        if (buf[i] != kCanary) {
+            char msg[96];
+            std::snprintf(msg, sizeof(msg),
+                "FormatRow wrote past outCapacity at offset %zu "
+                "(got 0x%02x, expected 0x%02x)",
+                i, (unsigned char)buf[i], (unsigned char)kCanary);
+            TEST_FAIL_MESSAGE(msg);
+        }
+    }
+}
+
 // ============================================================================
 // main
 // ============================================================================
@@ -1195,6 +1251,7 @@ int main(int, char**)
     // Null / zero-capacity guards
     RUN_TEST(test_format_row_null_buf_returns_zero);
     RUN_TEST(test_format_row_zero_cap_returns_zero);
+    RUN_TEST(test_format_row_truncation_does_not_overflow);
     RUN_TEST(test_write_header_null_buf_returns_zero);
 
     return UNITY_END();
