@@ -57,6 +57,11 @@ int main()
 {
     using onspeed::proto::DisplayBuildInputs;
     using onspeed_xplane::indexer::FillPercentLift;
+    using onspeed_xplane::indexer::RegimeFadeState;
+
+    // Crossfade state for FillPercentLift; reset between independent
+    // scenarios so a prior call's fade tail doesn't leak in.
+    RegimeFadeState fade{};
 
     // ----------------------------------------------------------------
     // Vac's repro: T-6 on the ground, IAS below the audio mute floor,
@@ -71,12 +76,14 @@ int main()
     // FillPercentLift falls back to the alpha-based formula on
     // both regimes — matching the original PR #432 surface.
     DisplayBuildInputs onGround{};
+    fade = {};
     FillPercentLift(onGround,
                     /*liveAoaDeg=*/      7.0f,
                     /*liveIasKt=*/       40.0f,
                     /*flapHandleRatio=*/ 0.0f,
                     /*iasValid=*/        false,
-                    /*onGround=*/        true);
+                    /*onGround=*/        true,
+                    fade);
 
     // Live reading: ComputePercentLift's contract returns 0 when
     // iasValid=false.  No airflow, no live percent — by design.
@@ -115,12 +122,14 @@ int main()
     // on-ground values — proof that anchors don't depend on iasValid.
     // ----------------------------------------------------------------
     DisplayBuildInputs inFlight{};
+    fade = {};
     FillPercentLift(inFlight,
                     /*liveAoaDeg=*/      7.0f,
                     /*liveIasKt=*/       80.0f,
                     /*flapHandleRatio=*/ 0.0f,
                     /*iasValid=*/        true,
-                    /*onGround=*/        false);
+                    /*onGround=*/        false,
+                    fade);
 
     check(inFlight.tonesOnPctLift     == onGround.tonesOnPctLift,
           "tonesOnPctLift identical across iasValid (anchors are pure)");
@@ -149,10 +158,12 @@ int main()
     // when iasValid=false; post-fix it slides smoothly.
     // ----------------------------------------------------------------
     DisplayBuildInputs flapHalf{};
-    FillPercentLift(flapHalf, 7.0f, 40.0f, 0.5f, false, true);
+    fade = {};
+    FillPercentLift(flapHalf, 7.0f, 40.0f, 0.5f, false, true, fade);
 
     DisplayBuildInputs flapFull{};
-    FillPercentLift(flapFull, 7.0f, 40.0f, 1.0f, false, true);
+    fade = {};
+    FillPercentLift(flapFull, 7.0f, 40.0f, 1.0f, false, true, fade);
 
     check(flapHalf.pipPctLift > onGround.pipPctLift,
           "pipPctLift rises as flaps deploy (clean -> half)");

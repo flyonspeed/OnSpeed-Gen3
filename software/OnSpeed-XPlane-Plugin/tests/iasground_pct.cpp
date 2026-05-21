@@ -78,6 +78,12 @@ int main()
 {
     using onspeed::proto::DisplayBuildInputs;
     using onspeed_xplane::indexer::FillPercentLift;
+    using onspeed_xplane::indexer::RegimeFadeState;
+
+    // Crossfade state — fresh state per test scope; reset between
+    // scenarios that simulate independent flight-loop sessions so a
+    // prior test's terminal state doesn't leak into the next.
+    RegimeFadeState fade{};
 
     // --------------------------------------------------------------
     // The StallWarn anchor pct is the V² formula's scaling target.
@@ -86,7 +92,8 @@ int main()
     // doesn't change them).
     // --------------------------------------------------------------
     DisplayBuildInputs probe{};
-    FillPercentLift(probe, 0.0f, 80.0f, 0.0f, true, /*onGround=*/false);
+    fade = {};
+    FillPercentLift(probe, 0.0f, 80.0f, 0.0f, true, /*onGround=*/false, fade);
     const float stallWarnPct = static_cast<float>(probe.stallWarnPctLift);
     check(stallWarnPct > 80.0f && stallWarnPct < 100.0f,
           "fixture: stallWarn anchor in (80, 100)");
@@ -100,22 +107,26 @@ int main()
     //    taxi shows nothing, not a saturated chevron.
     // --------------------------------------------------------------
     DisplayBuildInputs taxi0{};
+    fade = {};
     FillPercentLift(taxi0,
                     /*liveAoaDeg=*/      4.0f,    // body-angle on the ramp
                     /*liveIasKt=*/       0.0f,
                     /*flapHandleRatio=*/ 0.0f,
                     /*iasValid=*/        false,   // below mute floor
-                    /*onGround=*/        true);
+                    /*onGround=*/        true,
+                    fade);
     check(nearly(taxi0.percentLiftPct, 0.0f, 0.5f),
           "V=0 with iasValid=false: percent is 0 (firmware-style mute)");
 
     DisplayBuildInputs taxi10{};
-    FillPercentLift(taxi10, 4.0f, 10.0f, 0.0f, /*iasValid=*/ false, true);
+    fade = {};
+    FillPercentLift(taxi10, 4.0f, 10.0f, 0.0f, /*iasValid=*/ false, true, fade);
     check(nearly(taxi10.percentLiftPct, 0.0f, 0.5f),
           "V=10 taxi below mute: percent is 0 (no saturated chevron)");
 
     DisplayBuildInputs taxi20{};
-    FillPercentLift(taxi20, 4.0f, 20.0f, 0.0f, /*iasValid=*/ false, true);
+    fade = {};
+    FillPercentLift(taxi20, 4.0f, 20.0f, 0.0f, /*iasValid=*/ false, true, fade);
     check(nearly(taxi20.percentLiftPct, 0.0f, 0.5f),
           "V=20 taxi below mute: percent is 0 (matches firmware)");
 
@@ -128,19 +139,22 @@ int main()
     //    is "saturated stall" because the airplane isn't flying.
     // --------------------------------------------------------------
     DisplayBuildInputs roll25{};
-    FillPercentLift(roll25, 4.0f, 25.0f, 0.0f, /*iasValid=*/ true, true);
+    fade = {};
+    FillPercentLift(roll25, 4.0f, 25.0f, 0.0f, /*iasValid=*/ true, true, fade);
     // (60/25)^2 * stallWarnPct = 5.76 * 92 = saturates → clamp at 99.9
     check(roll25.percentLiftPct >= 99.0f,
           "V=25 (just past mute floor): saturated near 99 (way below Vs)");
 
     DisplayBuildInputs roll35{};
-    FillPercentLift(roll35, 4.0f, 35.0f, 0.0f, /*iasValid=*/ true, true);
+    fade = {};
+    FillPercentLift(roll35, 4.0f, 35.0f, 0.0f, /*iasValid=*/ true, true, fade);
     // (60/35)^2 * 92 = 2.94 * 92 = saturates → clamp at 99.9
     check(roll35.percentLiftPct >= 99.0f,
           "V=35 takeoff roll: still saturated, well below Vs");
 
     DisplayBuildInputs roll45{};
-    FillPercentLift(roll45, 4.0f, 45.0f, 0.0f, /*iasValid=*/ true, true);
+    fade = {};
+    FillPercentLift(roll45, 4.0f, 45.0f, 0.0f, /*iasValid=*/ true, true, fade);
     // (60/45)^2 * 92 = 1.78 * 92 = saturates → clamp at 99.9
     check(roll45.percentLiftPct >= 99.0f,
           "V=45 mid roll: still saturated, V² > 1.0 below Vs");
@@ -151,7 +165,8 @@ int main()
     //    by construction.
     // --------------------------------------------------------------
     DisplayBuildInputs atVs{};
-    FillPercentLift(atVs, 4.0f, 60.0f, 0.0f, /*iasValid=*/ true, true);
+    fade = {};
+    FillPercentLift(atVs, 4.0f, 60.0f, 0.0f, /*iasValid=*/ true, true, fade);
     check(nearly(atVs.percentLiftPct, stallWarnPct, 1.0f),
           "V == Vs lands at the StallWarn anchor (alignment property)");
 
@@ -161,11 +176,14 @@ int main()
     //    airborne).  Should be monotone-decreasing.
     // --------------------------------------------------------------
     DisplayBuildInputs at65{};
-    FillPercentLift(at65, 4.0f, 65.0f, 0.0f, true, true);
+    fade = {};
+    FillPercentLift(at65, 4.0f, 65.0f, 0.0f, true, true, fade);
     DisplayBuildInputs at70{};
-    FillPercentLift(at70, 4.0f, 70.0f, 0.0f, true, true);
+    fade = {};
+    FillPercentLift(at70, 4.0f, 70.0f, 0.0f, true, true, fade);
     DisplayBuildInputs at80{};
-    FillPercentLift(at80, 4.0f, 80.0f, 0.0f, true, true);
+    fade = {};
+    FillPercentLift(at80, 4.0f, 80.0f, 0.0f, true, true, fade);
 
     check(at65.percentLiftPct > at70.percentLiftPct,
           "percent drops as V rises through 65 → 70 (post-Vs roll-out)");
@@ -186,7 +204,8 @@ int main()
     // --------------------------------------------------------------
     iVs1G = 0;
     DisplayBuildInputs noVs{};
-    FillPercentLift(noVs, 7.0f, 0.0f, 0.0f, false, true);
+    fade = {};
+    FillPercentLift(noVs, 7.0f, 0.0f, 0.0f, false, true, fade);
     // iasValid=false on the alpha path means percent collapses to 0
     // (ComputePercentLift's contract).  iVs1G == 0 disables the V²
     // path so the alpha path's gate becomes the only behavior.
@@ -200,12 +219,14 @@ int main()
     //    if V < Vs (e.g., post-stall recovery, slow flight at idle).
     // --------------------------------------------------------------
     DisplayBuildInputs slowFlight{};
+    fade = {};
     FillPercentLift(slowFlight,
                     /*liveAoaDeg=*/      11.0f,    // near alpha_stall
                     /*liveIasKt=*/       55.0f,    // below Vs
                     /*flapHandleRatio=*/ 0.0f,
                     /*iasValid=*/        true,
-                    /*onGround=*/        false);
+                    /*onGround=*/        false,
+                    fade);
     // Alpha formula at α=11°: (11 - (-2)) / (12.5*1.075 - (-2))
     //                       = 13 / 15.4375 = 84.2%
     check(slowFlight.percentLiftPct > 75.0f && slowFlight.percentLiftPct < 95.0f,
@@ -218,36 +239,85 @@ int main()
           "in-flight at V<Vs uses alpha (would saturate to 99% on V² path)");
 
     // --------------------------------------------------------------
-    // 6. Onground transition: at the moment of liftoff, percent
-    //    should be continuous across the regime change at typical
-    //    rotation speeds.  Compare V² mode at V=Vr against alpha
-    //    mode at the same V.  Should be in the same neighborhood.
+    // 6. Onground transition: at the moment of liftoff the crossfade
+    //    must hold the displayed pct continuous across the regime
+    //    change, then ramp linearly to the pure alpha-mode reading
+    //    over kRegimeFadeFrames frames.  This is the design fix for
+    //    Vac's "weird jump" — without the crossfade the displayed
+    //    value would step by ~5 pp at the flip, then the audio
+    //    smoother would smear that step into a multi-frame wiggle.
     // --------------------------------------------------------------
-    const float Vr = 70.0f;
-    const float typicalAoaAtRotation = 9.0f;   // ~OnSpeedSlow
+    {
+        using onspeed_xplane::indexer::kRegimeFadeFrames;
 
-    DisplayBuildInputs preLift{};
-    FillPercentLift(preLift,
-                    typicalAoaAtRotation, Vr, 0.0f,
-                    /*iasValid=*/ true,
-                    /*onGround=*/ true);
+        const float Vr = 70.0f;
+        const float typicalAoaAtRotation = 9.0f;   // ~OnSpeedSlow
 
-    DisplayBuildInputs postLift{};
-    FillPercentLift(postLift,
-                    typicalAoaAtRotation, Vr, 0.0f,
-                    /*iasValid=*/ true,
-                    /*onGround=*/ false);
+        RegimeFadeState liftFade{};
 
-    // Both should be in the OnSpeed band region (~60-80%).  The
-    // exact numbers should differ very little (V² vs alpha agree at
-    // the StallWarn anchor by construction; the gap at typical Vr
-    // measures ~3 pp empirically with this calibration).  The 5 pp
-    // bound is empirically chosen with headroom — not a design
-    // constraint — to catch regime-transition regressions while
-    // tolerating future small calibration tweaks.
-    check(std::fabs(preLift.percentLiftPct - postLift.percentLiftPct) < 5.0f,
-          "regime transition at Vr is < 5 percentage points "
-          "(V² and alpha agree near the OnSpeed band)");
+        // Last on-ground frame: V² regime.  Establishes prevDisplayedPct.
+        DisplayBuildInputs preLift{};
+        FillPercentLift(preLift,
+                        typicalAoaAtRotation, Vr, 0.0f,
+                        /*iasValid=*/ true,
+                        /*onGround=*/ true,
+                        liftFade);
+        const float lastOnGround = preLift.percentLiftPct;
+
+        // First in-flight frame: onGround flips.  Displayed value must
+        // equal the previous frame's exactly — the crossfade absorbs
+        // the V²-vs-alpha step on this tick.
+        DisplayBuildInputs postLift{};
+        FillPercentLift(postLift,
+                        typicalAoaAtRotation, Vr, 0.0f,
+                        /*iasValid=*/ true,
+                        /*onGround=*/ false,
+                        liftFade);
+        check(nearly(postLift.percentLiftPct, lastOnGround, 0.1f),
+              "liftoff frame: pct is continuous with last on-ground frame "
+              "(crossfade absorbs the V²-vs-alpha step exactly)");
+
+        // Successive frames: alpha-mode reading slowly emerges as the
+        // latched delta decays linearly to zero.  After kRegimeFadeFrames
+        // frames the fade is complete and the value matches pure alpha.
+        DisplayBuildInputs alphaOnly{};
+        RegimeFadeState noFade{};      // never-flipped state for a clean
+                                       // pure-alpha-mode reading
+        FillPercentLift(alphaOnly,
+                        typicalAoaAtRotation, Vr, 0.0f,
+                        /*iasValid=*/ true,
+                        /*onGround=*/ false,
+                        noFade);
+        const float pureAlpha = alphaOnly.percentLiftPct;
+
+        // Run the fade out and confirm the trajectory:
+        //   - monotone toward pureAlpha (no overshoot, no wiggle)
+        //   - lands within 0.1 pp of pureAlpha by frame
+        //     kRegimeFadeFrames + 1
+        float prev = postLift.percentLiftPct;
+        for (int i = 1; i < kRegimeFadeFrames + 2; ++i) {
+            DisplayBuildInputs f{};
+            FillPercentLift(f,
+                            typicalAoaAtRotation, Vr, 0.0f,
+                            /*iasValid=*/ true,
+                            /*onGround=*/ false,
+                            liftFade);
+            const float curr = f.percentLiftPct;
+            // Monotone in the direction of the step (no wiggle).
+            const bool stepUp = (pureAlpha > lastOnGround);
+            if (stepUp) {
+                check(curr >= prev - 0.001f,
+                      "fade trajectory is monotone non-decreasing");
+            } else {
+                check(curr <= prev + 0.001f,
+                      "fade trajectory is monotone non-increasing");
+            }
+            prev = curr;
+        }
+        check(nearly(prev, pureAlpha, 0.5f),
+              "fade settles to pure alpha-mode within ~1 frame of "
+              "kRegimeFadeFrames");
+    }
 
     // --------------------------------------------------------------
     // 7. Sentinel iVs1G == -1 ("user explicitly disabled"): on-ground
@@ -261,12 +331,14 @@ int main()
     // --------------------------------------------------------------
     iVs1G = -1;
     DisplayBuildInputs disabled{};
+    fade = {};
     FillPercentLift(disabled,
                     /*liveAoaDeg=*/      7.0f,
                     /*liveIasKt=*/       40.0f,
                     /*flapHandleRatio=*/ 0.0f,
                     /*iasValid=*/        true,
-                    /*onGround=*/        true);
+                    /*onGround=*/        true,
+                    fade);
     // Alpha formula at 7° with iasValid=true returns a real percent
     // around the LDmax anchor.  Specifically NOT the V² number.
     check(disabled.percentLiftPct > 30.0f && disabled.percentLiftPct < 70.0f,
@@ -331,13 +403,14 @@ int main()
 
         float minPct =  1e9f;
         float maxPct = -1e9f;
+        RegimeFadeState stickyFade{};
         // Alternate raw input 30 times.  Each call uses the debounced
         // result (stuck true), so percent should be stable per V²
         // formula at constant (Vs, V).
         for (int i = 0; i < 30; ++i) {
             const bool dbg = DebounceOnGround(i & 1 ? false : true, st);
             DisplayBuildInputs frame{};
-            FillPercentLift(frame, 4.0f, 70.0f, 0.0f, true, dbg);
+            FillPercentLift(frame, 4.0f, 70.0f, 0.0f, true, dbg, stickyFade);
             if (frame.percentLiftPct < minPct) minPct = frame.percentLiftPct;
             if (frame.percentLiftPct > maxPct) maxPct = frame.percentLiftPct;
         }
@@ -360,22 +433,33 @@ int main()
     // --------------------------------------------------------------
     using onspeed_xplane::indexer::MaybeSynthesizeAoaFromVSquared;
 
-    // Off the ground: V² regime not active, returns NaN so the
-    // caller falls back to raw alpha.
+    // Helper for the audio-path tests: most of them don't trigger a
+    // regime flip, so liveAoaDeg and fadeState are inert.  Use a
+    // representative body-angle AoA and a fresh fadeState per call.
+    const float kProbeAoa = 4.0f;
+
+    // Off the ground (no prior flip): V² regime not active and no fade
+    // tail, returns NaN so the caller falls back to raw alpha.
     {
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/70.0f,
+                            kProbeAoa,
                             /*iasValid=*/ true,
-                            /*onGround=*/ false);
+                            /*onGround=*/ false,
+                            st);
         check(std::isnan(r), "off-ground returns NaN (fall back to raw alpha)");
     }
 
     // On the ground but iasValid=false (below mute floor): NaN.
     {
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/10.0f,
+                            kProbeAoa,
                             /*iasValid=*/ false,
-                            /*onGround=*/ true);
+                            /*onGround=*/ true,
+                            st);
         check(std::isnan(r), "iasValid=false on the ground returns NaN");
     }
 
@@ -384,10 +468,13 @@ int main()
     // This is the alignment property that keeps audio cues at the
     // same band boundaries the indicator shows.
     {
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/60.0f,   // V == Vs
+                            kProbeAoa,
                             /*iasValid=*/ true,
-                            /*onGround=*/ true);
+                            /*onGround=*/ true,
+                            st);
         check(std::isfinite(r), "V²-active V==Vs returns finite AOA");
         check(r > 0.0f && r < fALPHASTALL,
               "V²-active V==Vs returns AOA in (0, alpha_stall)");
@@ -402,10 +489,13 @@ int main()
     // V > Vs (post-rotation regime): synthesized AOA drops below
     // fSTALLWARNAOA, into the OnSpeed band.
     {
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/80.0f,   // 1.33·Vs
+                            kProbeAoa,
                             /*iasValid=*/ true,
-                            /*onGround=*/ true);
+                            /*onGround=*/ true,
+                            st);
         check(std::isfinite(r), "V²-active V>Vs returns finite AOA");
         check(r < fSTALLWARNAOA,
               "V>Vs synthesized AOA drops below StallWarn");
@@ -418,28 +508,99 @@ int main()
     // This is the takeoff-roll case the audio synthesis was added
     // to fix — silent before, audible "near stall" tones now.
     {
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/30.0f,   // 0.5·Vs, well below
+                            kProbeAoa,
                             /*iasValid=*/ true,
-                            /*onGround=*/ true);
+                            /*onGround=*/ true,
+                            st);
         check(std::isfinite(r), "V²-active V<<Vs returns finite AOA");
         check(r > fSTALLWARNAOA,
               "V<<Vs synthesized AOA exceeds StallWarn (saturated)");
     }
 
     // iVs1G == 0 (no Vs known): V² formula declines, returns NaN
-    // so the audio path falls back to raw alpha.  Same fallback as
-    // the indicator's FillPercentLift uses.
+    // so the audio path falls back to raw alpha (no fade either).
     {
         const int savedVs = iVs1G;
         iVs1G = 0;
+        RegimeFadeState st{};
         const float r = MaybeSynthesizeAoaFromVSquared(
                             /*liveIasKt=*/60.0f,
+                            kProbeAoa,
                             /*iasValid=*/ true,
-                            /*onGround=*/ true);
+                            /*onGround=*/ true,
+                            st);
         check(std::isnan(r),
               "iVs1G==0 on-ground returns NaN (alpha-path fallback)");
         iVs1G = savedVs;
+    }
+
+    // -----------------------------------------------------------------
+    // 11. Audio-path crossfade: after liftoff (regime flip on→off), the
+    //     synthesized return value smoothly tracks the indicator-side
+    //     fade.  Without this, audio would snap to raw alpha at the
+    //     same moment the indicator is mid-crossfade — tone trigger
+    //     would jump regions while the visual is still ramping.
+    // -----------------------------------------------------------------
+    {
+        using onspeed_xplane::indexer::kRegimeFadeFrames;
+        RegimeFadeState st{};
+
+        // Last on-ground frame at V=Vr=70, body angle near OnSpeedSlow.
+        // V² active, returns a synthesized AoA whose pct sits in the
+        // OnSpeed band.
+        const float prePct = [&]{
+            const float r = MaybeSynthesizeAoaFromVSquared(
+                                /*liveIasKt=*/70.0f,
+                                /*liveAoaDeg=*/9.0f,
+                                /*iasValid=*/  true,
+                                /*onGround=*/  true,
+                                st);
+            check(std::isfinite(r),
+                  "pre-liftoff: V² synth returns finite AoA");
+            // Convert back to pct for an apples-to-apples compare with
+            // the post-flip fade trajectory.
+            return (r - 0.0f) / (fALPHASTALL - 0.0f) * 100.0f;
+        }();
+
+        // First in-flight frame: onGround flips.  V² goes NaN but the
+        // fade kicks in — function returns a blended AoA whose pct
+        // equals the previous frame's exactly.
+        const float postPct = [&]{
+            const float r = MaybeSynthesizeAoaFromVSquared(
+                                /*liveIasKt=*/70.0f,
+                                /*liveAoaDeg=*/9.0f,
+                                /*iasValid=*/  true,
+                                /*onGround=*/  false,
+                                st);
+            check(std::isfinite(r),
+                  "first-in-flight: fade keeps AoA finite (not NaN)");
+            return (r - 0.0f) / (fALPHASTALL - 0.0f) * 100.0f;
+        }();
+        check(nearly(postPct, prePct, 0.1f),
+              "audio AoA pct is continuous across liftoff (no snap)");
+
+        // Drain the fade and confirm we end up exactly at the raw-alpha
+        // value (the inversion of liveAoaDeg=9° through MakeFlapCfg).
+        float lastFiniteR = 0.0f;
+        bool  sawNaN      = false;
+        for (int i = 0; i < kRegimeFadeFrames + 5; ++i) {
+            const float r = MaybeSynthesizeAoaFromVSquared(
+                                /*liveIasKt=*/70.0f,
+                                /*liveAoaDeg=*/9.0f,
+                                /*iasValid=*/  true,
+                                /*onGround=*/  false,
+                                st);
+            if (std::isnan(r)) sawNaN = true;
+            else               lastFiniteR = r;
+        }
+        check(sawNaN,
+              "post-fade frames return NaN once the fade tail completes "
+              "(caller falls back to raw alpha)");
+        check(nearly(lastFiniteR, 9.0f, 1.0f),
+              "fade settles to raw alpha (~9°) over the fade window");
     }
 
     if (failures == 0) {

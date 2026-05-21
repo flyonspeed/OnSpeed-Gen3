@@ -14,6 +14,8 @@
 
 #include <proto/DisplaySerial.h>
 
+#include <limits>
+
 namespace onspeed_xplane::indexer {
 
 // One-time dataref lookup.  Idempotent.  Called from indexer Init().
@@ -73,12 +75,16 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs();
 //     selects the V² path).
 // Mirrors the firmware contract pinned in onspeed_core
 // DisplayPctAnchors.h.
+// Forward-decl; struct is defined below.
+struct RegimeFadeState;
+
 void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      float liveAoaDeg,
                      float liveIasKt,
                      float flapHandleRatio,
                      bool  iasValid,
-                     bool  onGround);
+                     bool  onGround,
+                     RegimeFadeState& fadeState);
 
 // Synthesize a wing-AOA value the audio path can compare against the
 // f*AOA thresholds, derived from the V² percent rather than X-Plane's
@@ -98,11 +104,22 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
 // feeds this synthesized value into PlayAOATone in place of the raw
 // alpha dataref so audio cues track the indicator.
 //
-// Returns NaN when V² mode is not active — caller should use the raw
-// alpha dataref reading instead.
+// Returns NaN when V² mode is not active.
+//
+// At liftoff (onGround true → false transition) the function fades the
+// V²-derived synthetic AoA into the raw alpha reading over
+// kRegimeFadeFrames frames.  Returning NaN during that window would
+// cause an abrupt swap to alpha at the audio path, defeating the
+// indicator-side crossfade; instead we return a blended AoA whose
+// percent-of-stall position matches what FillPercentLift is showing.
+// Caller passes in the live alpha reading so we can do the blend; if
+// NaN is returned, caller should still fall back to raw alpha
+// (V² regime was never active in the first place).
 float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
+                                     float liveAoaDeg,
                                      bool  iasValid,
-                                     bool  onGround);
+                                     bool  onGround,
+                                     RegimeFadeState& fadeState);
 
 // Debounce filter for sim/flightmodel/failures/onground_any.
 //
@@ -136,6 +153,41 @@ struct OnGroundDebounceState {
 constexpr int kOnGroundHoldFrames = 5;
 
 bool DebounceOnGround(bool rawOnGround, OnGroundDebounceState& state);
+
+// Regime-transition crossfade.
+//
+// The on-ground V² formula and the in-flight alpha formula land at
+// slightly different percent-of-stall values at the moment of liftoff
+// (the V² anchor is stallWarnPct ≈ 92% while alpha extends to 100%,
+// and the two physical models can disagree by +5 pp at typical Vr for
+// small aircraft).  Without compensation the displayed percent steps
+// abruptly as `onground_any` flips false, which the M5 smoothing
+// cascade smears into a visible wiggle over the next ~10 frames.
+//
+// The crossfade absorbs the step by latching the V²-vs-alpha delta at
+// the moment of transition and decaying it to zero over
+// kRegimeFadeFrames frames.  Direction-agnostic — works for both
+// liftoff (on→off) and touchdown (off→on).
+//
+// `state` is the crossfade's persistent storage; the caller owns it.
+// FillPercentLift uses one instance for the indicator percent path;
+// MaybeSynthesizeAoaFromVSquared uses a separate instance for the
+// audio AoA path so the two fade independently.
+struct RegimeFadeState {
+    bool  prevOnGround    = false;   // last onGround we saw
+    float prevDisplayedPct = std::numeric_limits<float>::quiet_NaN();
+                                    // last frame's displayed pct, used as
+                                    // the "from" anchor when the regime
+                                    // flips on the next tick
+    float deltaPct        = 0.0f;    // signed offset latched at flip, in percent
+    int   framesRemaining = 0;       // countdown to 0
+};
+
+// Number of frames over which the regime-flip delta decays linearly
+// to zero.  Chosen to match the audio smoother depth
+// (iAoaMeanWindow=10) so the smoother's draining tail and the
+// crossfade ramp finish at roughly the same time.
+constexpr int kRegimeFadeFrames = 10;
 
 }  // namespace onspeed_xplane::indexer
 

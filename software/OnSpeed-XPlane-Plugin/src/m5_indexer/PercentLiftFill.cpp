@@ -91,10 +91,9 @@ constexpr float kAlpha0 = 0.0f;
 //     regime then flips to alpha as the gear unloads, where the
 //     reading becomes the honest alpha-based percent.
 //
-// The pilot's defense against the 7-point compression is the
-// alpha formula: as soon as `onground_any` flips false (rotation,
-// liftoff), the indicator switches to the alpha reading which is
-// anchored at literal stall.
+// The +5-6 pp step at the regime flip is absorbed by the crossfade
+// in FillPercentLift / MaybeSynthesizeAoaFromVSquared — see
+// AdvanceRegimeFade below.
 //
 // Returns NaN when iVs1G or V are non-positive — caller falls
 // back to the alpha-based formula in that case.
@@ -124,6 +123,61 @@ static float ComputeIasPercentLift(float liveIasKt,
     return pct;
 }
 
+// Advance the regime-fade crossfade state and return the fraction of
+// the latched delta to apply on this frame.
+//
+// Behavior:
+//   * No transition: returns whatever offset is still mid-decay (or 0
+//     if no fade is in progress).
+//   * onGround flip just occurred: latches delta = (last frame's
+//     displayed pct) − (this frame's incoming alpha-mode pct).  Adding
+//     +delta to incoming alpha on this frame reproduces what was shown
+//     last frame exactly, so the displayed value is continuous across
+//     the regime change.  delta decays linearly to zero over
+//     kRegimeFadeFrames frames.
+//   * If a second flip fires mid-fade (touch-and-go where the gear
+//     bounces in and out faster than the fade can complete), the new
+//     delta replaces the old one and the countdown resets.
+//
+// `incomingPct` is this frame's raw alpha-mode percent (the value we'd
+// be jumping to without compensation).  The function reads the prior
+// frame's displayed pct from `state.prevDisplayedPct` to compute the
+// step magnitude — caller does not need to track that itself.
+//
+// Returns the signed offset (in percent) the caller adds to
+// `incomingPct` for this frame to keep continuity.
+static float AdvanceRegimeFade(RegimeFadeState& state,
+                               bool             onGround,
+                               float            incomingPct)
+{
+    const bool flipped = (onGround != state.prevOnGround);
+    state.prevOnGround = onGround;
+
+    if (flipped
+        && std::isfinite(state.prevDisplayedPct)
+        && std::isfinite(incomingPct)) {
+        // Latch: what was on screen last frame minus what we'd jump to
+        // this frame.  Adding +delta to incomingPct reproduces the
+        // previous frame's reading on frame 0 of the fade.
+        state.deltaPct        = state.prevDisplayedPct - incomingPct;
+        state.framesRemaining = kRegimeFadeFrames;
+    }
+
+    if (state.framesRemaining <= 0) {
+        state.framesRemaining = 0;
+        state.deltaPct        = 0.0f;
+        return 0.0f;
+    }
+
+    // Linear decay: frame 0 of the fade (just-latched) returns the full
+    // delta; frame kRegimeFadeFrames-1 returns 1/kRegimeFadeFrames of
+    // it; the kRegimeFadeFrames'th call returns 0.
+    const float frac = static_cast<float>(state.framesRemaining)
+                       / static_cast<float>(kRegimeFadeFrames);
+    --state.framesRemaining;
+    return state.deltaPct * frac;
+}
+
 // Synthesize a wing-AOA value the audio path can compare against the
 // f*AOA thresholds, derived from the V² percent rather than X-Plane's
 // `sim/flightmodel/position/alpha`.
@@ -144,31 +198,59 @@ static float ComputeIasPercentLift(float liveIasKt,
 //   pct = (alpha - alpha_0) / (alpha_stall - alpha_0) * 100
 //   alpha = alpha_0 + (pct/100) * (alpha_stall - alpha_0)
 //
-// where alpha_0 / alpha_stall are MakeFlapCfg's synthetic anchors (the
-// same ones FillPercentLift uses).  Feed the synthesized AOA to
-// PlayAOATone, which compares against fLDMAXAOA / fONSPEEDFAST /
-// fONSPEEDSLOW / fSTALLWARN — and now produces tones consistent with
-// what the indicator shows.
+// At the moment of regime flip, a crossfade ramps the synthesized AoA
+// into the raw alpha reading over kRegimeFadeFrames frames so the
+// audio path tracks the indicator's smoothed handoff.  See
+// AdvanceRegimeFade.
 //
-// Returns NaN when V² mode is not active for any reason — caller
-// falls back to the raw alpha dataref reading.
+// Returns NaN only when V² mode was never active (neither on-ground nor
+// fading): caller falls back to the raw alpha dataref reading.  During
+// the fade window we always return a finite blended AoA — even though
+// onGround is false — so the caller doesn't snap to raw alpha
+// mid-fade.
 float MaybeSynthesizeAoaFromVSquared(float liveIasKt,
+                                     float liveAoaDeg,
                                      bool  iasValid,
-                                     bool  onGround)
+                                     bool  onGround,
+                                     RegimeFadeState& fadeState)
 {
-    if (!(onGround && iasValid)) {
-        return std::numeric_limits<float>::quiet_NaN();
-    }
     const auto flap = MakeFlapCfg();
+    const float alphaStall = fALPHASTALL;
+    const float scaleDeg   = alphaStall - kAlpha0;
+
+    // Compute the V²-mode AoA (NaN if V² regime not viable this frame)
+    // and the alpha-mode AoA (always defined, just pass-through with
+    // iasValid honored).  Latch the delta between them at the regime
+    // flip.
     const float stallWarnPct = onspeed::aoa::ComputePercentLift(
         fSTALLWARNAOA, flap, true);
-    const float pct = ComputeIasPercentLift(liveIasKt, stallWarnPct);
-    if (!std::isfinite(pct)) {
-        return std::numeric_limits<float>::quiet_NaN();
+    const float v2Pct = (onGround && iasValid)
+        ? ComputeIasPercentLift(liveIasKt, stallWarnPct)
+        : std::numeric_limits<float>::quiet_NaN();
+    const float alphaPct = onspeed::aoa::ComputePercentLift(
+        liveAoaDeg, flap, iasValid);
+
+    // Drive the crossfade off the incoming (this-frame active) pct,
+    // mirroring FillPercentLift's pct-space fade so audio and indicator
+    // share the same handoff timing.
+    const bool  v2Active    = std::isfinite(v2Pct);
+    const float incomingPct = v2Active ? v2Pct : alphaPct;
+    const float fadeOffsetPct = AdvanceRegimeFade(
+        fadeState, onGround, incomingPct);
+
+    // Effective displayed-equivalent pct this frame.
+    float pct = incomingPct + fadeOffsetPct;
+    if (pct < 0.0f)  pct = 0.0f;
+    if (pct > 99.9f) pct = 99.9f;
+    fadeState.prevDisplayedPct = pct;
+
+    // V² regime active OR fade in progress: emit synthetic AoA.
+    if (v2Active || fadeState.framesRemaining > 0 || fadeOffsetPct != 0.0f) {
+        return kAlpha0 + (pct / 100.0f) * scaleDeg;
     }
-    const float alpha0     = kAlpha0;
-    const float alphaStall = fALPHASTALL;
-    return alpha0 + (pct / 100.0f) * (alphaStall - alpha0);
+    // Otherwise V² never applied and there's no fade tail; caller uses
+    // raw alpha dataref as before.
+    return std::numeric_limits<float>::quiet_NaN();
 }
 
 void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
@@ -176,7 +258,8 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
                      float liveIasKt,
                      float flapHandleRatio,
                      bool  iasValid,
-                     bool  onGround)
+                     bool  onGround,
+                     RegimeFadeState& fadeState)
 {
     // Percent-lift derivation.  Uses the plugin's four AOA setpoints
     // plus alpha_0/alpha_stall approximations from MakeFlapCfg.
@@ -231,20 +314,37 @@ void FillPercentLift(onspeed::proto::DisplayBuildInputs& in,
     // in only once the airplane crosses the user's mute floor —
     // which happens during the takeoff roll and continues smoothly
     // through Vr into the alpha regime after liftoff.
-    float livePct = std::numeric_limits<float>::quiet_NaN();
-    if (onGround && iasValid) {
-        livePct = ComputeIasPercentLift(
-            liveIasKt, static_cast<float>(in.stallWarnPctLift));
-    }
-    if (!std::isfinite(livePct)) {
-        // In flight, or on-ground with no Vs configured (iVs1G == 0
-        // "auto-no-data" or iVs1G == -1 "disabled"), or on-ground
-        // below the mute floor.  Use the firmware-shared alpha
-        // formula.  Same gate the firmware applies: iasValid false
-        // returns 0.
-        livePct = onspeed::aoa::ComputePercentLift(liveAoaDeg, flap, iasValid);
-    }
+    // Compute both regimes' percents this frame so the crossfade has
+    // the alpha value to fade *into* even while V² is the active reading
+    // (and vice versa post-flip).
+    const float v2Pct = (onGround && iasValid)
+        ? ComputeIasPercentLift(liveIasKt,
+                                static_cast<float>(in.stallWarnPctLift))
+        : std::numeric_limits<float>::quiet_NaN();
+    // Alpha formula honors iasValid the same way the firmware does
+    // (below the mute floor returns 0).
+    const float alphaPct = onspeed::aoa::ComputePercentLift(
+        liveAoaDeg, flap, iasValid);
+
+    // The "incoming" reading the crossfade biases toward: V² when V²
+    // is the active regime this frame, alpha otherwise.  At the moment
+    // of a flip from on→off ground, v2Pct goes from finite to NaN, so
+    // incomingPct goes from V² to alpha — and AdvanceRegimeFade latches
+    // the prior frame's displayed pct (still the V² value) minus this
+    // frame's incoming alpha, producing the step we want to absorb.
+    const bool  v2Active    = std::isfinite(v2Pct);
+    const float incomingPct = v2Active ? v2Pct : alphaPct;
+    const float fadeOffsetPct = AdvanceRegimeFade(
+        fadeState, onGround, incomingPct);
+
+    float livePct = incomingPct + fadeOffsetPct;
+    // Keep within the same [0, 99.9] envelope ComputeIasPercentLift
+    // clamps to, so a fade offset can't push past 100 visually.
+    if (livePct < 0.0f)  livePct = 0.0f;
+    if (livePct > 99.9f) livePct = 99.9f;
     in.percentLiftPct = livePct;
+    // Remember for the next frame's potential flip.
+    fadeState.prevDisplayedPct = livePct;
 
     // Visual L/Dmax pip: lerp clean→fullflap by flap-handle ratio,
     // where the fullflap target is the bottom-half-of-donut anchor

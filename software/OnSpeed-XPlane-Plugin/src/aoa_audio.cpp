@@ -2358,6 +2358,12 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
     // CheckAOAAndPlayTone runs on the X-Plane flight-loop thread.
     static onspeed_xplane::indexer::OnGroundDebounceState
         s_onGroundDebounce{};
+    // Audio-side crossfade state, independent of the indicator's
+    // (BuildInputsFromDatarefs owns its own).  Both run on the same
+    // flight-loop thread and consume the same debounced onGround value,
+    // so the two fades start on the same tick and complete in lockstep.
+    static onspeed_xplane::indexer::RegimeFadeState
+        s_audioFade{};
     const float fIas      = XPLMGetDataf(iasDataRef);
     const bool  iasValid  = (iMuteAudioUnderIAS == 0)
                             || (fIas >= iMuteAudioUnderIAS);
@@ -2365,13 +2371,29 @@ float CheckAOAAndPlayTone(float inElapsedSinceLastCall,
                               && XPLMGetDatai(onGroundAnyDataRef) != 0;
     const bool  onGround = onspeed_xplane::indexer::DebounceOnGround(
                               rawOnGround, s_onGroundDebounce);
+
+    // Flush the AOA smoother window the instant the debounced regime
+    // flips.  Without this, the median+mean cascade still contains
+    // up to (iAoaMedianWindow + iAoaMeanWindow) frames of pre-flip
+    // input — V²-synth degrees on liftoff, or raw alpha on touchdown —
+    // and drains them over ~200-330 ms.  The visible result is a
+    // smear that competes with the crossfade ramp.  Flushing means
+    // the smoother starts fresh on the post-flip regime's input, so
+    // the crossfade alone owns the transition shape.
+    static bool s_prevOnGroundForFlush = false;
+    if (onGround != s_prevOnGroundForFlush) {
+        if (aoaMedian) aoaMedian->clear();
+        if (aoaMean)   aoaMean->clear();
+        s_prevOnGroundForFlush = onGround;
+    }
+
     g_DebouncedOnGround = onGround;   // shared with the indexer's Tick
+    const float rawAoa    = XPLMGetDataf(aoaDataRef);
     const float synthAoa  = onspeed_xplane::indexer::
                             MaybeSynthesizeAoaFromVSquared(
-                                fIas, iasValid, onGround);
-    const float aoa = std::isfinite(synthAoa)
-                        ? synthAoa
-                        : XPLMGetDataf(aoaDataRef);
+                                fIas, rawAoa, iasValid, onGround,
+                                s_audioFade);
+    const float aoa = std::isfinite(synthAoa) ? synthAoa : rawAoa;
     PlayAOATone(aoa, inElapsedSinceLastCall);
 
 #ifdef ENABLE_M5_INDEXER
