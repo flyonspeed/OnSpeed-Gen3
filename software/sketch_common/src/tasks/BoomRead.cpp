@@ -50,8 +50,11 @@ void BoomReadTask(void *pvParams)
     // xTaskNotifyGive(this task) every periodUs.  Block on
     // ulTaskNotifyTake — same shape as EfisReadTask's synth branch.
     // Loops/s on the PERF report reads as the actual frame rate.
+    // 1-second watchdog timeout against esp_timer start-failure
+    // (see EfisRead.cpp for rationale).
+    constexpr TickType_t kSynthWatchdog = pdMS_TO_TICKS(1000);
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ulTaskNotifyTake(pdTRUE, kSynthWatchdog);
 
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::BoomRead,

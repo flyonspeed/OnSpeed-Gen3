@@ -79,18 +79,31 @@
 class SyntheticStream : public Stream {
 public:
     // Single-frame variant — for VN-300 and Boom. periodUs is the
-    // emission period in microseconds.
-    SyntheticStream(const onspeed::test_frames::Frame& frame, uint32_t periodUs)
+    // emission period in microseconds.  timerName is shown by
+    // esp_timer_dump() — pass a distinct name per instance so two
+    // streams in the same build don't collide.
+    SyntheticStream(const onspeed::test_frames::Frame& frame, uint32_t periodUs,
+                    const char* timerName = "SynthEmit")
         : frames_(&frame),
           frameCount_(1),
-          periodUs_(periodUs) {}
+          periodUs_(periodUs),
+          timerName_(timerName),
+          // Start at frameCount_-1 so the first emit's `(idx+1) % count`
+          // wraps to 0 and serves frames in declared order.  Matters for
+          // Skyview, which alternates !1 ADAHRS (frames[0]) and !3 EMS
+          // (frames[1]).
+          frameIdx_(frameCount_ - 1) {}
 
-    // Multi-frame variant — for Skyview alternating !1 / !3.
+    // Multi-frame variant — for Skyview alternating !1 / !3.  Same
+    // first-frame-zero invariant as the single-frame variant.
     SyntheticStream(const onspeed::test_frames::Frame* frames,
-                    std::size_t frameCount, uint32_t periodUs)
+                    std::size_t frameCount, uint32_t periodUs,
+                    const char* timerName = "SynthEmit")
         : frames_(frames),
           frameCount_(frameCount),
-          periodUs_(periodUs) {}
+          periodUs_(periodUs),
+          timerName_(timerName),
+          frameIdx_(frameCount_ - 1) {}
 
     // Register the consumer task that should be woken (xTaskNotifyGive)
     // when the cadence timer fires. Must be called BEFORE Start(). The
@@ -110,7 +123,13 @@ public:
             // dispatcher task, NOT in ISR context — safe to call xTaskNotifyGive
             // without the FromISR variant.
             .dispatch_method = ESP_TIMER_TASK,
-            .name            = "SynthEmit",
+            .name            = timerName_,
+            // skip_unhandled_events controls light-sleep behaviour only —
+            // whether a periodic timer that came due during sleep fires
+            // once on wake or has all queued invocations replayed.  We
+            // never call esp_light_sleep_start, so this flag is a no-op
+            // for us; either value is fine.  Left at false to match the
+            // IDF struct default.
             .skip_unhandled_events = false,
         };
         if (esp_timer_create(&args, &timer_) != ESP_OK) {
@@ -205,9 +224,13 @@ private:
     const onspeed::test_frames::Frame* frames_;
     std::size_t  frameCount_;
     uint32_t     periodUs_;
+    const char*  timerName_;
 
-    // Byte state — written only on the consumer task.
-    std::size_t  frameIdx_       = 0;
+    // Byte state — written only on the consumer task.  frameIdx_ is
+    // initialised by the constructor to frameCount_-1; on the first
+    // loadNextFrameIfPending() the (idx+1)%count step wraps to 0 so
+    // frames[0] is served first.
+    std::size_t  frameIdx_;
     std::size_t  cursor_         = 0;
     std::size_t  bytesRemaining_ = 0;
     uint32_t     framesEmitted_  = 0;

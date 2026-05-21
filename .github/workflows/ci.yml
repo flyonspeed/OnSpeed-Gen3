@@ -42,6 +42,13 @@ jobs:
             env: esp32s3-v4b
           - variant: perf-synth
             env: esp32s3-v4p-perf-synth
+          # Exercise one of the rate-sweep envs so a syntax error in the
+          # synth-rate envs (esp32s3-v4p-perf-synth-100hz/-200hz/-400hz/-500hz
+          # in platformio.ini) is caught by CI. The four envs are identical
+          # except for ONSPEED_SYNTH_VN300_PERIOD_US, so one representative
+          # build is enough.
+          - variant: perf-synth-200hz
+            env: esp32s3-v4p-perf-synth-200hz
 
     steps:
       - name: Checkout code

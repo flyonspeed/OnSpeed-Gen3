@@ -118,15 +118,19 @@ void EfisReadTask(void *pvParams)
     // Synth path: SyntheticStream's esp_timer calls
     // xTaskNotifyGive(this task) every periodUs.  We block on
     // ulTaskNotifyTake, mirroring the real-hardware IDF event-queue
-    // wake-on-data shape below.  No fixed poll period — Loops/s on the
-    // PERF report reads as the actual frame rate.
+    // wake-on-data shape below.  Loops/s on the PERF report reads
+    // as the actual frame rate.
     //
-    // setup() in the .ino calls SetConsumerTask + Start on the synth
-    // stream *after* spawning this task, so the timer is armed before
-    // the first ulTaskNotifyTake here can return.  The first iteration
-    // may block briefly waiting for the first emit.
+    // The 1-second timeout is a watchdog against SyntheticStream's
+    // esp_timer failing to start (resource exhaustion at boot, etc.).
+    // On a healthy box the next emit notify always arrives within
+    // periodUs (<= 20 ms at every supported rate) and the wait
+    // short-circuits.  Without the timeout, a Start() failure would
+    // leave this task blocked forever consuming no CPU but also
+    // serving no data.
+    constexpr TickType_t kSynthWatchdog = pdMS_TO_TICKS(1000);
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        ulTaskNotifyTake(pdTRUE, kSynthWatchdog);
 
         onspeed::util::perf::PerfLoop perfGuard(
             onspeed::util::perf::TaskId::EfisRead,

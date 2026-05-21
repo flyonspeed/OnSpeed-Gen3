@@ -195,7 +195,8 @@ void setup()
     static SyntheticStream s_synthEfisStream(
         onspeed::test_frames::SkyviewFrames(),
         onspeed::test_frames::kSkyviewFrameCount,
-        onspeed::test_frames::kSkyviewPeriodUs);
+        onspeed::test_frames::kSkyviewPeriodUs,
+        "SynthEfisSky");
     constexpr auto kSynthEfisType = EfisSerialPort::EnDynonSkyview;
     constexpr const char* kSynthEfisName = "skyview";
   #else
@@ -213,13 +214,15 @@ void setup()
   #endif
     static SyntheticStream s_synthEfisStream(
         onspeed::test_frames::Vn300Frame(),
-        ONSPEED_SYNTH_VN300_PERIOD_US);
+        ONSPEED_SYNTH_VN300_PERIOD_US,
+        "SynthEfisVn");
     constexpr auto kSynthEfisType = EfisSerialPort::EnVN300;
     constexpr const char* kSynthEfisName = "vn300";
   #endif
     static SyntheticStream s_synthBoomStream(
         onspeed::test_frames::BoomFrame(),
-        onspeed::test_frames::kBoomPeriodUs);
+        onspeed::test_frames::kBoomPeriodUs,
+        "SynthBoom");
     g_EfisSerial.InitWithStream(kSynthEfisType, &s_synthEfisStream);
     g_BoomSerial.Init(&s_synthBoomStream);
     g_Config.bReadEfisData = true;
