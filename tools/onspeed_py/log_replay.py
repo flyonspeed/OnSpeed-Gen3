@@ -49,11 +49,11 @@ NaN — matching the old Python behavior where empty cells propagated
 as NaN. When `ias_valid=true`, `ias` and `aoa` are taken from
 `ias_kt` and `aoa_deg` respectively.
 
-**`nan` in JSONL**: the C++ emits literal `nan` (not `null`) for
-non-finite floats such as `ias_kt` when IAS is invalid. Standard
-JSON does not allow bare `nan`. The wrapper preprocesses each line
-before calling `json.loads`. Long-term fix: emit `null` in C++ and
-map `null` to `float('nan')` here. Tracked in Issue #499.
+**non-finite floats in JSONL**: the C++ emits standard JSON `null`
+for non-finite values (NaN, +inf, -inf — typically `ias_kt` when IAS
+is invalid). The wrapper maps `null` (Python `None`) back to
+`float('nan')` post-parse so downstream callers see NaN, matching the
+legacy CSV pipeline. Closed via Issue #499.
 """
 
 from __future__ import annotations
@@ -61,7 +61,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import re
 import subprocess
 import warnings
 from pathlib import Path
@@ -144,32 +143,15 @@ def _log_to_wire_lateral_g(body_frame_g: float) -> float:
 # JSONL parsing with nan-tolerance
 # ---------------------------------------------------------------------------
 
-# Match bare nan, -nan, NaN (any case), inf, -inf, INFINITY, etc.
-# libc printf() output varies by platform: Linux emits lowercase "nan",
-# macOS can emit "-nan" or mixed-case "NaN"; isinf() values may appear
-# as "inf" or "infinity".
-# See Issue #499 — once host_main emits null directly this regex can
-# simplify or be deleted.
-_NAN_INF_RE = re.compile(r':\s*-?(?i:nan|inf(?:inity)?)\b')
-
-
 def _parse_jsonl_with_nan(line: str) -> dict:
-    """Parse a JSONL row, tolerating C++-style non-finite float output.
+    """Parse a JSONL row from host_main; map JSON null → NaN.
 
-    The C++ host_main emits literal `nan` (or platform variants: `-nan`,
-    `NaN`, `inf`, `-inf`) for non-finite floats — e.g. `ias_kt` when IAS
-    is invalid. None of these are valid JSON tokens.  Pre-process: replace
-    any such token with `null`, then map null → NaN after parsing.
-
-    Long-term fix: have host_main.cpp emit `null` instead of these tokens
-    for non-finite floats. Tracked in Issue #499. This wrapper
-    pre-processing keeps the Python side self-contained until that lands.
+    host_main emits valid JSON null for non-finite floats (closed via
+    Issue #499 / host_main JsonFloat). Downstream callers (LiveSnapshot,
+    Optuna substrate) expect non-finite cells to surface as NaN to match
+    the legacy CSV-based pipeline. This helper does that one mapping.
     """
-    # Replace non-finite float literals with `null` so json.loads accepts
-    # the line.  Replacement is ': null' (with a space) to preserve the
-    # JSON value slot after the colon.
-    cleaned = _NAN_INF_RE.sub(': null', line)
-    obj = json.loads(cleaned)
+    obj = json.loads(line)
     # Map null (None in Python) back to NaN for any field that could be
     # legitimately non-finite (currently only ias_kt).
     return {k: (float('nan') if v is None else v) for k, v in obj.items()}

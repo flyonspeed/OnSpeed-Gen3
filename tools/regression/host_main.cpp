@@ -52,6 +52,7 @@
 //
 // Compiles under -Wall -Wextra -Werror -Wshadow -Wformat=2 (native env).
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -104,9 +105,33 @@ const char* ArgGet(int argc, const char* const* argv,
 // ---------------------------------------------------------------------------
 
 // Print a float in a way that's round-trippable at 4 decimal places.
+// Non-finite (NaN, +inf, -inf) emit as JSON `null` — `nan` / `inf`
+// are not valid JSON, and Python's json.loads rejects them. Closes #499.
 void JsonFloat(const char* key, float val, bool last = false)
 {
-    std::printf("  \"%s\": %.4f%s\n", key, static_cast<double>(val), last ? "" : ",");
+    const char* trail = last ? "" : ",";
+    if (std::isfinite(val)) {
+        std::printf("  \"%s\": %.4f%s\n", key, static_cast<double>(val), trail);
+    } else {
+        std::printf("  \"%s\": null%s\n", key, trail);
+    }
+}
+
+// Single-line JSONL field emitter — for the row-per-line emit paths
+// (ahrs_tone --output-format jsonl, replay --output-format jsonl).
+// Non-finite floats emit as `null` so the output is valid JSON.
+// Same null-on-non-finite rule as JsonFloat; format string is the
+// caller's responsibility (typically "%.4f" or "%.6f").
+static void JsonlField(const char* key, float val, const char* fmt,
+                       const char* trail = ",")
+{
+    if (std::isfinite(val)) {
+        std::printf("\"%s\":", key);
+        std::printf(fmt, static_cast<double>(val));
+        std::fputs(trail, stdout);
+    } else {
+        std::printf("\"%s\":null%s", key, trail);
+    }
 }
 
 void JsonInt(const char* key, int val, bool last = false)
@@ -769,26 +794,22 @@ int CmdAhrsTone(int argc, const char* const* argv)
                 out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
                 tone_freq_hz, tone_level);
         } else {
-            // JSONL: one JSON object per row
-            std::printf("{"
-                "\"ias_kt\":%.4f,"
-                "\"palt_ft\":%.4f,"
-                "\"oat_c\":%.4f,"
-                "\"pitch_deg\":%.4f,"
-                "\"roll_deg\":%.4f,"
-                "\"flight_path_deg\":%.4f,"
-                "\"derived_aoa_deg\":%.4f,"
-                "\"tas_mps\":%.4f,"
-                "\"kalman_alt_ft\":%.4f,"
-                "\"kalman_vsi_fpm\":%.4f,"
-                "\"earth_vert_g\":%.4f,"
-                "\"tone_freq_hz\":%.4f,"
-                "\"tone_level\":%d"
-                "}\n",
-                r.ias_kt, r.palt_ft, r.oat_c,
-                out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
-                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
-                tone_freq_hz, tone_level);
+            // JSONL: one JSON object per row. Non-finite floats emit
+            // as `null` so the output is valid JSON (closes #499).
+            std::fputs("{", stdout);
+            JsonlField("ias_kt",          r.ias_kt,          "%.4f");
+            JsonlField("palt_ft",         r.palt_ft,         "%.4f");
+            JsonlField("oat_c",           r.oat_c,           "%.4f");
+            JsonlField("pitch_deg",       out.pitchDeg,      "%.4f");
+            JsonlField("roll_deg",        out.rollDeg,       "%.4f");
+            JsonlField("flight_path_deg", out.flightPathDeg, "%.4f");
+            JsonlField("derived_aoa_deg", out.derivedAoaDeg, "%.4f");
+            JsonlField("tas_mps",         out.tasMps,        "%.4f");
+            JsonlField("kalman_alt_ft",   out.kalmanAltFt,   "%.4f");
+            JsonlField("kalman_vsi_fpm",  out.kalmanVsiFpm,  "%.4f");
+            JsonlField("earth_vert_g",    out.earthVertG,    "%.4f");
+            JsonlField("tone_freq_hz",    tone_freq_hz,      "%.4f");
+            std::printf("\"tone_level\":%d}\n", tone_level);
         }
     }
 
@@ -889,57 +910,35 @@ static void EmitCsvRow(const onspeed::replay::ReplayStepResult& r)
         r.dataMark);
 }
 
-// Emit one ReplayStepResult row in JSONL format.
+// Emit one ReplayStepResult row in JSONL format. Non-finite floats
+// emit as `null` so the output is valid JSON (closes #499).
 static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
 {
-    std::printf("{"
-        "\"ias_kt\":%.4f,"
-        "\"palt_ft\":%.4f,"
-        "\"ias_valid\":%s,"
-        "\"aoa_deg\":%.4f,"
-        "\"coeff_p\":%.4f,"
-        "\"flaps_pos\":%d,"
-        "\"flaps_index\":%d,"
-        "\"flaps_raw_adc\":%u,"
-        "\"flaps_raw_adc_present\":%s,"
-        "\"pitch_deg\":%.4f,"
-        "\"roll_deg\":%.4f,"
-        "\"flight_path_deg\":%.4f,"
-        "\"kalman_vsi_mps\":%.6f,"
-        "\"imu_fwd_g\":%.4f,"
-        "\"imu_lat_g\":%.4f,"
-        "\"imu_vert_g\":%.4f,"
-        "\"imu_roll_dps\":%.4f,"
-        "\"imu_pitch_dps\":%.4f,"
-        "\"imu_yaw_dps\":%.4f,"
-        "\"accel_lat_smoothed\":%.4f,"
-        "\"accel_vert_smoothed\":%.4f,"
-        "\"accel_fwd_smoothed\":%.4f,"
-        "\"data_mark\":%d"
-        "}\n",
-        static_cast<double>(r.iasKt),
-        static_cast<double>(r.paltFt),
-        r.iasValid ? "true" : "false",
-        static_cast<double>(r.aoa),
-        static_cast<double>(r.coeffP),
-        r.flapsPos,
-        r.flapsIndex,
-        static_cast<unsigned>(r.flapsRawAdc),
-        r.flapsRawAdcPresent ? "true" : "false",
-        static_cast<double>(r.pitchDeg),
-        static_cast<double>(r.rollDeg),
-        static_cast<double>(r.flightPathDeg),
-        static_cast<double>(r.kalmanVSI),
-        static_cast<double>(r.imuForwardG),
-        static_cast<double>(r.imuLateralG),
-        static_cast<double>(r.imuVerticalG),
-        static_cast<double>(r.imuRollRateDps),
-        static_cast<double>(r.imuPitchRateDps),
-        static_cast<double>(r.imuYawRateDps),
-        static_cast<double>(r.accelLatSmoothed),
-        static_cast<double>(r.accelVertSmoothed),
-        static_cast<double>(r.accelFwdSmoothed),
-        r.dataMark);
+    std::fputs("{", stdout);
+    JsonlField("ias_kt",                r.iasKt,             "%.4f");
+    JsonlField("palt_ft",               r.paltFt,            "%.4f");
+    std::printf("\"ias_valid\":%s,",   r.iasValid ? "true" : "false");
+    JsonlField("aoa_deg",               r.aoa,               "%.4f");
+    JsonlField("coeff_p",               r.coeffP,            "%.4f");
+    std::printf("\"flaps_pos\":%d,",    r.flapsPos);
+    std::printf("\"flaps_index\":%d,",  r.flapsIndex);
+    std::printf("\"flaps_raw_adc\":%u,", static_cast<unsigned>(r.flapsRawAdc));
+    std::printf("\"flaps_raw_adc_present\":%s,",
+                r.flapsRawAdcPresent ? "true" : "false");
+    JsonlField("pitch_deg",             r.pitchDeg,          "%.4f");
+    JsonlField("roll_deg",              r.rollDeg,           "%.4f");
+    JsonlField("flight_path_deg",       r.flightPathDeg,     "%.4f");
+    JsonlField("kalman_vsi_mps",        r.kalmanVSI,         "%.6f");
+    JsonlField("imu_fwd_g",             r.imuForwardG,       "%.4f");
+    JsonlField("imu_lat_g",             r.imuLateralG,       "%.4f");
+    JsonlField("imu_vert_g",            r.imuVerticalG,      "%.4f");
+    JsonlField("imu_roll_dps",          r.imuRollRateDps,    "%.4f");
+    JsonlField("imu_pitch_dps",         r.imuPitchRateDps,   "%.4f");
+    JsonlField("imu_yaw_dps",           r.imuYawRateDps,     "%.4f");
+    JsonlField("accel_lat_smoothed",    r.accelLatSmoothed,  "%.4f");
+    JsonlField("accel_vert_smoothed",   r.accelVertSmoothed, "%.4f");
+    JsonlField("accel_fwd_smoothed",    r.accelFwdSmoothed,  "%.4f");
+    std::printf("\"data_mark\":%d}\n",  r.dataMark);
 }
 
 int CmdReplay(int argc, const char* const* argv)
