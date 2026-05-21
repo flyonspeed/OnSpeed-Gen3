@@ -564,6 +564,7 @@ void ConsoleSerialIO::Read()
             else if (strncasecmp(szCmdToken, "TASKS", 5) == 0)
                 {
                 PrintTaskInfo(xTaskReadSensors);
+                PrintTaskInfo(xTaskReadImu);
                 PrintTaskInfo(xTaskAudioPlay);
                 PrintTaskInfo(xTaskWriteLog);
                 PrintTaskInfo(xTaskCheckSwitch);
@@ -572,6 +573,8 @@ void ConsoleSerialIO::Read()
                 PrintTaskInfo(xTaskLogReplay);
                 PrintTaskInfo(xTaskTestPot);
                 PrintTaskInfo(xTaskRangeSweep);
+                PrintTaskInfo(xTaskEfisRead);
+                PrintTaskInfo(xTaskBoomRead);
                 } // end TASKS
 
             // BOOTLOG

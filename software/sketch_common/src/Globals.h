@@ -103,6 +103,8 @@ EXTERN_INIT(TaskHandle_t             xTaskHousekeeping,  NULL)
 EXTERN_INIT(TaskHandle_t             xTaskLogReplay,     NULL)
 EXTERN_INIT(TaskHandle_t             xTaskTestPot,       NULL)
 EXTERN_INIT(TaskHandle_t             xTaskRangeSweep,    NULL)
+EXTERN_INIT(TaskHandle_t             xTaskEfisRead,      NULL)
+EXTERN_INIT(TaskHandle_t             xTaskBoomRead,      NULL)
 
 // Capacity of the data ring buffer. Allocated by xRingbufferCreateWithCaps()
 // in setup() and used by LogSensorCommitTask's PERF tick to compute the

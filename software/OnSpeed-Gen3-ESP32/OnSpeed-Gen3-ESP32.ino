@@ -27,6 +27,19 @@ Do a text search for comments starting with "////"
 #include <test_frames/SynthFrames.h>
 #endif
 
+#include "src/tasks/EfisRead.h"
+#include "src/tasks/BoomRead.h"
+
+#ifndef ONSPEED_SYNTH_SENSORS
+// In real-hardware builds, EfisRead.cpp owns the IdfUartStream that
+// replaces Serial2 for the EFIS UART.  Forward-declare its accessors
+// so setup() can install the driver and wire its Stream pointer into
+// g_EfisSerial before EfisReadTask is spawned.
+bool   EfisReadTaskInit();
+class  Stream;
+Stream* GetEfisStream();
+#endif
+
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
 #undef FILE_READ
@@ -208,11 +221,25 @@ void setup()
     g_pSynthEfisStream = &s_synthEfisStream;
     g_pSynthBoomStream = &s_synthBoomStream;
 #else
-    // There are a bunch of EFIS types so the EFIS object gets to
-    // setup its own hardware serial port
-    g_EfisSerial.Init(g_EfisSerial.enType,  &Serial2);
+    // Real-hardware build.  EFIS UART moves off Arduino HardwareSerial
+    // onto the IDF UART driver so EfisReadTask can wake on data via the
+    // event queue (see software/sketch_common/src/tasks/EfisRead.cpp).
+    // Serial2 is NOT touched here; uart_driver_install in EfisReadTaskInit
+    // takes exclusive ownership of UART_NUM_2.  If install fails (which
+    // would be a hardware bug), fall back to the legacy Serial2.begin
+    // path so the box still boots into a usable state.
+    if (EfisReadTaskInit()) {
+        g_EfisSerial.InitWithStream(g_EfisSerial.enType, GetEfisStream());
+    } else {
+        g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
+                      "EfisReadTaskInit failed; falling back to Serial2");
+        g_EfisSerial.Init(g_EfisSerial.enType, &Serial2);
+    }
 
-    // The M5 display and the boom get to share
+    // Serial1 is shared between boom (RX) and the M5 display (TX) —
+    // both still go through Arduino HardwareSerial since the IDF driver
+    // can't share a UART.  Boom moves to its own task (BoomReadTask)
+    // but keeps reading via Serial1.available()/read().
     uint32_t    SerialConfig = SerialConfig::SERIAL_8N1;
     Serial1.begin(115200, SerialConfig, kBoomRx, kDisplayTx, false);
 
@@ -373,6 +400,15 @@ void setup()
     xTaskCreatePinnedToCore(SwitchCheckTask,      "Check Switch",   5000,  NULL, 4, &xTaskCheckSwitch,   1);
     xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   4000,  NULL, 0, &xTaskHousekeeping,  1); // Heartbeat init needed 4 KB in v4.10
 
+    // EFIS + boom UART readers — pinned to Core 0 at priority 3.
+    // EfisRead blocks on the IDF UART event queue (wake-on-data) on
+    // real hardware, or polls a SyntheticStream in synth builds.
+    // BoomRead polls Serial1.available() at 5 ms cadence (Serial1 is
+    // shared with Display TX so we can't take exclusive IDF ownership).
+    // Stack sizes: 4 KB matches Display, plenty for the parser path.
+    xTaskCreatePinnedToCore(EfisReadTask,         "EFIS Read",      4000,  NULL, 3, &xTaskEfisRead,      0);
+    xTaskCreatePinnedToCore(BoomReadTask,         "Boom Read",      4000,  NULL, 3, &xTaskBoomRead,      0);
+
     //xTaskCreatePinnedToCore(TaskDummy,     "Dummy",     10000, NULL,              5, &xTaskDummy,     0);
 
     delay(100);
@@ -432,33 +468,16 @@ void loop()
     // function, again doing nothing. So do serial I/O the old fashioned way.
     // That is, in line with everything else that needs a chance to run.
 
-    // NOTE: no PerfLoop on loop() — Arduino's loopTask has no explicit
-    // sleep, so the wake-to-wake period is dominated by preemption from
-    // higher-priority tasks. A PerfLoop here measured ~11 ms/iter avg
-    // (almost all preemption) and rolled up to a misleading 98% CPU%.
-    // The honest cost lives in the inner subsystem scopes below
-    // (efis_read + boom_read).
-    //
-    // Bind the loopTask's ring explicitly so the EfisRead / BoomRead
-    // PerfScope events get recorded. Without this binding,
-    // PerfScope::ringForCurrentTask returns nullptr and the scopes are
-    // silent no-ops. bindCurrentTaskToRing is idempotent; the
-    // existing-entry hot path is one table walk.
-    onspeed::util::perf::bindCurrentTaskToRing(
-        onspeed::util::perf::TaskId::ArduinoLoop);
+    // Post-PR #609, loop() drives only g_ConsoleSerial.Read().  EFIS
+    // and boom UART drains moved to EfisReadTask / BoomReadTask on
+    // Core 0.  No PerfScope is opened from here today; the ring binding
+    // that the prior version installed is dropped (it served only to
+    // make the EFIS/Boom PerfScopes attributable, and those scopes
+    // moved with the work).  If a future caller opens a PerfScope from
+    // loop(), restore the bindCurrentTaskToRing(TaskId::ArduinoLoop)
+    // call here.
 
-//    readWifiSerial();
     g_ConsoleSerial.Read();
-    {
-        onspeed::util::perf::PerfScope guard(
-            onspeed::util::perf::ScopeId::EfisRead);
-        g_EfisSerial.Read();
-    }
-    {
-        onspeed::util::perf::PerfScope guard(
-            onspeed::util::perf::ScopeId::BoomRead);
-        g_BoomSerial.Read();
-    }
 
 #if 0
 
