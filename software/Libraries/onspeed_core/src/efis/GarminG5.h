@@ -42,6 +42,7 @@ public:
     GarminG5Parser() = default;
 
     void FeedByte(uint8_t b);
+    bool TryTakeFrame(EfisFrame& out);
     std::optional<EfisFrame> TakeFrame();
     void Reset();
 
@@ -49,9 +50,10 @@ private:
     static constexpr size_t kBufSize  = 256;
     static constexpr int    kFrameLen = 59;
 
-    char   buf_[kBufSize] = {};
-    int    bufLen_         = 0;
-    std::optional<EfisFrame> pending_;
+    char       buf_[kBufSize] = {};
+    int        bufLen_         = 0;
+    EfisFrame  pending_;
+    bool       pendingReady_   = false;
 
     void Decode();
 };

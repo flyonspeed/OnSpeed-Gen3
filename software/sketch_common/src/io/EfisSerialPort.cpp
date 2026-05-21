@@ -182,29 +182,39 @@ void EfisSerialPort::Read()
 
     static constexpr int kPacketSize = 512;
     int packetCount = 0;
+    bool anyByteSeen = false;
+
+    // Stack-allocated scratch frames — populated copy-free via
+    // TryTakeFrame() / TryTakeVn300Data(). Avoids the prior
+    // optional<EfisFrame>::TakeFrame() copy round-trip.
+    onspeed::EfisFrame      frame;
+    onspeed::efis::Vn300Data vnData;
 
     while (pSerial->available() && packetCount < kPacketSize)
     {
-        uint8_t b = static_cast<uint8_t>(pSerial->read());
-        lastReceivedEfisTime = millis();
+        const uint8_t b = static_cast<uint8_t>(pSerial->read());
         packetCount++;
+        anyByteSeen = true;
 
         parser_.FeedByte(b);
 
-        if (auto frame = parser_.TakeFrame())
+        if (parser_.TryTakeFrame(frame))
         {
-            applyFrame(*frame);
+            applyFrame(frame);
             uTimestamp = millis();
         }
 
-        if (enType == EnVN300)
+        if (enType == EnVN300 && parser_.TryTakeVn300Data(vnData))
         {
-            if (auto data = parser_.TakeVn300Data())
-            {
-                applyVn300Data(*data);
-            }
+            applyVn300Data(vnData);
         }
     }
+
+    // Update lastReceivedEfisTime ONCE per Read() rather than per byte —
+    // the value is only used for the "EFIS link alive" timeout check at
+    // ~Hz cadence; per-byte millis() calls add up at 400+ Hz packet rates.
+    if (anyByteSeen)
+        lastReceivedEfisTime = millis();
 }
 
 // ---------------------------------------------------------------------------
@@ -212,56 +222,50 @@ void EfisSerialPort::Read()
 void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
 {
     using onspeed::EfisSource;
+    namespace F = onspeed::EfisField;
 
-    // Each EfisFrame field defaults to NaN (see kEfisFieldAbsent). Parsers
-    // write only the fields they actually decoded this frame; everything
-    // else stays NaN. isfinite() tells us to apply or hold — there is no
-    // per-field sentinel value to track.
+    // Each parser sets EfisFrame::fieldsPresent bits for the fields it
+    // actually wrote this frame. Branching on an integer AND test is
+    // ~2-3x cheaper than std::isfinite() on a float and avoids the FPU.
+    // NaN sentinels remain in place as a fallback for any consumer that
+    // still tests std::isfinite() directly.
+    const uint32_t fp = frame.fieldsPresent;
 
-    if (std::isfinite(frame.iasKt))      suEfis.IAS         = frame.iasKt;
-    if (std::isfinite(frame.pitchDeg))   suEfis.Pitch       = frame.pitchDeg;
-    if (std::isfinite(frame.rollDeg))    suEfis.Roll        = frame.rollDeg;
-    if (std::isfinite(frame.headingDeg)) suEfis.Heading     = static_cast<int>(frame.headingDeg);
-    if (std::isfinite(frame.lateralG))   suEfis.LateralG    = frame.lateralG;
-    if (std::isfinite(frame.verticalG))  suEfis.VerticalG   = frame.verticalG;
-    if (std::isfinite(frame.aoaPercent)) suEfis.PercentLift = static_cast<int>(frame.aoaPercent);
-    if (std::isfinite(frame.paltFt))     suEfis.Palt        = static_cast<int>(frame.paltFt);
-    if (std::isfinite(frame.vsiFpm))     suEfis.VSI         = static_cast<int>(frame.vsiFpm);
-    if (std::isfinite(frame.tasKt))      suEfis.TAS         = frame.tasKt;
-    if (std::isfinite(frame.oatCelsius)) suEfis.OAT         = frame.oatCelsius;
+    if (fp & F::Ias)        suEfis.IAS         = frame.iasKt;
+    if (fp & F::Pitch)      suEfis.Pitch       = frame.pitchDeg;
+    if (fp & F::Roll)       suEfis.Roll        = frame.rollDeg;
+    if (fp & F::Heading)    suEfis.Heading     = static_cast<int>(frame.headingDeg);
+    if (fp & F::LateralG)   suEfis.LateralG    = frame.lateralG;
+    if (fp & F::VerticalG)  suEfis.VerticalG   = frame.verticalG;
+    if (fp & F::AoaPercent) suEfis.PercentLift = static_cast<int>(frame.aoaPercent);
+    if (fp & F::Palt)       suEfis.Palt        = static_cast<int>(frame.paltFt);
+    if (fp & F::Vsi)        suEfis.VSI         = static_cast<int>(frame.vsiFpm);
+    if (fp & F::Tas)        suEfis.TAS         = frame.tasKt;
+    if (fp & F::OatCelsius) suEfis.OAT         = frame.oatCelsius;
 
     // Engine fields (Dynon SkyView EMS and Garmin G3X EMS; absent on
     // non-EMS frames and on protocols that don't carry engine data).
-    // Same hold-last semantics as the airdata fields: non-finite ->
-    // skip, finite -> overwrite. The SD log writer in
-    // tasks/LogSensor.cpp reads these members directly into
-    // row.efisRpm / efisMap / efisFuelFlow / efisFuelRemaining /
-    // efisPercentPower.
-    if (std::isfinite(frame.rpm))              suEfis.RPM           = static_cast<int>(frame.rpm);
-    if (std::isfinite(frame.mapInchHg))        suEfis.MAP           = frame.mapInchHg;
-    if (std::isfinite(frame.fuelFlowGph))      suEfis.FuelFlow      = frame.fuelFlowGph;
-    if (std::isfinite(frame.fuelRemainingGal)) suEfis.FuelRemaining = frame.fuelRemainingGal;
-    if (std::isfinite(frame.percentPower))     suEfis.PercentPower  = static_cast<int>(frame.percentPower);
+    if (fp & F::Rpm)              suEfis.RPM           = static_cast<int>(frame.rpm);
+    if (fp & F::MapInchHg)        suEfis.MAP           = frame.mapInchHg;
+    if (fp & F::FuelFlowGph)      suEfis.FuelFlow      = frame.fuelFlowGph;
+    if (fp & F::FuelRemainingGal) suEfis.FuelRemaining = frame.fuelRemainingGal;
+    if (fp & F::PercentPower)     suEfis.PercentPower  = static_cast<int>(frame.percentPower);
 
-    // Copy time-of-day string ONLY when this frame actually carries one —
-    // matches the "hold last value" pattern used for every numeric field
-    // above. The SkyView alternates ADAHRS (has time) and EMS (no time)
-    // frames, so unconditional copy would clobber the value on every
-    // other frame.
+    // Copy time-of-day string ONLY when this frame actually carries one.
     if (frame.timeOfDayHms[0] != '\0')
         {
         strncpy(suEfis.szTime, frame.timeOfDayHms, sizeof(suEfis.szTime) - 1);
         suEfis.szTime[sizeof(suEfis.szTime) - 1] = '\0';
         }
 
-    // VN-300: also mirror valid attitude into suVN300 so other consumers
+    // VN-300: mirror valid attitude into suVN300 so other consumers
     // (display, log, HUD) can read a consistent attitude regardless of
     // which path populated it.
     if (frame.source == EfisSource::Vn300)
     {
-        if (std::isfinite(frame.pitchDeg))   suVN300.Pitch = frame.pitchDeg;
-        if (std::isfinite(frame.rollDeg))    suVN300.Roll  = frame.rollDeg;
-        if (std::isfinite(frame.headingDeg)) suVN300.Yaw   = frame.headingDeg;
+        if (fp & F::Pitch)   suVN300.Pitch = frame.pitchDeg;
+        if (fp & F::Roll)    suVN300.Roll  = frame.rollDeg;
+        if (fp & F::Heading) suVN300.Yaw   = frame.headingDeg;
     }
 }
 

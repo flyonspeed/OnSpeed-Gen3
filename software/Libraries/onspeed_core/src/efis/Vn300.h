@@ -108,6 +108,8 @@ public:
     Vn300Parser() = default;
 
     void FeedByte(uint8_t b);
+    bool TryTakeFrame(EfisFrame& out);
+    bool TryTakeVn300Data(Vn300Data& out);
     std::optional<EfisFrame>  TakeFrame();
     std::optional<Vn300Data>  TakeVn300Data();
     void Reset();
@@ -120,8 +122,10 @@ private:
     bool     inProgress_        = false;
     uint8_t  prevByte_          = 0;
 
-    std::optional<EfisFrame>  pendingFrame_;
-    std::optional<Vn300Data>  pendingData_;
+    EfisFrame  pendingFrame_;
+    Vn300Data  pendingData_;
+    bool       pendingFrameReady_ = false;
+    bool       pendingDataReady_  = false;
 
     void Decode();
 };

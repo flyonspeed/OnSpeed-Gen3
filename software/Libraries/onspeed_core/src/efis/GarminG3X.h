@@ -39,6 +39,7 @@ public:
     GarminG3XParser() = default;
 
     void FeedByte(uint8_t b);
+    bool TryTakeFrame(EfisFrame& out);
     std::optional<EfisFrame> TakeFrame();
     void Reset();
 
@@ -47,9 +48,10 @@ private:
     static constexpr int    kAttFrameLen = 59;
     static constexpr int    kEmsFrameLen = 221;
 
-    char   buf_[kBufSize] = {};
-    int    bufLen_         = 0;
-    std::optional<EfisFrame> pending_;
+    char       buf_[kBufSize] = {};
+    int        bufLen_         = 0;
+    EfisFrame  pending_;
+    bool       pendingReady_   = false;
 
     void Decode();
     void DecodeAttitude();

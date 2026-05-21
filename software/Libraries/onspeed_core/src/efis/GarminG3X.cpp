@@ -1,53 +1,38 @@
 // GarminG3X.cpp
 //
-// Ported verbatim from EfisSerial.cpp (EnGarminG3X branch). No algorithmic
-// changes — characterisation first.
-//
-// See GarminG5.cpp for notes on "keep" semantics.
+// Garmin G3X serial parser. Hot-path optimizations: FastParse fixed-decimal
+// reads, first-byte sentinel ('_') detection, copy-free pending-frame,
+// presence bitmask. See GarminG5.cpp for notes on "keep" semantics.
 
 #include <efis/GarminG3X.h>
+#include <efis/FastParse.h>
 
 #include <climits>
 #include <cmath>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
-
-#include <types/EfisFrame.h>
 
 namespace onspeed::efis {
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-static float parseFieldFloat(const char* buf, int pos, int len,
-                             const char* sentinel, float fallback, float scale)
-{
-    char tmp[16];
-    memcpy(tmp, buf + pos, static_cast<size_t>(len));
-    tmp[len] = '\0';
-    if (sentinel && memcmp(tmp, sentinel, static_cast<size_t>(len)) == 0)
-        return fallback;
-    return strtof(tmp, nullptr) / scale;
-}
-
-static int parseFieldInt(const char* buf, int pos, int len,
-                         const char* sentinel, int fallback, int scale)
-{
-    char tmp[16];
-    memcpy(tmp, buf + pos, static_cast<size_t>(len));
-    tmp[len] = '\0';
-    if (sentinel && memcmp(tmp, sentinel, static_cast<size_t>(len)) == 0)
-        return fallback;
-    return static_cast<int>(strtol(tmp, nullptr, 10)) * scale;
-}
-
-static int parseHexCRC(const char* buf, int pos)
-{
-    char szCRC[3] = { buf[pos], buf[pos + 1], '\0' };
-    return static_cast<int>(strtol(szCRC, nullptr, 16));
-}
+using onspeed::EfisField::AoaPercent;
+using onspeed::EfisField::FuelFlowGph;
+using onspeed::EfisField::FuelRemainingGal;
+using onspeed::EfisField::Heading;
+using onspeed::EfisField::Ias;
+using onspeed::EfisField::LateralG;
+using onspeed::EfisField::MapInchHg;
+using onspeed::EfisField::OatCelsius;
+using onspeed::EfisField::Palt;
+using onspeed::EfisField::Pitch;
+using onspeed::EfisField::Roll;
+using onspeed::EfisField::Rpm;
+using onspeed::EfisField::VerticalG;
+using onspeed::EfisField::Vsi;
+using onspeed::efis::fastparse::isSentinel;
+using onspeed::efis::fastparse::parseFixedSigned;
+using onspeed::efis::fastparse::parseFixedUnsigned;
+using onspeed::efis::fastparse::parseHex2;
+using onspeed::efis::fastparse::sumChecksum;
 
 // ---------------------------------------------------------------------------
 // GarminG3XParser
@@ -79,19 +64,26 @@ void GarminG3XParser::FeedByte(uint8_t b)
     }
 }
 
+bool GarminG3XParser::TryTakeFrame(EfisFrame& out)
+{
+    if (!pendingReady_) return false;
+    out = pending_;
+    pendingReady_ = false;
+    return true;
+}
+
 std::optional<EfisFrame> GarminG3XParser::TakeFrame()
 {
-    if (!pending_)
-        return std::nullopt;
-    EfisFrame out = *pending_;
-    pending_.reset();
+    if (!pendingReady_) return std::nullopt;
+    EfisFrame out = pending_;
+    pendingReady_ = false;
     return out;
 }
 
 void GarminG3XParser::Reset()
 {
-    bufLen_ = 0;
-    pending_.reset();
+    bufLen_       = 0;
+    pendingReady_ = false;
 }
 
 void GarminG3XParser::Decode()
@@ -114,47 +106,76 @@ void GarminG3XParser::Decode()
 void GarminG3XParser::DecodeAttitude()
 {
     // Checksum: sum bytes 0..54 mod 256.
-    int calcCRC = 0;
-    for (int i = 0; i <= 54; i++)
-        calcCRC += static_cast<unsigned char>(buf_[i]);
-    calcCRC &= 0xFF;
-
-    if (calcCRC != parseHexCRC(buf_, 55))
+    const uint8_t calc = sumChecksum(buf_, 0, 55);
+    const int wireCrc  = parseHex2(buf_, 55);
+    if (wireCrc < 0 || static_cast<int>(calc) != wireCrc)
         return;
 
     EfisFrame out;
 
-    // Sentinel for G3X is '_'. Fallback = NaN marks the field absent, so
-    // applyFrame() holds the previous suEfis value on sentinel match.
-    const float kNaN = kEfisFieldAbsent;
-    out.iasKt      = parseFieldFloat(buf_, 23, 4, "____",   kNaN,  10.0f);
-    out.pitchDeg   = parseFieldFloat(buf_, 11, 4, "____",   kNaN,  10.0f);
-    out.rollDeg    = parseFieldFloat(buf_, 15, 5, "_____",  kNaN,  10.0f);
+    if (!isSentinel(buf_, 23, '_'))
     {
-        const int raw = parseFieldInt(buf_, 20, 3, "___", INT32_MIN, 1);
-        out.headingDeg = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.iasKt = static_cast<float>(parseFixedUnsigned(buf_, 23, 4)) / 10.0f;
+        out.fieldsPresent |= Ias;
     }
-    out.lateralG   = parseFieldFloat(buf_, 37, 3, "___",    kNaN, 100.0f);
-    out.verticalG  = parseFieldFloat(buf_, 40, 3, "___",    kNaN,  10.0f);
+
+    if (!isSentinel(buf_, 11, '_'))
     {
-        const int raw = parseFieldInt(buf_, 43, 2, "__", INT32_MIN, 1);
-        out.aoaPercent = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.pitchDeg = static_cast<float>(parseFixedSigned(buf_, 11, 4)) / 10.0f;
+        out.fieldsPresent |= Pitch;
     }
+
+    if (!isSentinel(buf_, 15, '_'))
     {
-        const int raw = parseFieldInt(buf_, 27, 6, "______", INT32_MIN, 1);
-        out.paltFt = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.rollDeg = static_cast<float>(parseFixedSigned(buf_, 15, 5)) / 10.0f;
+        out.fieldsPresent |= Roll;
     }
-    out.oatCelsius = parseFieldFloat(buf_, 49, 3, "___",    kNaN,  1.0f);
+
+    if (!isSentinel(buf_, 20, '_'))
     {
-        const int raw = parseFieldInt(buf_, 45, 4, "____", INT32_MIN, 10);
-        out.vsiFpm = (raw == INT32_MIN) ? kNaN : static_cast<float>(raw);
+        out.headingDeg = static_cast<float>(parseFixedUnsigned(buf_, 20, 3));
+        out.fieldsPresent |= Heading;
     }
-    out.source     = EfisSource::Garmin;
+
+    if (!isSentinel(buf_, 37, '_'))
+    {
+        out.lateralG = static_cast<float>(parseFixedSigned(buf_, 37, 3)) / 100.0f;
+        out.fieldsPresent |= LateralG;
+    }
+
+    if (!isSentinel(buf_, 40, '_'))
+    {
+        out.verticalG = static_cast<float>(parseFixedSigned(buf_, 40, 3)) / 10.0f;
+        out.fieldsPresent |= VerticalG;
+    }
+
+    if (!isSentinel(buf_, 43, '_'))
+    {
+        out.aoaPercent = static_cast<float>(parseFixedUnsigned(buf_, 43, 2));
+        out.fieldsPresent |= AoaPercent;
+    }
+
+    if (!isSentinel(buf_, 27, '_'))
+    {
+        out.paltFt = static_cast<float>(parseFixedSigned(buf_, 27, 6));
+        out.fieldsPresent |= Palt;
+    }
+
+    if (!isSentinel(buf_, 49, '_'))
+    {
+        out.oatCelsius = static_cast<float>(parseFixedSigned(buf_, 49, 3));
+        out.fieldsPresent |= OatCelsius;
+    }
+
+    if (!isSentinel(buf_, 45, '_'))
+    {
+        out.vsiFpm = static_cast<float>(parseFixedSigned(buf_, 45, 4) * 10);
+        out.fieldsPresent |= Vsi;
+    }
+
+    out.source = EfisSource::Garmin;
 
     // Time-of-day: bytes 3..10 carry "HHMMSSFF" (FF = centiseconds).
-    // Validate ASCII digits and HH<=23, MM<=59, SS<=59, FF<=99 — an
-    // out-of-spec or never-locked GPS frame leaves timeOfDayHms empty
-    // rather than poisoning the sidecar metadata stamp.
     auto twoDigit = [](char a, char b) -> int {
         if (a < '0' || a > '9' || b < '0' || b > '9') return -1;
         return (a - '0') * 10 + (b - '0');
@@ -170,34 +191,49 @@ void GarminG3XParser::DecodeAttitude()
                  "%02d:%02d:%02d.%02d", hh, mm, ss, ff);
     }
 
-    pending_ = out;
+    pending_      = out;
+    pendingReady_ = true;
 }
 
 void GarminG3XParser::DecodeEms()
 {
     // Checksum: sum bytes 0..216 mod 256.
-    int calcCRC = 0;
-    for (int i = 0; i <= 216; i++)
-        calcCRC += static_cast<unsigned char>(buf_[i]);
-    calcCRC &= 0xFF;
-
-    if (calcCRC != parseHexCRC(buf_, 217))
+    const uint8_t calc = sumChecksum(buf_, 0, 217);
+    const int wireCrc  = parseHex2(buf_, 217);
+    if (wireCrc < 0 || static_cast<int>(calc) != wireCrc)
         return;
 
-    // Field offsets and scales: Garmin G3X serial spec, EMS frame.
-    // Sentinel "___"/"____" decodes to kEfisFieldAbsent so applyFrame()
-    // holds the prior value rather than overwriting with junk. G3X EMS
-    // carries no PercentPower (Dynon SkyView's wire does); leave it
-    // absent here.
+    // G3X EMS carries no PercentPower (Dynon SkyView's wire does); leave
+    // it absent here.
     EfisFrame out;
-    const float kNaN = kEfisFieldAbsent;
-    out.rpm              = parseFieldFloat(buf_, 18, 4, "____", kNaN, 1.0f);
-    out.mapInchHg        = parseFieldFloat(buf_, 26, 3, "___",  kNaN, 10.0f);
-    out.fuelFlowGph      = parseFieldFloat(buf_, 29, 3, "___",  kNaN, 10.0f);
-    out.fuelRemainingGal = parseFieldFloat(buf_, 44, 3, "___",  kNaN, 10.0f);
+
+    if (!isSentinel(buf_, 18, '_'))
+    {
+        out.rpm = static_cast<float>(parseFixedUnsigned(buf_, 18, 4));
+        out.fieldsPresent |= Rpm;
+    }
+
+    if (!isSentinel(buf_, 26, '_'))
+    {
+        out.mapInchHg = static_cast<float>(parseFixedUnsigned(buf_, 26, 3)) / 10.0f;
+        out.fieldsPresent |= MapInchHg;
+    }
+
+    if (!isSentinel(buf_, 29, '_'))
+    {
+        out.fuelFlowGph = static_cast<float>(parseFixedUnsigned(buf_, 29, 3)) / 10.0f;
+        out.fieldsPresent |= FuelFlowGph;
+    }
+
+    if (!isSentinel(buf_, 44, '_'))
+    {
+        out.fuelRemainingGal = static_cast<float>(parseFixedUnsigned(buf_, 44, 3)) / 10.0f;
+        out.fieldsPresent |= FuelRemainingGal;
+    }
 
     out.source = EfisSource::Garmin;
-    pending_   = out;
+    pending_      = out;
+    pendingReady_ = true;
 }
 
 }   // namespace onspeed::efis

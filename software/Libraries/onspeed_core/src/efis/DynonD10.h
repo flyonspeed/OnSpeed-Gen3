@@ -48,6 +48,7 @@ public:
     DynonD10Parser() = default;
 
     void FeedByte(uint8_t b);
+    bool TryTakeFrame(EfisFrame& out);
     std::optional<EfisFrame> TakeFrame();
     void Reset();
 
@@ -55,10 +56,11 @@ private:
     static constexpr size_t kBufSize   = 256;
     static constexpr int    kFrameLen  = 53;   // DYNON_SERIAL_LEN
 
-    char   buf_[kBufSize] = {};
-    int    bufLen_         = 0;
-    bool   lineStart_      = false;   // true once we've seen the first '\n'
-    std::optional<EfisFrame> pending_;
+    char       buf_[kBufSize] = {};
+    int        bufLen_         = 0;
+    bool       lineStart_      = false;   // true once we've seen the first '\n'
+    EfisFrame  pending_;
+    bool       pendingReady_   = false;
 
     void Decode();
 };
