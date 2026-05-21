@@ -111,7 +111,8 @@ enum class ScopeId : uint8_t {
     LogSync,     ///< SD fsync — `m_hLogFile.sync()` only. Periodic, ~200ms.
     EfisRead,    ///< g_EfisSerial.Read() — UART drain + parser + CRC + apply.
     BoomRead,    ///< g_BoomSerial.Read() — UART drain + ASCII parse.
-    Spare0, Spare1, Spare2, Spare3, Spare4,
+    SynthBuild,  ///< Synthetic-sensor frame construction (perf-synth env only).
+    Spare0, Spare1, Spare2, Spare3,
     Count,
 };
 

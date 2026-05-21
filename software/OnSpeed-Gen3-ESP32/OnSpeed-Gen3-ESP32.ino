@@ -22,6 +22,11 @@ Do a text search for comments starting with "////"
 #include <buildinfo.h>
 #include <util/Perf.h>
 
+#ifdef ONSPEED_SYNTH_SENSORS
+#include "src/test/SyntheticStream.h"
+#include <test_frames/SynthFrames.h>
+#endif
+
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
 #undef FILE_READ
@@ -163,6 +168,46 @@ void setup()
     // point I may slow the M5 display down to 9600. Then I can use
     // a dedicated software UART for it.
 
+#ifdef ONSPEED_SYNTH_SENSORS
+    // perf-synth build: feed EFIS + boom from synthetic Streams that
+    // emit pre-built valid frames at the protocol's native rate. Real
+    // Serial2 is NOT initialised — no physical UART contention. Serial1
+    // is still brought up so g_DisplaySerial's TX path works; nothing is
+    // attached to receive (perf-testing skill specifies "no M5" by
+    // default). Compile-time choice of EFIS protocol via
+    // ONSPEED_SYNTH_EFIS_SKYVIEW; default is VN-300 (the heaviest path,
+    // the reason this build exists).
+  #if defined(ONSPEED_SYNTH_EFIS_SKYVIEW)
+    static SyntheticStream s_synthEfisStream(
+        onspeed::test_frames::SkyviewFrames(),
+        onspeed::test_frames::kSkyviewFrameCount,
+        onspeed::test_frames::kSkyviewPeriodMs);
+    constexpr auto kSynthEfisType = EfisSerialPort::EnDynonSkyview;
+    constexpr const char* kSynthEfisName = "skyview";
+  #else
+    static SyntheticStream s_synthEfisStream(
+        onspeed::test_frames::Vn300Frame(),
+        onspeed::test_frames::kVn300PeriodMs);
+    constexpr auto kSynthEfisType = EfisSerialPort::EnVN300;
+    constexpr const char* kSynthEfisName = "vn300";
+  #endif
+    static SyntheticStream s_synthBoomStream(
+        onspeed::test_frames::BoomFrame(),
+        onspeed::test_frames::kBoomPeriodMs);
+    g_EfisSerial.InitWithStream(kSynthEfisType, &s_synthEfisStream);
+    g_BoomSerial.Init(&s_synthBoomStream);
+    g_Config.bReadEfisData = true;
+    g_Config.bReadBoom     = true;
+    {
+        uint32_t SerialConfig = SerialConfig::SERIAL_8N1;
+        Serial1.begin(115200, SerialConfig, kBoomRx, kDisplayTx, false);
+    }
+    g_Log.printf("synth: EFIS=%s boom=boom perf-synth build active\n",
+                 kSynthEfisName);
+    // Expose synth streams to the console-command module for `synth status`.
+    g_pSynthEfisStream = &s_synthEfisStream;
+    g_pSynthBoomStream = &s_synthBoomStream;
+#else
     // There are a bunch of EFIS types so the EFIS object gets to
     // setup its own hardware serial port
     g_EfisSerial.Init(g_EfisSerial.enType,  &Serial2);
@@ -173,6 +218,7 @@ void setup()
 
     // Init boom serial
     g_BoomSerial.Init(&Serial1);
+#endif
 
     // Init display output serial
     g_DisplaySerial.Init(&Serial1);

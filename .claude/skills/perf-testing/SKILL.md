@@ -130,9 +130,52 @@ The script aggregates median across snapshots. If you need the raw per-snapshot 
 
 `docs/perf-reports/` is checked in. Treat reports like release notes: one per release tag, with optional follow-ups for specific PRs or experiments. The directory will grow over time — that's fine, they're small.
 
+## Synthetic Max-Load Capture (perf-synth env)
+
+The default perf env (`esp32s3-v4p-perf`) is captured WITHOUT a real VN-300 or boom probe attached, so `subsys.efis_read` / `subsys.boom_read` read 0 and the log row stays narrow. The numbers understate the real "all sensors present" load.
+
+A separate env, `esp32s3-v4p-perf-synth`, replaces those byte sources with synthetic Streams that emit fixed valid frames at the protocol's native rate. The parser, `applyVn300Data()` copies, log-row expansion, and WebSocket fanout all do their real work. See issue #607 for the rationale.
+
+When to use it:
+
+- Sizing headroom for "can we move IMU to 833 Hz with VN-300 attached?"
+- Sanity-checking that a PR's perf impact doesn't differ at full sensor load.
+- Establishing a stable "max load" baseline alongside each release's normal baseline.
+
+When NOT to use it:
+
+- For the normal release baseline. The published baseline reflects real-world install conditions; the synth is a companion capture for headroom planning.
+
+Capture procedure (label `-synth-vn300` or `-synth-skyview`):
+
+```bash
+pio run -e esp32s3-v4p-perf-synth -t upload
+# defaults to VN-300; for SkyView, add -DONSPEED_SYNTH_EFIS_SKYVIEW=1 to build_flags
+cd tools/perf-report
+uv run ./capture_perf_report.py --label v4.24-synth-vn300
+```
+
+Bench conditions: same as a normal perf capture (SD card in, no M5 unless intentional, WiFi state recorded). On the synth binary, `synth status` on the device console reports frames/bytes emitted since boot (sanity check: ~50 frames/sec for VN-300, ~50/sec for boom, ~20/sec for SkyView with the `!1`+`!3` alternation).
+
+Diff against the real-sensor baseline:
+
+```bash
+diff -u docs/perf-reports/v4.24-baseline.md \
+        docs/perf-reports/v4.24-synth-vn300.md
+```
+
+Expected deltas (from #607's prototype):
+
+- `subsys.efis_read` and `subsys.boom_read` appear with non-zero `n`.
+- `subsys.synth_build` shows a small overhead (≪1 ms/sec) — confirms the synth-emission cost is attributable and not silently inflating the parser numbers.
+- `task=Log` grows substantially (`+54%` total/sec in the prototype).
+- `task=Imu` grows modestly (`+28%` in the prototype).
+
 ## Refs
 
 - PR #605 — PERF telemetry implementation (the runtime side this skill wraps)
 - PR #606 — fast CSV formatters (first measurable perf win after PERF landed)
+- Issue #607 — Synthetic VN-300 + boom inject (the perf-synth env is the answer)
 - `software/Libraries/onspeed_core/src/util/Perf.h` — instrumentation API + idiom doc
+- `software/Libraries/onspeed_core/src/test_frames/SynthFrames.h` — synth byte tables
 - `local-plans/PLAN_IMU_HIGHRATE_VN300_PARITY.md` — why this matters for the IMU-rate push

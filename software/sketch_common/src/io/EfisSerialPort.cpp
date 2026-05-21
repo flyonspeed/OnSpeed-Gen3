@@ -102,8 +102,9 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 {
     uint32_t hwSerialConfig = SerialConfig::SERIAL_8N1;
 
-    enType  = enEfisType;
-    pSerial = pEfisSerial;
+    enType     = enEfisType;
+    pSerial    = pEfisSerial;
+    pHwSerial_ = pEfisSerial;
 
     // Consume any pending request so a deferred Init triggered by a
     // prior RequestTypeChange is satisfied by this explicit Init.
@@ -115,12 +116,23 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 
     parser_.ChangeType(toCoreType(enType));
 
-    pSerial->end();
+    pEfisSerial->end();
 
     if (enType != EnNone)
     {
-        pSerial->begin(115200, hwSerialConfig, kEfisRx, kEfisTx, false);
+        pEfisSerial->begin(115200, hwSerialConfig, kEfisRx, kEfisTx, false);
     }
+}
+
+void EfisSerialPort::InitWithStream(EnEfisType enEfisType, Stream* pStream)
+{
+    enType     = enEfisType;
+    pSerial    = pStream;
+    pHwSerial_ = nullptr;        // signal "no UART to reinit"
+    pendingType_ = kNoPendingType;
+    parser_.ChangeType(toCoreType(enType));
+    // No UART begin/end — the supplied Stream is responsible for its own
+    // byte source.  Used by perf-synth builds with a SyntheticStream.
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +160,21 @@ void EfisSerialPort::Read()
     const int pending = pendingType_;
     if (pending != kNoPendingType) {
         pendingType_ = kNoPendingType;
-        Init(static_cast<EnEfisType>(pending), pSerial);
+        if (pHwSerial_ != nullptr) {
+            // Real UART — re-init via the HardwareSerial path so begin()/end()
+            // tear down and reconfigure the UART for the new protocol.
+            Init(static_cast<EnEfisType>(pending), pHwSerial_);
+        } else {
+            // Synth or stream-only build — there's nothing to UART-reinit;
+            // just reset the parser state to match the new type so the
+            // bytes feed through the right state machine. The synth
+            // Stream itself doesn't care about EFIS type changes (a
+            // perf-synth binary is configured for one fixed protocol at
+            // compile time), so a runtime-config-driven type change is
+            // effectively cosmetic here.
+            enType = static_cast<EnEfisType>(pending);
+            parser_.ChangeType(toCoreType(enType));
+        }
     }
 
     if (!g_Config.bReadEfisData)
