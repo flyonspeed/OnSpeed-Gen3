@@ -171,6 +171,7 @@ void EKFQ::renormaliseQuaternion() {
 
 void EKFQ::update(const Measurements& m, float dt) {
     if (!initialized_) init();
+    ++updateCallCount_;
     predict(m.p, m.q, m.r, m.ax, m.ay, m.az, m.tasMps, dt);
     correct(m.ax, m.ay, m.az, m.tasMps, m.tasDotMps2,
             m.q, m.r, m.baroAltMeters, m.updateBaro);
@@ -598,6 +599,11 @@ void EKFQ::correct(float ax_meas, float ay_meas, float az_meas,
             // S lost positive-definiteness due to fp32 round-off. Abort
             // the update — same failure mode as the Python try/except
             // around np.linalg.solve (LinAlgError on a singular S).
+            // Bump observability counters before returning so post-flight
+            // review (TASKS console command) can spot recurrence. See
+            // issue #593 item #1.
+            ++failedUpdateCount_;
+            lastFailedCallNum_ = updateCallCount_;
             return;
         }
         S[j][j] = std::sqrt(sum);
