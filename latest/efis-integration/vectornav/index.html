@@ -1502,6 +1502,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-output-packet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required output packet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-via-vectornav-control-center-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure via VectorNav Control Center (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-by-sending-raw-register-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure by sending raw register commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#higher-output-rates-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Higher output rates (advanced)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#then-in-onspeed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Then in OnSpeed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3667,6 +3728,67 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#required-output-packet" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required output packet
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-via-vectornav-control-center-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure via VectorNav Control Center (recommended)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configure-by-sending-raw-register-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure by sending raw register commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#higher-output-rates-advanced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Higher output rates (advanced)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#then-in-onspeed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Then in OnSpeed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -3756,10 +3878,91 @@
 <p>The wind "from" direction is in the <strong>same frame as <code>vnYaw</code></strong>. The analysis workbook treats <code>vnWindDir</code> as <strong>true</strong> north; for that to hold, the VN-300 must be configured with WMM declination via its <code>ReferenceVectorConfiguration</code> register. OnSpeed does not apply declination correction itself — a misconfigured VN-300 will deliver a wind direction off by local declination (10–15° in the western US).</p>
 <p>TAS accuracy depends on a valid OAT source. With no OAT, TAS falls back to IAS and the wind solution will be slightly hot at altitude.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>OnSpeed expects the VN-300 to send a <strong>specific binary output packet</strong> at 115200 baud. The parser validates the 8-byte header and rejects packets that don't match — so the unit must be configured to emit exactly the groups and fields below before OnSpeed will see any data.</p>
+<h3 id="required-output-packet">Required output packet<a class="headerlink" href="#required-output-packet" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Output port</td>
+<td>Serial 1</td>
+</tr>
+<tr>
+<td>Baud rate</td>
+<td>115200</td>
+</tr>
+<tr>
+<td>Async rate</td>
+<td>50 Hz (IMU rate 800 Hz ÷ divisor 16)</td>
+</tr>
+<tr>
+<td>Packet size</td>
+<td>127 bytes (header + 117 byte payload + 2 byte CRC)</td>
+</tr>
+<tr>
+<td>Groups enabled</td>
+<td><strong>Common + GPS + Attitude</strong></td>
+</tr>
+<tr>
+<td>Common fields</td>
+<td>AngularRate, Position (lat/lon/alt), Velocity (NED), Accel — bitmask <code>0x01E0</code></td>
+</tr>
+<tr>
+<td>GPS fields</td>
+<td>UTC, Fix, VelNed — bitmask <code>0x0091</code></td>
+</tr>
+<tr>
+<td>Attitude fields</td>
+<td>YawPitchRoll, LinearAccelBody, YprU — bitmask <code>0x0142</code></td>
+</tr>
+</tbody>
+</table>
+<p>If the running config doesn't match exactly, OnSpeed silently drops every packet — <code>vn*</code> log columns stay empty.</p>
+<h3 id="configure-via-vectornav-control-center-recommended">Configure via VectorNav Control Center (recommended)<a class="headerlink" href="#configure-via-vectornav-control-center-recommended" title="Permanent link">&para;</a></h3>
+<p>The Control Center GUI ships with the VN-300. Connect over USB and:</p>
 <ol>
-<li>Configure the VN-300 binary output at 115200 baud (consult VectorNav documentation)</li>
-<li>Set <strong>EFIS Type</strong> to <code>VN-300</code> in the OnSpeed web interface</li>
-<li>Save and reboot</li>
+<li><strong>Binary Async Output 1</strong> → enable.</li>
+<li><strong>Async Mode</strong>: <code>Serial 1</code>. <strong>Rate Divisor</strong>: <code>16</code>.</li>
+<li>Tick <strong>Common</strong> group, then under Common enable: AngularRate, Position, Velocity, Accel.</li>
+<li>Tick <strong>GPS</strong> group, then enable: UTC, Fix, VelNed.</li>
+<li>Tick <strong>Attitude</strong> group, then enable: YawPitchRoll, LinearAccelBody, YprU.</li>
+<li>Hit <strong>Apply</strong>, then <strong>Write Settings to Non-Volatile Memory</strong> so the config survives power cycles.</li>
+<li>Set <strong>Serial 1 Baud Rate</strong> to <code>115200</code> (this is the factory default — leave it unless you've changed it).</li>
+<li>Under <strong>Reference Vector Configuration</strong>, ensure <strong>WMM declination is enabled</strong> and the magnetic reference is current. Without this, <code>vnYaw</code> is magnetic and the wind-direction columns will be off by local declination (10-15° in the western US — see <a href="#wind-columns">Wind columns</a> above).</li>
+</ol>
+<h3 id="configure-by-sending-raw-register-commands">Configure by sending raw register commands<a class="headerlink" href="#configure-by-sending-raw-register-commands" title="Permanent link">&para;</a></h3>
+<p>The same config can be sent over the VN-300's serial port (or USB) as ASCII commands. Each is a single line ending with <code>\r\n</code>. Send these in order, waiting for the <code>$VNRRG,…</code> ACK between each:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$VNWRG,5,115200*68
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>$VNWRG,75,1,16,19,01E0,0091,0142*31
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>$VNWNV*57
+</code></pre></div>
+<p>What each line does:</p>
+<ul>
+<li><strong><code>$VNWRG,5,115200</code></strong> — writes register 5 (Serial Baud Rate, port 1) to 115200 baud. Skip if your unit is already at 115200; sending it at the wrong current baud just times out without harm.</li>
+<li><strong><code>$VNWRG,75,1,16,19,01E0,0091,0142</code></strong> — writes register 75 (Binary Output 1):<ul>
+<li><code>1</code> = AsyncMode (output on serial port 1)</li>
+<li><code>16</code> = RateDivisor (800 Hz IMU clock / 16 = 50 Hz output rate)</li>
+<li><code>19</code> = OutputGroup bitmask (hex: <code>0x19</code> = Common + GPS + Attitude)</li>
+<li><code>01E0</code> = Common-group field bitmask (LE 16-bit hex)</li>
+<li><code>0091</code> = GPS-group field bitmask</li>
+<li><code>0142</code> = Attitude-group field bitmask</li>
+</ul>
+</li>
+<li><strong><code>$VNWNV</code></strong> — persists all current settings to non-volatile memory. Without this, every power cycle reverts to factory defaults.</li>
+</ul>
+<p>The trailing <code>*XX</code> is the NMEA-style XOR checksum of every character between <code>$</code> and <code>*</code>. The values above are precomputed; if you modify any command parameter you have to recompute the checksum or VectorNav will reject the line.</p>
+<h3 id="higher-output-rates-advanced">Higher output rates (advanced)<a class="headerlink" href="#higher-output-rates-advanced" title="Permanent link">&para;</a></h3>
+<p>The VN-300 IMU runs at 800 Hz internally. RateDivisor=16 gives 50 Hz, which is what OnSpeed expects today. Going faster (e.g., divisor=2 → 400 Hz) requires bumping the serial baud well above 115200 — at 115200 the wire saturates near 75 Hz for our 127-byte packet. 921600 baud gives comfortable headroom for 400 Hz output, but <strong>the OnSpeed firmware currently opens the EFIS port at 115200</strong> and would need a matching change before higher rates work. There's no user-facing config knob for this yet.</p>
+<h3 id="then-in-onspeed">Then in OnSpeed<a class="headerlink" href="#then-in-onspeed" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Set <strong>EFIS Type</strong> to <code>VN-300</code> in the OnSpeed web interface.</li>
+<li>Save and reboot.</li>
+<li>Verify the LiveView page shows non-zero <code>vnPitch</code>, <code>vnRoll</code>, <code>vnYaw</code>, and <code>vnGnssLat</code>/<code>vnGnssLon</code> once GPS fixes. If those stay zero, the binary output groups aren't matching — re-check the Control Center field selection against the table above.</li>
 </ol>
 
 
