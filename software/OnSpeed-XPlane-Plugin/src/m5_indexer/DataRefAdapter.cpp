@@ -150,7 +150,14 @@ onspeed::proto::DisplayBuildInputs BuildInputsFromDatarefs()
     // they both consume the same bool.
     const bool onGround = g_DebouncedOnGround;
 
-    FillPercentLift(in, aoa, ias, flapRatio, iasValid, onGround);
+    // Crossfade state for the at-liftoff continuity ramp.  Static
+    // because BuildInputsFromDatarefs runs once per flight-loop tick on
+    // the main thread (X-Plane SDK guarantee: callbacks never overlap)
+    // and the fade needs to persist across calls.  See AdvanceRegimeFade
+    // in PercentLiftFill.cpp for the full design.
+    static RegimeFadeState s_indicatorFade{};
+    FillPercentLift(in, aoa, ias, flapRatio, iasValid, onGround,
+                    s_indicatorFade);
 
     in.vsiFpm10        = static_cast<int>(std::floor(vsiFpm / 10.0f));
     if (in.vsiFpm10 >  999) in.vsiFpm10 =  999;
