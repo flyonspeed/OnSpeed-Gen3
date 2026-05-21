@@ -18,6 +18,10 @@
 #include "src/web_server/ApiHandlers.h"
 #include "src/tasks/PerfDump.h"
 
+#ifdef ONSPEED_SYNTH_SENSORS
+#include "src/test/SyntheticStream.h"
+#endif
+
 
 std::string Base64_Decode(std::string sEncodedString);
 
@@ -91,6 +95,9 @@ void ConsoleSerialIO::DisplayConsoleHelp()
         pSerial->println("CRASHME              - Force a panic (StoreProhibited) for diag testing");
 #ifdef ONSPEED_PERF_ENABLED
         pSerial->println("PERF [on|off|dump|status] - PERF telemetry over USB serial");
+#endif
+#ifdef ONSPEED_SYNTH_SENSORS
+        pSerial->println("SYNTH STATUS         - Report synthetic-sensor stream stats");
 #endif
         pSerial->println("COOKIE");
         pSerial->println("");
@@ -636,6 +643,31 @@ void ConsoleSerialIO::Read()
                 g_Log.println("perf: not compiled in (build env: esp32s3-v4p-perf)");
 #endif
                 } // end PERF
+
+            // SYNTH
+            // -----
+            // Read-only status for the synthetic-sensor streams in the
+            // perf-synth build. Reports active protocol + frames/bytes
+            // emitted since boot. No on/off knob — the binary's whole
+            // purpose IS the synth; toggle by reflashing the non-synth
+            // perf env.
+            else if (strncasecmp(szCmdToken, "SYNTH", 5) == 0)
+                {
+#ifdef ONSPEED_SYNTH_SENSORS
+                if (g_pSynthEfisStream != nullptr) {
+                    g_Log.printf("synth efis: frames=%u bytes=%llu\n",
+                                 g_pSynthEfisStream->FramesEmitted(),
+                                 (unsigned long long)g_pSynthEfisStream->BytesEmitted());
+                }
+                if (g_pSynthBoomStream != nullptr) {
+                    g_Log.printf("synth boom: frames=%u bytes=%llu\n",
+                                 g_pSynthBoomStream->FramesEmitted(),
+                                 (unsigned long long)g_pSynthBoomStream->BytesEmitted());
+                }
+#else
+                g_Log.println("synth: not compiled in (build env: esp32s3-v4p-perf-synth)");
+#endif
+                } // end SYNTH
 
             // HELP
             // ----

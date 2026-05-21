@@ -92,7 +92,8 @@ constexpr const char* kScopeNames[] = {
     "log_sync",
     "efis_read",
     "boom_read",
-    "spare0", "spare1", "spare2", "spare3", "spare4",
+    "synth_build",
+    "spare0", "spare1", "spare2", "spare3",
 };
 static_assert(sizeof(kScopeNames) / sizeof(kScopeNames[0]) == kScopeCount,
               "kScopeNames size mismatch with ScopeId::Count");

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <HardwareSerial.h>
+#include <Stream.h>
 #include <optional>
 
 #include "src/Globals.h"
@@ -109,7 +110,12 @@ public:
     };
 
     // Public data (accessed directly by callers in original code).
-    HardwareSerial*  pSerial;
+    // Typed as Stream* so the perf-synth build can substitute a
+    // SyntheticStream that produces VN-300 bytes without going through a
+    // real UART. Read() only uses Stream::available()/read(), so widening
+    // here is invisible to production callers — the .ino still passes a
+    // HardwareSerial* into Init(), where it's implicitly converted.
+    Stream*          pSerial;
     EnEfisType       enType;
     SuEfisData       suEfis;
     SuVN300Data      suVN300;
@@ -118,6 +124,13 @@ public:
 
     // Methods
     void Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial);
+
+    // Synth-build variant: skip the UART begin()/end() dance and just
+    // wire pSerial to the supplied Stream. Used by the perf-synth env to
+    // point the parser at a SyntheticVn300Stream / SyntheticSkyviewStream.
+    // Same parser-state reset as Init().
+    void InitWithStream(EnEfisType enEfisType, Stream* pStream);
+
     void Read();
     bool IsDataFresh(unsigned long maxAgeMs) const
         { return (millis() - uTimestamp) < maxAgeMs; }
@@ -149,6 +162,13 @@ private:
     // Single-word aligned writes on ESP32 are atomic; no mutex needed.
     static constexpr int kNoPendingType = -1;
     volatile int pendingType_ = kNoPendingType;
+
+    // Set by Init() to the HardwareSerial we own (for UART begin/end on
+    // pending-reinit). InitWithStream() leaves this nullptr — synth builds
+    // never call the UART begin path, and pending-reinit becomes a parser-
+    // only reset there (the web UI's EFIS-type change has no UART work to
+    // do when the byte source isn't a real UART).
+    HardwareSerial*  pHwSerial_ = nullptr;
 
     // Convert EfisType enum to onspeed core enum
     static onspeed::efis::EfisType toCoreType(EnEfisType t);

@@ -40,6 +40,8 @@ jobs:
             env: esp32s3-v4p
           - variant: V4B
             env: esp32s3-v4b
+          - variant: perf-synth
+            env: esp32s3-v4p-perf-synth
 
     steps:
       - name: Checkout code

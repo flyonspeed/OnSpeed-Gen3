@@ -153,6 +153,15 @@ EXTERN EfisSerialPort           g_EfisSerial;
 EXTERN BoomSerialIO             g_BoomSerial;
 EXTERN DisplaySerial            g_DisplaySerial;
 
+#ifdef ONSPEED_SYNTH_SENSORS
+// Forward decl — full definition in src/test/SyntheticStream.h. The .ino
+// installs these pointers in setup(); ConsoleSerial reads them for the
+// `synth status` command.
+class SyntheticStream;
+EXTERN_INIT(SyntheticStream*    g_pSynthEfisStream, nullptr)
+EXTERN_INIT(SyntheticStream*    g_pSynthBoomStream, nullptr)
+#endif
+
 EXTERN Flaps                    g_Flaps;
 
 EXTERN_CLASS(OneButton          g_Switch, kPinSwitch, true)
