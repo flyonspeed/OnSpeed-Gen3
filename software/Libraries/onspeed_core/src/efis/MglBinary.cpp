@@ -177,7 +177,19 @@ void MglBinaryParser::Reset()
 
 void MglBinaryParser::Decode()
 {
-    // Overlay the packed struct onto the raw buffer (verbatim from original).
+    // CONTRACT EXCEPTION — MGL binary has no per-field "unavailable"
+    // sentinel: every Msg1/Msg3 byte is a real integer, transmitted
+    // even when the underlying sensor is uninitialized. We therefore
+    // set EfisField presence bits for every numeric field in every
+    // decoded message. Consumer applyFrame() sees the bit set and
+    // copies the value into suEfis unconditionally.
+    //
+    // Consequence: when MGL transmits zero before a sensor warms up,
+    // suEfis sees zero (not the prior hold-last value). This differs
+    // from the Dynon/Garmin ASCII protocols, which can encode missing
+    // values via XXX/___ sentinels and preserve hold-last semantics.
+    // The MGL spec does not give us a way to do better; this is the
+    // honest behaviour to ship.
     const MglHeader* msg = reinterpret_cast<const MglHeader*>(buf_);
 
     switch (msg->MessageType)

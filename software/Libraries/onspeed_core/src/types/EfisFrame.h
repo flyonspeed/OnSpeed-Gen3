@@ -49,10 +49,14 @@ enum class EfisSource {
 // Bitmask positions for EfisFrame::fieldsPresent. Each bit names a
 // concrete numeric field below; the parser sets the bit when it writes
 // the value, and the consumer's applyFrame() tests the bit instead of
-// std::isfinite() on the float. The bit-test path is one load + one
-// AND + one branch; the float-test path is a load + a bit-pattern mask
-// + a compare + a branch (and an FPU stall on some cores). Saves a few
-// hundred cycles per frame across the ~20 fields.
+// std::isfinite() on the float. The motivation is primarily clarity:
+// "did the parser write this field?" is a more honest question than
+// "is this float finite?" — they happen to coincide today because the
+// parser uses NaN as the absent sentinel, but the bit is the source of
+// truth and survives any future change to sentinel encoding. On Xtensa
+// LX7 the codegen is comparable (isfinite emits as an integer mask on
+// the float bit pattern, not via the FPU), so the win is structural
+// rather than measurable — the 4-byte struct cost is the trade.
 namespace EfisField {
     constexpr uint32_t Pitch            = 1u <<  0;
     constexpr uint32_t Roll             = 1u <<  1;

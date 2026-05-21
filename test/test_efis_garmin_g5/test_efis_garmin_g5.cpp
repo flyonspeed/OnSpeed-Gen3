@@ -336,6 +336,28 @@ void test_g5_time_of_day_out_of_range_leaves_empty(void)
     TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
 }
 
+// EfisFrame::fieldsPresent bit assertions — see DynonSkyview test for rationale.
+void test_g5_presence_bits_set_on_valid_frame(void)
+{
+    char buf[59];
+    buildG5Frame(buf, 2.0f, 5.0f, 270, 110.0f, 5500, 0.1f, 1.0f, 500);
+    GarminG5Parser parser;
+    auto frame = feedAll(parser, buf, 59);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Ias);
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & Heading);
+    TEST_ASSERT_TRUE(fp & LateralG);
+    TEST_ASSERT_TRUE(fp & VerticalG);
+    TEST_ASSERT_TRUE(fp & Palt);
+    TEST_ASSERT_TRUE(fp & Vsi);
+    // G5 does NOT output AOA percent — the bit must stay unset.
+    TEST_ASSERT_FALSE(fp & AoaPercent);
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -357,5 +379,6 @@ int main(int, char**)
     RUN_TEST(test_g5_time_of_day_round_trip);
     RUN_TEST(test_g5_time_of_day_non_digits_leave_empty);
     RUN_TEST(test_g5_time_of_day_out_of_range_leaves_empty);
+    RUN_TEST(test_g5_presence_bits_set_on_valid_frame);
     return UNITY_END();
 }

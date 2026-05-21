@@ -1,50 +1,31 @@
 // EfisParser.cpp
 //
-// Dispatcher implementation. Per-byte routing goes through a function
-// pointer set at ChangeType() — one indirect call on the hot path,
-// no per-byte switch on type_.
+// Dispatcher implementation. Per-byte routing is a switch on type_; type_
+// is set once at boot (only changed via the web UI), so the branch is
+// perfectly predicted after the first byte and lets the compiler inline
+// the per-protocol FeedByte() bodies.
 
 #include <efis/EfisParser.h>
 
 namespace onspeed::efis {
 
 EfisParser::EfisParser(EfisType type)
-    : type_(EfisType::None)
-    , feedFn_(feedNone)
+    : type_(type)
 {
-    ChangeType(type);
 }
 
-void EfisParser::feedNone(EfisParser&, uint8_t) {}
-
-void EfisParser::feedDynonSkyview(EfisParser& self, uint8_t b)
+void EfisParser::FeedByte(uint8_t b)
 {
-    self.dynonSkyview_.FeedByte(b);
-}
-
-void EfisParser::feedDynonD10(EfisParser& self, uint8_t b)
-{
-    self.dynonD10_.FeedByte(b);
-}
-
-void EfisParser::feedGarminG5(EfisParser& self, uint8_t b)
-{
-    self.garminG5_.FeedByte(b);
-}
-
-void EfisParser::feedGarminG3X(EfisParser& self, uint8_t b)
-{
-    self.garminG3X_.FeedByte(b);
-}
-
-void EfisParser::feedMglBinary(EfisParser& self, uint8_t b)
-{
-    self.mglBinary_.FeedByte(b);
-}
-
-void EfisParser::feedVn300(EfisParser& self, uint8_t b)
-{
-    self.vn300_.FeedByte(b);
+    switch (type_)
+    {
+        case EfisType::DynonSkyview: dynonSkyview_.FeedByte(b); break;
+        case EfisType::DynonD10:     dynonD10_.FeedByte(b);     break;
+        case EfisType::GarminG5:     garminG5_.FeedByte(b);     break;
+        case EfisType::GarminG3X:    garminG3X_.FeedByte(b);    break;
+        case EfisType::MglBinary:    mglBinary_.FeedByte(b);    break;
+        case EfisType::Vn300:        vn300_.FeedByte(b);        break;
+        case EfisType::None:         break;
+    }
 }
 
 bool EfisParser::TryTakeFrame(EfisFrame& out)
@@ -94,16 +75,6 @@ void EfisParser::ChangeType(EfisType type)
     garminG3X_.Reset();
     mglBinary_.Reset();
     vn300_.Reset();
-    switch (type)
-    {
-        case EfisType::DynonSkyview: feedFn_ = feedDynonSkyview; break;
-        case EfisType::DynonD10:     feedFn_ = feedDynonD10;     break;
-        case EfisType::GarminG5:     feedFn_ = feedGarminG5;     break;
-        case EfisType::GarminG3X:    feedFn_ = feedGarminG3X;    break;
-        case EfisType::MglBinary:    feedFn_ = feedMglBinary;    break;
-        case EfisType::Vn300:        feedFn_ = feedVn300;        break;
-        case EfisType::None:         feedFn_ = feedNone;         break;
-    }
 }
 
 }   // namespace onspeed::efis

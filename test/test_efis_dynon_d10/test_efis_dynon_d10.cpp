@@ -334,6 +334,26 @@ void test_d10_time_of_day_out_of_range_leaves_empty(void)
     TEST_ASSERT_EQUAL_STRING("", frame->timeOfDayHms);
 }
 
+// EfisFrame::fieldsPresent bit assertions — see DynonSkyview test for rationale.
+void test_d10_presence_bits_set_on_valid_frame(void)
+{
+    char buf[53];
+    buildD10Frame(buf, 2.0f, 5.0f, 56.0f, 1676.4f, 0.0f, 0.0f, 1.0f, 55, 0x3);
+    DynonD10Parser parser;
+    auto frame = primeAndFeed(parser, buf, 53);
+    TEST_ASSERT_TRUE(frame.has_value());
+    const uint32_t fp = frame->fieldsPresent;
+    using namespace onspeed::EfisField;
+    TEST_ASSERT_TRUE(fp & Ias);
+    TEST_ASSERT_TRUE(fp & Pitch);
+    TEST_ASSERT_TRUE(fp & Roll);
+    TEST_ASSERT_TRUE(fp & LateralG);
+    TEST_ASSERT_TRUE(fp & VerticalG);
+    TEST_ASSERT_TRUE(fp & AoaPercent);
+    TEST_ASSERT_TRUE(fp & Palt);   // status bit set
+    TEST_ASSERT_TRUE(fp & Vsi);    // status bit set
+}
+
 int main(int, char**)
 {
     UNITY_BEGIN();
@@ -352,5 +372,6 @@ int main(int, char**)
     RUN_TEST(test_d10_time_of_day_round_trip);
     RUN_TEST(test_d10_time_of_day_non_digits_leave_empty);
     RUN_TEST(test_d10_time_of_day_out_of_range_leaves_empty);
+    RUN_TEST(test_d10_presence_bits_set_on_valid_frame);
     return UNITY_END();
 }
