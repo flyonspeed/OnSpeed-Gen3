@@ -73,8 +73,11 @@ static void test_real_airdaq_second_sample()
 }
 
 // ===========================================================================
-// 2. Synth-builder $BOOM format (perf-synth env). Separator '*' before CRC.
-//    $BOOM,260520120000FF,10000,05000,08200,08100*XX
+// 2. Legacy $BOOM,...,*XX synth format. The current perf-synth env emits
+//    $AIRDAQ now (matches real wire format); this test keeps the older
+//    '*'-separator form to lock in the parser's separator-agnosticism —
+//    if anyone ever changes the parser to require ',' specifically,
+//    this test fails. No live producer emits this form.
 // ===========================================================================
 
 static void test_synth_boom_frame_decodes()
@@ -179,28 +182,21 @@ static BoomFrame legacyDecode(const char* in, int len, bool checkCrc)
 
     if (checkCrc)
     {
+        // Test-corpus convention: len = strlen(line) after CR/LF strip, so
+        // the CRC bytes are buf[len-2..len-1] and the separator (',' for
+        // $AIRDAQ, '*' for the synthetic $BOOM form) is at buf[len-3]. Sum
+        // covers everything before the separator: bytes [0..len-3).
+        //
+        // (The original BoomSerial.cpp kept the trailing CR in its buffer
+        // and used offsets relative to that, so its in-buffer index math
+        // looked different — but the bytes summed and the bytes compared
+        // are the same; we just express the convention directly here.)
         int crc = 0;
-        for (int i = 0; i < len - 4; i++)
-            crc += static_cast<unsigned char>(tmp[i]);
-        crc &= 0xFF;
-        char hexCrc[3] = {tmp[len-3], tmp[len-2], '\0'};
-        int wire = static_cast<int>(std::strtol(hexCrc, nullptr, 16));
-        // Note: the legacy parser reads CRC from byte [len-3..len-2] AFTER
-        // stripping CR/LF. The new parser reads from [len-2..len-1]. The
-        // legacy convention is off-by-one relative to the new parser's
-        // "len includes both CRC chars" contract; for parity comparison,
-        // align by passing the SAME len convention to both. The test
-        // corpus uses len = strlen(in_without_cr_lf), and the CRC bytes
-        // are the last two — which is the NEW convention. So we adjust
-        // the legacy reference here to match the new convention too:
-        // re-read from [len-2..len-1] instead.
-        char hexCrc2[3] = {tmp[len-2], tmp[len-1], '\0'};
-        wire = static_cast<int>(std::strtol(hexCrc2, nullptr, 16));
-        // And sum over [0..len-3) (everything before the separator + CRC).
-        crc = 0;
         for (int i = 0; i < len - 3; i++)
             crc += static_cast<unsigned char>(tmp[i]);
         crc &= 0xFF;
+        char hexCrc[3] = {tmp[len-2], tmp[len-1], '\0'};
+        int wire = static_cast<int>(std::strtol(hexCrc, nullptr, 16));
         if (crc != wire) return out;
     }
 
