@@ -162,6 +162,26 @@ def parse_snapshot_block(lines: list[str]) -> dict:
     return snapshot
 
 
+def detect_build_env(raw_text: str) -> str:
+    """Detect which PIO env produced the captured output.
+
+    The perf-synth build (esp32s3-v4p-perf-synth) feeds VN-300 + boom
+    bytes from SyntheticStream into the parsers, and prints a "synth:
+    EFIS=... boom=boom perf-synth build active" banner at boot. The
+    non-synth perf build (esp32s3-v4p-perf) doesn't.
+
+    Returns the env name as a string. Falls back to esp32s3-v4p-perf
+    if neither marker is found (e.g. a partial capture that missed the
+    banner — caller can override via --build-env).
+    """
+    if "perf-synth build active" in raw_text:
+        return "esp32s3-v4p-perf-synth"
+    # Secondary signal: subsys.synth_build only emits in the synth env.
+    if "subsys.synth_build" in raw_text:
+        return "esp32s3-v4p-perf-synth"
+    return "esp32s3-v4p-perf"
+
+
 def split_snapshots(raw_text: str) -> list[list[str]]:
     """Split raw serial capture into per-snapshot line lists."""
     blocks = []
@@ -616,7 +636,14 @@ def main() -> int:
                         "Useful for re-parsing past captures.")
 
     # Capture conditions (recorded in the report header).
-    p.add_argument("--build-env", default="esp32s3-v4p-perf")
+    # --build-env defaults to None so we can auto-detect from the captured
+    # serial output (perf vs perf-synth env). Pass an explicit value to
+    # override detection (useful for --from-file captures where the
+    # synth marker may not be in the saved text).
+    p.add_argument("--build-env", default=None,
+                   help="Override auto-detected build env. Default: auto-detect "
+                        "from the captured serial output "
+                        "(esp32s3-v4p-perf vs -perf-synth).")
     p.add_argument("--hardware", default="V4P")
     p.add_argument("--sd-card", type=lambda x: x.lower() in ("y", "yes", "true", "1"),
                    default=True, help="SD card in / not in")
@@ -644,6 +671,16 @@ def main() -> int:
     else:
         raw = capture_serial(args.port, args.baud, args.duration,
                              verbose=args.verbose)
+
+    # Resolve build env. Explicit --build-env wins; otherwise auto-detect
+    # from the captured text (perf vs perf-synth). The report header should
+    # always reflect what was actually on the bench, not a stale default.
+    if args.build_env is None:
+        args.build_env = detect_build_env(raw)
+        print(f"# detected build env: {args.build_env}", file=sys.stderr)
+    else:
+        print(f"# using user-supplied build env: {args.build_env}",
+              file=sys.stderr)
 
     # Parse + aggregate.
     snapshots = [parse_snapshot_block(b) for b in split_snapshots(raw)]
