@@ -45,11 +45,36 @@ void BoomReadTask(void *pvParams)
 {
     (void)pvParams;
 
-    // 5 ms tick. Boom rate is 50 Hz (~20 ms between frames) so this
-    // checks the buffer ~4× per inter-frame interval — plenty of
-    // headroom before the 128-byte HW FIFO would risk overflow at a
-    // 30-byte protocol. 1 ms polling overran the PerfLoop ring buffer
-    // (1000 events/sec vs 1024-entry ring); 5 ms keeps us well clear.
+#ifdef ONSPEED_SYNTH_SENSORS
+    // Synth path: SyntheticStream's esp_timer calls
+    // xTaskNotifyGive(this task) every periodUs.  Block on
+    // ulTaskNotifyTake — same shape as EfisReadTask's synth branch.
+    // Loops/s on the PERF report reads as the actual frame rate.
+    // 1-second watchdog timeout against esp_timer start-failure
+    // (see EfisRead.cpp for rationale).
+    constexpr TickType_t kSynthWatchdog = pdMS_TO_TICKS(1000);
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, kSynthWatchdog);
+
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::BoomRead,
+            uxTaskGetStackHighWaterMark(nullptr));
+        {
+            onspeed::util::perf::PerfScope scope(
+                onspeed::util::perf::ScopeId::BoomRead);
+            g_BoomSerial.Read();
+        }
+    }
+#else
+    // Real-hardware path: 5 ms tick. Boom rate is 50 Hz (~20 ms between
+    // frames) so this checks the buffer ~4× per inter-frame interval —
+    // plenty of headroom before the 128-byte HW FIFO would risk overflow
+    // at a 30-byte protocol. 1 ms polling overran the PerfLoop ring
+    // buffer (1000 events/sec vs 1024-entry ring); 5 ms keeps us well
+    // clear.  Cannot use IDF event-queue wake-on-data here because
+    // Serial1 is shared between boom (RX) and display (TX) through
+    // Arduino HardwareSerial; the IDF driver would take exclusive
+    // ownership and break the TX path.
     constexpr TickType_t kPollPeriod = pdMS_TO_TICKS(5);
     TickType_t xLastWake = xTaskGetTickCount();
 
@@ -65,4 +90,5 @@ void BoomReadTask(void *pvParams)
             g_BoomSerial.Read();
         }
     }
+#endif
 }

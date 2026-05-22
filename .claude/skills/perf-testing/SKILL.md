@@ -106,6 +106,7 @@ Look for:
 | Reading only `Max` | Look at p50/p95 first. Max is often a one-shot SD wear pause. |
 | No conditions in the label | The label IS the conditions; future-you needs to know what was running. |
 | `Loops/s` reads as exactly 256 at high IMU rates | Pre-PR #626 only: 1024-entry universal ring × 4 events/IMU-iter saturated at 256 loops/s reported, regardless of actual rate. PR #626 sized the IMU ring to 8192. If you see this on a pre-#626 build, the IMU is actually running faster than 256 — reflash a post-#626 firmware before trusting the number. |
+| EfisRead / BoomRead `Drops` non-zero on perf-synth | Pre-EfisRead-ring-fix only: the 256-entry default ring overflowed when SyntheticStream's `PerfScope(SynthBuild)` event was pushed inside the EfisRead/BoomRead task context, doubling the events-per-wake. Bench measurements at 50 Hz showed ~194 BoomRead drops / 60 s and at 100 Hz ~44 EfisRead drops. The post-fix sizes (`kEfisRingCapacity = 2048`, `kBoomRingCapacity = 512`) hold up to ~400 Hz VN-300 ingest cleanly. If you see non-zero drops on these tasks on a current build, the underlying ring is saturating — investigate via `perf dump` snapshots rather than trusting aggregated medians. |
 
 ## When You Need More Detail
 

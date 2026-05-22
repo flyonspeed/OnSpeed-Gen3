@@ -169,8 +169,17 @@ Ring g_rings[kTaskCount];
 // the day the SDK enables ALLOW_BSS_SEG_EXTERNAL_MEMORY (or we swap to
 // vanilla ESP-IDF) — no code change needed. If you're chasing DRAM, that
 // SDK config flip is the lever.
+// Tasks with per-task overrides get their own buffers; everyone else
+// shares the small-buffer pool. Adding a new override means: declaring
+// the buffer, special-casing it in PerfRingsInit, AND subtracting one
+// more from g_other_events's leading dimension. The runtime assert at
+// the end of PerfRingsInit catches drift.
 ONSPEED_PSRAM_BSS_ATTR PerfEvent g_imu_events  [kImuRingCapacity];
-ONSPEED_PSRAM_BSS_ATTR PerfEvent g_other_events[kTaskCount - 1][kDefaultRingCapacity];
+ONSPEED_PSRAM_BSS_ATTR PerfEvent g_efis_events [kEfisRingCapacity];
+ONSPEED_PSRAM_BSS_ATTR PerfEvent g_boom_events [kBoomRingCapacity];
+// Three task slots (Imu, EfisRead, BoomRead) are sized separately;
+// kTaskCount - 3 rows of the default-capacity pool cover the rest.
+ONSPEED_PSRAM_BSS_ATTR PerfEvent g_other_events[kTaskCount - 3][kDefaultRingCapacity];
 
 // Static initializer: wires each Ring's events pointer + mask + capacity
 // at module construction time. C++ initialises static-storage objects in
@@ -186,29 +195,40 @@ ONSPEED_PSRAM_BSS_ATTR PerfEvent g_other_events[kTaskCount - 1][kDefaultRingCapa
 // free.
 struct PerfRingsInit {
     PerfRingsInit() {
-        // Imu task gets the big buffer.
-        const size_t imuIdx = static_cast<size_t>(TaskId::Imu);
-        g_rings[imuIdx].events   = g_imu_events;
-        g_rings[imuIdx].capacity = kImuRingCapacity;
-        g_rings[imuIdx].mask     = kImuRingCapacity - 1;
+        // Tasks with dedicated buffers.
+        const size_t imuIdx  = static_cast<size_t>(TaskId::Imu);
+        const size_t efisIdx = static_cast<size_t>(TaskId::EfisRead);
+        const size_t boomIdx = static_cast<size_t>(TaskId::BoomRead);
+
+        g_rings[imuIdx].events    = g_imu_events;
+        g_rings[imuIdx].capacity  = kImuRingCapacity;
+        g_rings[imuIdx].mask      = kImuRingCapacity - 1;
+
+        g_rings[efisIdx].events   = g_efis_events;
+        g_rings[efisIdx].capacity = kEfisRingCapacity;
+        g_rings[efisIdx].mask     = kEfisRingCapacity - 1;
+
+        g_rings[boomIdx].events   = g_boom_events;
+        g_rings[boomIdx].capacity = kBoomRingCapacity;
+        g_rings[boomIdx].mask     = kBoomRingCapacity - 1;
 
         // All other tasks share the small-buffer pool. We walk task
-        // ordinals 0..kTaskCount-1, skip the IMU slot, and assign each
-        // remaining task a row of g_other_events. Ends with
-        // otherIdx == kTaskCount - 1, which we assert below.
+        // ordinals 0..kTaskCount-1, skip the three special-cased slots,
+        // and assign each remaining task a row of g_other_events. Ends
+        // with otherIdx == kTaskCount - 3, which we assert below.
         size_t otherIdx = 0;
         for (size_t t = 0; t < kTaskCount; ++t) {
-            if (t == imuIdx) continue;
+            if (t == imuIdx || t == efisIdx || t == boomIdx) continue;
             g_rings[t].events   = g_other_events[otherIdx];
             g_rings[t].capacity = kDefaultRingCapacity;
             g_rings[t].mask     = kDefaultRingCapacity - 1;
             ++otherIdx;
         }
-        // g_other_events is sized for kTaskCount-1 rows. If a new TaskId
+        // g_other_events is sized for kTaskCount-3 rows. If a new TaskId
         // is added and this count drifts, the assignments above would
         // index past the buffer. Catch it here instead of as a silent
         // OOB at first PERF emit.
-        assert(otherIdx == kTaskCount - 1);
+        assert(otherIdx == kTaskCount - 3);
     }
 };
 static PerfRingsInit s_perfRingsInit;

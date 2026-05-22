@@ -38,19 +38,19 @@ struct Frame {
 
 // 127-B VectorNav VN-300 frame. 50 Hz native rate.
 const Frame& Vn300Frame();
-constexpr uint32_t kVn300PeriodMs = 20;
+constexpr uint32_t kVn300PeriodUs = 20000;   // 20 ms = 50 Hz
 
 // Dynon SkyView !1 ADAHRS (74 B) + !3 EMS (225 B), alternating.
 // Real SkyView alternates the two; SyntheticStream cycles through both.
 // Returns a pointer to a 2-element array.
 const Frame* SkyviewFrames();
 constexpr std::size_t kSkyviewFrameCount = 2;
-constexpr uint32_t   kSkyviewPeriodMs   = 50;   // ~10 Hz combined
+constexpr uint32_t   kSkyviewPeriodUs   = 50000;   // 50 ms = 20 Hz alternation = ~10 Hz combined
 
 // Boom probe $AIRDAQ,deviceId,tag,N,N,N,N,XX\r\n line. 50 Hz native.
 // Format mirrors a live AirDAQ boom; see SynthFrames.cpp::BuildBoom.
 const Frame& BoomFrame();
-constexpr uint32_t kBoomPeriodMs = 20;
+constexpr uint32_t kBoomPeriodUs = 20000;   // 20 ms = 50 Hz
 
 }   // namespace onspeed::test_frames
 
