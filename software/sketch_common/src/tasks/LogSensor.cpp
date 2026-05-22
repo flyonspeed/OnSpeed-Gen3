@@ -969,6 +969,46 @@ void LogSensor::Write()
     // CSV column type.
     uint64_t      uTimeStampUs = static_cast<uint64_t>(esp_timer_get_time());
 
+    // Snapshot g_AHRS.* under xAhrsMutex so the row's AHRS fields all
+    // come from the same iteration of g_AHRS.Process(). Every other
+    // reader of these fields (DisplaySerial, DataServer, Housekeeping,
+    // ApiHandlers) holds xAhrsMutex; without this snapshot, Write()
+    // races against AHRS::Process() and can split a row across two
+    // AHRS iterations. Closes issue #520.
+    //
+    // The 8 g_AHRS reads were previously scattered through the function
+    // body (lines fed into row.tasKt, row.pitchDeg/rollDeg, then
+    // row.earthVerticalG / flightPathDeg / vsiFpm / altitudeFt /
+    // derivedAoaDeg after the EFIS/boom blocks). All are now snapshotted
+    // here once. Mutex hold is 8 word loads — sub-microsecond, way under
+    // the 4.8 ms IMU period.
+    float ahrsTasMps, ahrsPitchDeg, ahrsRollDeg;
+    float ahrsEarthVertG, ahrsFlightPathDeg, ahrsKalmanVsiMps;
+    float ahrsKalmanAltMeters, ahrsDerivedAoaDeg;
+    if (xSemaphoreTake(xAhrsMutex, portMAX_DELAY) == pdTRUE) {
+        ahrsTasMps          = g_AHRS.fTAS;
+        ahrsPitchDeg        = g_AHRS.SmoothedPitch;
+        ahrsRollDeg         = g_AHRS.SmoothedRoll;
+        ahrsEarthVertG      = g_AHRS.EarthVertG;
+        ahrsFlightPathDeg   = g_AHRS.FlightPath;
+        ahrsKalmanVsiMps    = g_AHRS.KalmanVSI;
+        ahrsKalmanAltMeters = g_AHRS.KalmanAlt;
+        ahrsDerivedAoaDeg   = g_AHRS.DerivedAOA;
+        xSemaphoreGive(xAhrsMutex);
+    } else {
+        // portMAX_DELAY → take always succeeds; this branch is for
+        // completeness. Initialize to defensive defaults in case any
+        // future timeout change drops us here.
+        ahrsTasMps          = 0.0f;
+        ahrsPitchDeg        = 0.0f;
+        ahrsRollDeg         = 0.0f;
+        ahrsEarthVertG      = 0.0f;
+        ahrsFlightPathDeg   = 0.0f;
+        ahrsKalmanVsiMps    = 0.0f;
+        ahrsKalmanAltMeters = 0.0f;
+        ahrsDerivedAoaDeg   = 0.0f;
+    }
+
     onspeed::LogRow row;
     row.boomEnabled = g_Config.bReadBoom;
     row.efisEnabled = g_Config.bReadEfisData;
@@ -995,7 +1035,7 @@ void LogSensor::Write()
     row.flapsRawAdc      = g_Flaps.uValue;
     row.dataMark         = g_iDataMark;
     row.oatCelsius       = g_Sensors.OatC;
-    row.tasKt            = mps2kts(g_AHRS.fTAS);
+    row.tasKt            = mps2kts(ahrsTasMps);
 
     // IMU — imuPitchRateDps holds the raw (un-negated) gyro value.
     // FormatRow applies the sign flip when writing the PitchRate column (issue #182).
@@ -1006,8 +1046,8 @@ void LogSensor::Write()
     row.imuRollRateDps   = g_pIMU->Gx;
     row.imuPitchRateDps  = g_pIMU->Gy;   // un-negated; FormatRow emits -imuPitchRateDps
     row.imuYawRateDps    = g_pIMU->Gz;
-    row.pitchDeg         = g_AHRS.SmoothedPitch;
-    row.rollDeg          = g_AHRS.SmoothedRoll;
+    row.pitchDeg         = ahrsPitchDeg;
+    row.rollDeg          = ahrsRollDeg;
 
     if (g_Config.bReadBoom)
         {
@@ -1081,11 +1121,11 @@ void LogSensor::Write()
             }
         }
 
-    row.earthVerticalG = g_AHRS.EarthVertG;
-    row.flightPathDeg  = g_AHRS.FlightPath;
-    row.vsiFpm         = mps2fpm(g_AHRS.KalmanVSI);
-    row.altitudeFt     = m2ft(g_AHRS.KalmanAlt);
-    row.derivedAoaDeg  = g_AHRS.DerivedAOA;
+    row.earthVerticalG = ahrsEarthVertG;
+    row.flightPathDeg  = ahrsFlightPathDeg;
+    row.vsiFpm         = mps2fpm(ahrsKalmanVsiMps);
+    row.altitudeFt     = m2ft(ahrsKalmanAltMeters);
+    row.derivedAoaDeg  = ahrsDerivedAoaDeg;
     row.coeffP         = g_fCoeffP;
 
     // Sidecar accumulator: feed time-of-day + UTC if available.
