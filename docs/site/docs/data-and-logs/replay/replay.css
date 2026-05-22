@@ -763,3 +763,189 @@
   min-width: 32px;
   text-align: right;
 }
+
+/* Sidecar save banner — sticky strip at the top of the page when the
+   engineer has made annotations but no sidecar file is attached yet.
+   Visually distinct from the recent-files banner (yellow) so the two
+   don't blur together: green to signal "this is a save action you can
+   take", not "we're trying to restore something." */
+.replay-sidecar-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: #182a1c;
+  border: 1px solid var(--green, #00ff3a);
+  border-radius: 4px;
+  color: var(--ink, #eee);
+  font-size: 12px;
+}
+.replay-sidecar-banner-text {
+  flex: 1 1 auto;
+}
+.replay-sidecar-banner-text code {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  background: #0e1f12;
+  padding: 1px 5px;
+  border-radius: 2px;
+  color: #8ee68f;
+}
+.replay-sidecar-banner-save {
+  flex: 0 0 auto;
+  border: 1px solid var(--green, #00ff3a);
+  background: #1f4a2b;
+  color: var(--green, #00ff3a);
+  padding: 4px 12px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.replay-sidecar-banner-save:hover {
+  background: var(--green, #00ff3a);
+  color: #0e1f12;
+}
+.replay-sidecar-banner-dismiss {
+  flex: 0 0 auto;
+  border: 1px solid #1f4a2b;
+  background: transparent;
+  color: #8ee68f;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 3px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.replay-sidecar-banner-dismiss:hover {
+  background: #1f4a2b;
+  color: var(--green, #00ff3a);
+}
+
+/* Save-state pill in the toolbar once a sidecar handle is attached.
+   Reuses the existing .replay-status sizing and adds a state-specific
+   color tint. */
+.replay-sidecar-status {
+  font-size: 12px;
+  color: #8ee68f;
+  background: #182a1c;
+  border: 1px solid #1f4a2b;
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+.replay-sidecar-status.is-saving {
+  color: #d8c97a;
+  border-color: #4a3f1f;
+  background: #2a2418;
+}
+.replay-sidecar-status.is-dirty {
+  color: #d8c97a;
+  border-color: #4a3f1f;
+  background: #2a2418;
+}
+.replay-sidecar-status.is-error {
+  color: #ff8888;
+  border-color: #5a1f1f;
+  background: #2a1818;
+}
+
+/* "Open flight folder" button — sits in the toolbar before the file
+   pickers. Visually emphasized so the engineer can tell it's the
+   primary entry. */
+.replay-folder-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #c5e4ff;
+  background: #1f3344;
+  border: 1px solid #2f5a7c;
+  border-radius: 3px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.replay-folder-btn:hover {
+  background: #2f5a7c;
+  color: var(--white, #fff);
+}
+
+/* Multi-log picker modal — overlay shown when a flight folder
+   contains more than one CSV. Engineer picks which log to open. */
+.replay-log-picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.replay-log-picker-modal {
+  background: #1a2230;
+  border: 1px solid #3a4654;
+  border-radius: 6px;
+  padding: 16px 20px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: auto;
+  color: var(--ink, #eee);
+}
+.replay-log-picker-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.replay-log-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+.replay-log-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #232c3a;
+  border: 1px solid #3a4654;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.replay-log-picker-item:hover {
+  background: #2f5a7c;
+  border-color: #c5e4ff;
+}
+.replay-log-picker-item-name {
+  flex: 1 1 auto;
+  color: #e0e6eb;
+}
+.replay-log-picker-item-meta {
+  color: #8a96a4;
+  font-size: 11px;
+}
+.replay-log-picker-cancel {
+  background: transparent;
+  border: 1px solid #3a4654;
+  color: #a8b3bd;
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+}
+.replay-log-picker-cancel:hover {
+  color: var(--white, #fff);
+  border-color: #c5e4ff;
+}
+

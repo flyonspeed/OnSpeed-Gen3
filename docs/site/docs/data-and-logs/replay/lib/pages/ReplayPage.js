@@ -70,6 +70,15 @@ import {
   requestPermissionForHandles, signatureFromFiles, useFileHandleResume,
   expandMultiChapterHandle, ReplayResumeBanner,
 } from '../replay/fileHandles.js';
+import {
+  isDirectoryPickerSupported, pickFlightDir, storeFlightDirHandle,
+  loadFlightDirHandle, queryDirPermission, requestDirPermission,
+  discoverFlightContents, findSidecarHandle, readSidecarFromHandle,
+  showSidecarSavePicker, useSidecar,
+  SidecarSaveBanner, SidecarSaveIndicator,
+} from '../replay/sidecar.js';
+import { migrateJournalToSidecar } from '../replay/sidecar-migration.js';
+import { sidecarFileNameFor } from '../replay/sidecar-schema.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter,
@@ -316,6 +325,28 @@ export const ReplayPage = () => {
   // of the parser-derived `marks` array — the journal layer never
   // creates marks, only annotates them.
   const journal = useReplayJournal({ logHash: persistence.logDigest });
+
+  // ---------- Sidecar (Phase 1) ------------------------------------
+  //
+  // Flight-folder directory handle obtained via showDirectoryPicker.
+  // Held as Preact state so the sidecar hook (which depends on it)
+  // re-evaluates when the engineer picks a folder.
+  const [flightDirHandle, setFlightDirHandle] = useState(null);
+  // Multi-log picker modal state. When the picked flight folder
+  // contains more than one .csv, the engineer chooses one before the
+  // page commits to a log.
+  const [logPickerOptions, setLogPickerOptions] = useState(null);
+  // Banner-dismissed flag for the save banner. Per-session only; the
+  // banner reappears next reload if the engineer makes another edit.
+  const [sidecarBannerDismissed, setSidecarBannerDismissed] = useState(false);
+  // Sidecar discovery result for the current flight folder. Kept around
+  // so the "Open log" picker can re-enumerate without re-walking the
+  // directory after a save.
+  const flightDiscoveryRef = useRef(null);
+  // Bumped each time the sidecar hook applies a loaded doc to local
+  // state. Lets per-effect dirty-tracking ignore the writes the load
+  // pipeline does (those shouldn't trigger an auto-save).
+  const sidecarApplyingRef = useRef(false);
 
   // File handles for FileSystemAccess-supported browsers (Chrome /
   // Edge desktop). Held in refs because they're not Preact state —
@@ -747,6 +778,303 @@ export const ReplayPage = () => {
       setParseErr(`Could not open config: ${err.message}`);
     }
   }, [applyCfgFile]);
+
+  // ---------- Sidecar wiring (Phase 1) -----------------------------
+  //
+  // The sidecar hook holds the writable file handle for the active
+  // log's `.replay.json`. It debounces writes and surfaces save state
+  // for the toolbar pill / save banner.
+  //
+  // `buildAuthorSnapshot` collects current engineer-authored state
+  // (marks, clips, sync, hud, summary) into the sidecar shape. Called
+  // by the hook at debounced-save time.
+  //
+  // `buildSubject` supplies log/config/video metadata for the first
+  // write (emptySession seed) — the sidecar carries identity info so
+  // a future reader can verify the file matches.
+
+  // Refs for the snapshot builder. The hook stores buildAuthorSnapshot
+  // in a ref so it can read the latest values at flush time without
+  // re-binding the timer on every state change. We do the same here:
+  // mirror the load-bearing pieces into refs so the snapshot stays
+  // current without forcing the hook to re-key on every clip edit.
+  const clipsRef = useRef(clips);
+  const syncRef  = useRef(sync);
+  useEffect(() => { clipsRef.current = clips; }, [clips]);
+  useEffect(() => { syncRef.current  = sync;  }, [sync]);
+
+  const buildAuthorSnapshot = useCallback(() => {
+    // Convert journal.markAnnotations (keyed map) → marks array. Pull
+    // each (value, logTimeMs) from the key, keep name + notes.
+    const marks = [];
+    for (const [key, ann] of Object.entries(journal.markAnnotations || {})) {
+      const [valueStr, timeStr] = key.split(':');
+      const value = Number(valueStr);
+      const logTimeMs = Number(timeStr);
+      if (!Number.isFinite(value) || !Number.isFinite(logTimeMs)) continue;
+      marks.push({
+        value, logTimeMs,
+        name: ann.name || '',
+        notes: ann.notes || '',
+        createdAt: new Date(ann.updatedAt || Date.now()).toISOString(),
+        updatedAt: new Date(ann.updatedAt || Date.now()).toISOString(),
+      });
+    }
+    // Convert journal.clipAnnotations (keyed map) → clips array. The
+    // physical clip rows live in `clips` state (id, startMs, endMs);
+    // the journal carries label/notes overlays. Merge them by id.
+    const clipsOut = [];
+    const liveClips = clipsRef.current || [];
+    for (const c of liveClips) {
+      const id = c.id || `clip-${c.startMs}-${c.endMs}`;
+      const ann = (journal.clipAnnotations || {})[id] || {};
+      clipsOut.push({
+        id,
+        startLogMs: c.startMs,
+        endLogMs: c.endMs,
+        label: ann.label || c.label || '',
+        notes: ann.notes || '',
+        createdAt: new Date(ann.updatedAt || Date.now()).toISOString(),
+        updatedAt: new Date(ann.updatedAt || Date.now()).toISOString(),
+      });
+    }
+    const syncOut = syncRef.current ? {
+      logAnchorTimestampMs: syncRef.current.logTakeoffMs,
+      videoAnchorSec: syncRef.current.videoTakeoffSec,
+      method: 'manual-takeoff',
+      confidence: 'medium',
+    } : null;
+    return {
+      marks,
+      clips: clipsOut,
+      sync: syncOut,
+      hud: {
+        pitchOffsetDeg: journal.hudPitchOffsetDeg ?? 0,
+        leftInsetMode: leftInsetMode == null ? '' : String(leftInsetMode),
+        rightInsetMode: rightInsetMode == null ? '' : String(rightInsetMode),
+      },
+    };
+  }, [journal.markAnnotations, journal.clipAnnotations,
+      journal.hudPitchOffsetDeg, leftInsetMode, rightInsetMode]);
+
+  const buildSubject = useCallback(() => {
+    const sub = {};
+    if (logFile) {
+      sub.log = {
+        name: logFile.name,
+        hash: persistence.logDigest || '',
+        sizeBytes: logFile.size || 0,
+        rowCount: log ? log.Length : 0,
+        durationSec: 0, // PR 2 fills this from parsed log
+      };
+    }
+    if (cfgFile) {
+      sub.config = {
+        name: cfgFile.name,
+        hash: '', // PR 2: compute on load
+        ahrsAlgorithm: cfg && cfg.ahrsAlgorithm ? String(cfg.ahrsAlgorithm) : '',
+      };
+    }
+    if (videoFile) {
+      sub.video = {
+        name: videoFile.name,
+        hash: '',
+        durationSec: 0,
+      };
+    }
+    return sub;
+  }, [logFile, cfgFile, videoFile, persistence.logDigest, log, cfg]);
+
+  // Callback fired when readSidecarForLog returns a parsed doc. Pulls
+  // marks/clips/sync/hud out of the doc into local state. PR 1
+  // reconciliation rule: sidecar wins. PR 2 layers per-record merge.
+  const onSidecarLoaded = useCallback((doc) => {
+    if (!doc) return;
+    sidecarApplyingRef.current = true;
+    try {
+      // Marks: feed each into the journal so the UI overlay refreshes.
+      // The journal upsert function dedupes on (value, logTimeMs), so
+      // running this is idempotent if the user re-loads the same doc.
+      for (const m of doc.marks || []) {
+        journal.upsertMarkAnnotation(
+          { value: m.value, logTimeMs: m.logTimeMs },
+          { name: m.name || '', notes: m.notes || '' });
+      }
+      // Clips: rebuild local state from the doc.
+      const reconstructed = (doc.clips || []).map(c => ({
+        id: c.id,
+        startMs: c.startLogMs,
+        endMs: c.endLogMs,
+        label: c.label || '',
+      }));
+      if (reconstructed.length > 0) setClips(reconstructed);
+      // Clip annotations: feed labels/notes into the journal too.
+      for (const c of doc.clips || []) {
+        if (c.label || c.notes) {
+          journal.upsertClipAnnotation(c.id, {
+            label: c.label || '', notes: c.notes || '',
+          });
+        }
+      }
+      // Sync: translate sidecar shape back into local shape.
+      if (doc.sync &&
+          Number.isFinite(doc.sync.logAnchorTimestampMs) &&
+          Number.isFinite(doc.sync.videoAnchorSec)) {
+        setSync({
+          logTakeoffMs: doc.sync.logAnchorTimestampMs,
+          videoTakeoffSec: doc.sync.videoAnchorSec,
+        });
+      }
+      // HUD pitch offset: only update if the sidecar carries one.
+      if (doc.hud && Number.isFinite(doc.hud.pitchOffsetDeg)) {
+        journal.setHudPitchOffsetDeg(doc.hud.pitchOffsetDeg);
+      }
+    } finally {
+      // Release the suppression flag on the next microtask so the
+      // upstream state setters fire before the next dirty edit
+      // re-engages the save loop.
+      Promise.resolve().then(() => { sidecarApplyingRef.current = false; });
+    }
+  }, [journal, setClips, setSync]);
+
+  // The actual sidecar hook. logFileName drives discover/load; the
+  // markDirty callback is invoked from edit handlers (we wire that
+  // below in an effect that watches journal + clips + sync).
+  const sidecar = useSidecar({
+    logFileName: logFilename,
+    dirHandle: flightDirHandle,
+    buildAuthorSnapshot,
+    buildSubject,
+    onSidecarLoaded,
+  });
+
+  // Mark the sidecar dirty whenever a tracked piece of state changes,
+  // EXCEPT when the change comes from the sidecar load pipeline (the
+  // `sidecarApplyingRef` flag) or before we have a log to attach to.
+  useEffect(() => {
+    if (!logFilename) return;
+    if (sidecarApplyingRef.current) return;
+    sidecar.markDirty();
+  // The journal state is keyed by maps, not arrays; using their refs
+  // (markAnnotations/clipAnnotations/hudPitchOffsetDeg) as deps fires
+  // exactly when an annotation changes.
+  }, [journal.markAnnotations, journal.clipAnnotations,
+      journal.hudPitchOffsetDeg, clips, sync,
+      leftInsetMode, rightInsetMode, logFilename,
+      sidecar.markDirty]);
+
+  // "Open flight folder" handler. Opens showDirectoryPicker in
+  // readwrite mode, persists the directory handle, walks for logs,
+  // and either picks the single log or surfaces the multi-log
+  // picker modal.
+  const onOpenFlightFolder = useCallback(async () => {
+    try {
+      const dir = await pickFlightDir();
+      if (!dir) return; // user cancelled
+      setFlightDirHandle(dir);
+      await storeFlightDirHandle(dir);
+      const discovery = await discoverFlightContents(dir);
+      flightDiscoveryRef.current = discovery;
+      if (discovery.logs.length === 0) {
+        setParseErr(
+          `No .csv logs found in "${dir.name}". Pick a folder containing OnSpeed SD logs.`);
+        return;
+      }
+      // Pick the most-recent cfg (if any) silently before the log.
+      let cfgPicked = null;
+      if (discovery.configs.length > 0) {
+        const sorted = [...discovery.configs].sort((a, b) => {
+          const am = (a.file && a.file.lastModified) || 0;
+          const bm = (b.file && b.file.lastModified) || 0;
+          return bm - am;
+        });
+        cfgPicked = sorted[0];
+      }
+      const applyChosen = async (logRow) => {
+        const file = logRow.file || await logRow.handle.getFile();
+        await applyLogFile(file, logRow.handle);
+        if (cfgPicked) {
+          const cfgFileObj = cfgPicked.file ||
+            await cfgPicked.handle.getFile();
+          await applyCfgFile(cfgFileObj, cfgPicked.handle);
+        }
+      };
+      if (discovery.logs.length === 1) {
+        await applyChosen(discovery.logs[0]);
+      } else {
+        // Multi-log picker: present the modal. Sort by lastModified
+        // descending so the most-recent log surfaces first.
+        const sorted = [...discovery.logs].sort((a, b) => {
+          const am = (a.file && a.file.lastModified) || 0;
+          const bm = (b.file && b.file.lastModified) || 0;
+          return bm - am;
+        });
+        setLogPickerOptions({ logs: sorted, onChosen: applyChosen });
+      }
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      setParseErr(`Could not open flight folder: ${err.message}`);
+    }
+  }, [applyLogFile, applyCfgFile]);
+
+  // Multi-log picker — engineer chose a log from the modal.
+  const onLogPickerChose = useCallback(async (logRow) => {
+    const opts = logPickerOptions;
+    setLogPickerOptions(null);
+    if (opts && typeof opts.onChosen === 'function') {
+      try {
+        await opts.onChosen(logRow);
+      } catch (err) {
+        setParseErr(`Could not open log: ${err.message}`);
+      }
+    }
+  }, [logPickerOptions]);
+
+  const onLogPickerCancel = useCallback(() => {
+    setLogPickerOptions(null);
+  }, []);
+
+  // Save-banner handler. Engineer clicked Save → call
+  // showSaveFilePicker with the sidecar's suggested filename →
+  // attachHandle on the sidecar hook. The hook writes immediately.
+  const onSidecarSaveClick = useCallback(async () => {
+    if (!logFilename) return;
+    try {
+      const handle = await showSidecarSavePicker({
+        dirHandle: flightDirHandle,
+        logFileName: logFilename,
+      });
+      if (!handle) return; // user cancelled
+      await sidecar.attachHandle(handle);
+    } catch (err) {
+      setParseErr(`Could not save sidecar: ${err.message}`);
+    }
+  }, [logFilename, flightDirHandle, sidecar]);
+
+  const onSidecarBannerDismiss = useCallback(() => {
+    setSidecarBannerDismissed(true);
+  }, []);
+
+  // Re-grant permission on a previously-picked flight directory at
+  // mount time. Mirrors the useFileHandleResume pattern but for the
+  // directory handle. The auto-resume only fires when queryPermission
+  // returns 'granted' (Chrome 122+ "Allow on every visit"); otherwise
+  // the engineer clicks "Open flight folder" again to re-grant.
+  const flightDirResumedRef = useRef(false);
+  useEffect(() => {
+    if (flightDirResumedRef.current) return;
+    if (!isDirectoryPickerSupported()) return;
+    flightDirResumedRef.current = true;
+    loadFlightDirHandle().then(async (handle) => {
+      if (!handle) return;
+      const perm = await queryDirPermission(handle, 'readwrite');
+      if (perm === 'granted') {
+        setFlightDirHandle(handle);
+      }
+      // Otherwise leave the handle dormant; "Open flight folder" will
+      // re-engage it (or the engineer will pick a different folder).
+    }).catch(err => console.warn('sidecar: dir-handle resume failed', err));
+  }, []);
 
   // Shared resume load body. Reads the three files via the (already-
   // granted) FSA handles and re-feeds them through the apply* helpers.
@@ -2259,7 +2587,43 @@ export const ReplayPage = () => {
                         onDismiss=${onResumeDismiss} />`
               : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
                                            onDismiss=${persistence.dismissBanner} />`)}
+        ${sidecar.showSaveBanner && !sidecarBannerDismissed && html`
+          <${SidecarSaveBanner}
+            logFileName=${logFilename}
+            onSave=${onSidecarSaveClick}
+            onDismiss=${onSidecarBannerDismiss} />`}
+        ${logPickerOptions && html`
+          <div class="replay-log-picker-overlay">
+            <div class="replay-log-picker-modal">
+              <p class="replay-log-picker-title">
+                Pick a log to open (${logPickerOptions.logs.length} found in folder)
+              </p>
+              <ul class="replay-log-picker-list">
+                ${logPickerOptions.logs.map(row => html`
+                  <li class="replay-log-picker-item"
+                      onClick=${() => onLogPickerChose(row)}>
+                    <span class="replay-log-picker-item-name">${row.name}</span>
+                    <span class="replay-log-picker-item-meta">
+                      ${row.file
+                        ? `${Math.round((row.file.size || 0) / 1024).toLocaleString()} KB`
+                        : 'cloud-only'}
+                    </span>
+                  </li>`)}
+              </ul>
+              <button class="replay-log-picker-cancel"
+                      type="button"
+                      onClick=${onLogPickerCancel}>Cancel</button>
+            </div>
+          </div>`}
         <header class="replay-toolbar">
+          ${isDirectoryPickerSupported() && html`
+            <button class="replay-folder-btn" type="button"
+                    onClick=${onOpenFlightFolder}
+                    title="Pick a flight folder. The tool enumerates its logs/configs/videos and auto-attaches a .replay.json sidecar.">
+              ${flightDirHandle
+                ? `Folder: ${flightDirHandle.name}`
+                : 'Open flight folder...'}
+            </button>`}
           ${fsaSupported ? html`
             <label class="replay-file">
               <span>Video</span>
@@ -2303,6 +2667,10 @@ export const ReplayPage = () => {
           `}
           ${resuming && html`
             <span class="replay-status">Resuming…</span>`}
+          ${sidecar.sidecarHandle && html`
+            <${SidecarSaveIndicator}
+              saveState=${sidecar.saveState}
+              lastSavedAt=${sidecar.lastSavedAt} />`}
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}
