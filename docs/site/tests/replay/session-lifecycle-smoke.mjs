@@ -95,6 +95,7 @@ function makeOps() {
     mountLog: [],
     mountVideo: [],
     mountConfig: [],
+    reinitSim: 0,
     loadSidecar: 0,
     showPicker: [],
     errors: [],
@@ -105,6 +106,7 @@ function makeOps() {
     mountLog: async (file, handle, rel) => { calls.mountLog.push({ name: file.name, rel }); },
     mountVideo: async (file, handle, rel) => { calls.mountVideo.push({ name: file.name, rel }); },
     mountConfig: async (file, handle, rel) => { calls.mountConfig.push({ name: file.name, rel }); },
+    reinitSim: () => { calls.reinitSim++; },
     loadSidecar: async () => { calls.loadSidecar++; },
     showPicker: (logs, sidecarMap, onChosen) => {
       calls.showPicker.push({ logs: logs.map(l => l.name), sidecarMap, onChosen });
@@ -177,21 +179,90 @@ await test('sequential folder switches tear down fully between them', async () =
   assertEqual(calls.setSource[1].dir, 'Folder B', 'second switch records new folder');
 });
 
-await test('file-pick intent tears down and mounts only the chosen slot', async () => {
+await test('file-pick log swap: keeps dirHandle + cfg + video, re-inits sim', async () => {
+  // Sam's reported scenario, log variant: open a folder with log + cfg
+  // + video, then swap the log via the legacy "Open log" button. The
+  // folder handle and other slots stay intact; the sim re-inits
+  // because the new log feeds it.
   const { ops, calls } = makeOps();
-  // First load a folder so there's prior state.
-  const dir = fakeDirHandle('Flight', [fakeFileHandle('log_007.csv')]);
+  const dir = fakeDirHandle('Flight', [
+    fakeFileHandle('log_007.csv'),
+    fakeFileHandle('onspeed.cfg'),
+  ]);
   await switchSession({ kind: 'folder', dirHandle: dir }, ops);
-  // Then pick a standalone log file.
-  const f = fakeFile('other_log.csv');
+  // Folder pick: tearDown ran once; sim re-inits via sessionTearDown,
+  // not via the reinitSim op (which is only used by file-pick).
+  assertEqual(calls.tearDown, 1);
+  assertEqual(calls.reinitSim, 0, 'folder pass does not call reinitSim op');
+  const f = fakeFile('log_007_fixed.csv');
   await switchSession({ kind: 'file-pick', slot: 'log', file: f }, ops);
-  assertEqual(calls.tearDown, 2, 'tearDown ran for both switches');
-  // setSource called: once for folder, once for file-pick (flips to 'files').
-  assertEqual(calls.setSource[1].tag, 'files');
-  assertEqual(calls.setSource[1].dir, null, 'dirHandle cleared on file-pick');
-  // Two log mounts (one for the folder pass, one for the file-pick).
+  // No additional tearDown: file-pick is a slot swap.
+  assertEqual(calls.tearDown, 1, 'no tearDown on file-pick');
+  // No setSource call: source/dirHandle unchanged.
+  assertEqual(calls.setSource.length, 1, 'setSource not called on file-pick');
+  assertEqual(calls.setSource[0].dir, 'Flight', 'dirHandle still attached');
+  // The new log is mounted; the cfg from the folder pass is untouched.
   assertEqual(calls.mountLog.length, 2);
-  assertEqual(calls.mountLog[1].name, 'other_log.csv');
+  assertEqual(calls.mountLog[1].name, 'log_007_fixed.csv');
+  assertEqual(calls.mountConfig.length, 1, 'cfg slot not re-mounted');
+  // Sim re-init: the log feeds the sim, so the new log triggers a rebuild.
+  assertEqual(calls.reinitSim, 1, 'log swap re-inits sim');
+});
+
+await test('file-pick cfg swap: keeps log + video + sidecar, re-inits sim', async () => {
+  // Sam's reported scenario, cfg variant: the folder picker
+  // auto-loaded the wrong cfg; the user swaps via the legacy "Open
+  // config" button. The folder, log, and video persist.
+  const { ops, calls } = makeOps();
+  const dir = fakeDirHandle('Flight', [
+    fakeFileHandle('log_007.csv'),
+    fakeFileHandle('wrong.cfg'),
+  ]);
+  await switchSession({ kind: 'folder', dirHandle: dir }, ops);
+  const newCfg = fakeFile('right.cfg');
+  await switchSession({ kind: 'file-pick', slot: 'config', file: newCfg }, ops);
+  assertEqual(calls.tearDown, 1, 'no tearDown on cfg file-pick');
+  assertEqual(calls.setSource.length, 1, 'setSource not called on file-pick');
+  assertEqual(calls.setSource[0].dir, 'Flight', 'dirHandle still attached');
+  assertEqual(calls.mountLog.length, 1, 'log slot not re-mounted');
+  assertEqual(calls.mountConfig.length, 2);
+  assertEqual(calls.mountConfig[1].name, 'right.cfg');
+  // Cfg feeds the sim → rebuild.
+  assertEqual(calls.reinitSim, 1, 'cfg swap re-inits sim');
+});
+
+await test('file-pick video swap: keeps everything else, no sim re-init', async () => {
+  // Video swap is the cheapest case: the video doesn't feed the M5
+  // sim, so the sim state machine stays put. Folder + log + cfg are
+  // intact.
+  const { ops, calls } = makeOps();
+  const dir = fakeDirHandle('Flight', [
+    fakeFileHandle('log_007.csv'),
+    fakeFileHandle('onspeed.cfg'),
+  ]);
+  await switchSession({ kind: 'folder', dirHandle: dir }, ops);
+  const v = fakeFile('replacement.mp4');
+  await switchSession({ kind: 'file-pick', slot: 'video', file: v }, ops);
+  assertEqual(calls.tearDown, 1, 'no tearDown on video file-pick');
+  assertEqual(calls.setSource[0].dir, 'Flight', 'dirHandle still attached');
+  assertEqual(calls.mountLog.length, 1, 'log slot not re-mounted');
+  assertEqual(calls.mountConfig.length, 1, 'cfg slot not re-mounted');
+  assertEqual(calls.mountVideo.length, 1);
+  assertEqual(calls.mountVideo[0].name, 'replacement.mp4');
+  // Video doesn't feed the sim — no rebuild.
+  assertEqual(calls.reinitSim, 0, 'video swap leaves sim alone');
+});
+
+await test('file-pick from fresh session still mounts (no prior folder)', async () => {
+  // A file-pick before any folder pick — used to be the only valid
+  // file-pick path. Still works; just no dirHandle to preserve.
+  const { ops, calls } = makeOps();
+  const f = fakeFile('standalone.csv');
+  await switchSession({ kind: 'file-pick', slot: 'log', file: f }, ops);
+  assertEqual(calls.tearDown, 0, 'no tearDown — file-pick is a slot op');
+  assertEqual(calls.mountLog.length, 1);
+  assertEqual(calls.mountLog[0].name, 'standalone.csv');
+  assertEqual(calls.reinitSim, 1, 'log swap re-inits sim');
 });
 
 await test('restore intent walks the dir handle like a folder pick', async () => {

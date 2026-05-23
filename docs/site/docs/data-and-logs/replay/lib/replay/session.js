@@ -144,9 +144,21 @@ export function matchSidecarsToLogs(logs, sidecars) {
 //   - mountLog(file, handle, relativePath)
 //   - mountVideo(file, handle, relativePath)
 //   - mountConfig(file, handle, relativePath)
+//   - reinitSim()                 — drop + rebuild M5 sim (cfg/log swaps)
 //   - loadSidecar(sidecarHandle, dirHandle) — read + apply
 //   - showPicker(logs, sidecarMap, onChosen, dirHandle)
 //   - reportError(message)
+//
+// Session boundaries vs slot swaps:
+//   - 'fresh' / 'folder' / 'restore' are session-level — the prior
+//     session is torn down (tearDown) before mounting.
+//   - 'file-pick' is a slot-level swap. The folder handle, the
+//     sidecar attachment, and the two non-picked slots stay intact.
+//     Picking a new cfg or log re-inits the M5 sim (it depends on
+//     both); a new video leaves the sim alone. A new log triggers a
+//     sidecar re-discover via the React layer's hook
+//     (logFilename + dirHandle effect), so the sidecar handle for the
+//     new basename is found (or created on first edit).
 //
 // Returns the resolved match result for diagnostics (or null on error).
 // ---------------------------------------------------------------------
@@ -155,21 +167,22 @@ export async function switchSession(intent, ops) {
   if (!intent || typeof intent !== 'object') return null;
   if (!ops || typeof ops.tearDown !== 'function') return null;
 
-  // 1. Tear down current session unconditionally.
-  try { ops.tearDown(); }
-  catch (e) {
-    if (typeof ops.reportError === 'function') {
-      ops.reportError('Session teardown failed: ' + (e?.message || e));
-    }
-  }
-
   if (intent.kind === 'fresh') {
+    try { ops.tearDown(); }
+    catch (e) {
+      if (typeof ops.reportError === 'function') {
+        ops.reportError('Session teardown failed: ' + (e?.message || e));
+      }
+    }
     if (typeof ops.setSource === 'function') ops.setSource('fresh', null);
     return { kind: 'empty' };
   }
 
   if (intent.kind === 'file-pick') {
-    if (typeof ops.setSource === 'function') ops.setSource('files', null);
+    // Slot-level swap. Do NOT tear down the session — the folder
+    // handle, sidecar attachment, and the other two slots stay
+    // intact. The per-slot mount op handles its own slot-local
+    // cleanup (video URL revoke, log clip/sync reset, etc.).
     const slot = intent.slot;
     const file = intent.file;
     const handle = intent.handle || null;
@@ -182,12 +195,26 @@ export async function switchSession(intent, ops) {
       } else if (slot === 'config' && typeof ops.mountConfig === 'function') {
         await ops.mountConfig(file, handle, file.name);
       }
+      // The M5 sim depends on log + cfg; rebuild it when either
+      // changes. Video swaps leave the sim alone.
+      if ((slot === 'log' || slot === 'config') &&
+          typeof ops.reinitSim === 'function') {
+        ops.reinitSim();
+      }
     } catch (e) {
       if (typeof ops.reportError === 'function') {
         ops.reportError(`Mount ${slot} failed: ` + (e?.message || e));
       }
     }
     return { kind: 'file-pick', slot };
+  }
+
+  // Session-level intents from here on. Tear down before mounting.
+  try { ops.tearDown(); }
+  catch (e) {
+    if (typeof ops.reportError === 'function') {
+      ops.reportError('Session teardown failed: ' + (e?.message || e));
+    }
   }
 
   if (intent.kind === 'folder' || intent.kind === 'restore') {

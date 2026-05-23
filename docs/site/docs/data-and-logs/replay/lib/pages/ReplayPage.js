@@ -752,6 +752,12 @@ export const ReplayPage = () => {
       cfgRelPathRef.current = relPath || file.name || '';
       await applyCfgFile(file, handle);
     },
+    // Drop + rebuild the M5 sim. Called by switchSession on a
+    // file-pick slot swap when the new slot (log or cfg) feeds the
+    // sim. Session-level intents (folder/restore/fresh) get their
+    // sim re-init free via sessionTearDown; this hook is the
+    // partial-swap path.
+    reinitSim: () => { setM5SimReinitNonce(n => n + 1); },
     loadSidecar: async () => {
       // No-op: the useSidecar hook auto-loads off (logFilename, dirHandle)
       // once the mounts above commit. The match-walk in session.js
@@ -849,16 +855,13 @@ export const ReplayPage = () => {
     try {
       const r = await pickFile('video');
       if (!r) return;
-      // Standalone video picks flip the session to 'files' source. The
-      // GoPro multi-chapter flow stays as-is below; the session-source
-      // flip just closes the previous folder context so the sidecar
-      // doesn't get written against an unrelated log.
-      if (flightDirHandle) {
-        // In a folder session — replace the video slot, keep log/cfg
-        // intact, drop the dirHandle so the sidecar stops writing
-        // against the prior folder.
-        setFlightDirHandle(null);
-      }
+      // Slot-level swap: replace the video, keep the folder handle,
+      // log, cfg, and sidecar attachment intact. The video doesn't
+      // feed the M5 sim, so no sim re-init is needed here. (The
+      // GoPro multi-chapter path below builds its own chapter
+      // timeline; both single- and multi-chapter picks land via
+      // applyVideoFile / applyVideoFiles, which handle slot-local
+      // teardown — videoUrl revoke, chapter list reset.)
       videoRelPathRef.current = r.file?.name || '';
       const pattern = detectGoProChapterPattern(r.file?.name || '');
       if (!pattern || typeof window === 'undefined' ||
