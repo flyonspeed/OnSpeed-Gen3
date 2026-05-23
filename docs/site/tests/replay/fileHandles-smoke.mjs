@@ -188,14 +188,10 @@ try {
 const {
   isFileHandleApiSupported,
   pickerOptionsForSlot,
-  recentFilesSignature,
-  signatureFromFiles,
-  storeHandles,
-  loadHandles,
-  clearHandles,
   expandMultiChapterHandle,
   requestPermissionForHandles,
   queryPermissionForHandles,
+  pickFile,
 } = fh;
 
 // ---------------------------------------------------------------------
@@ -249,104 +245,12 @@ test('pickerOptionsForSlot throws on unknown slot', () => {
   assertEqual(threw, true);
 });
 
-test('recentFilesSignature returns empty string when video or log missing', () => {
-  assertEqual(recentFilesSignature(null), '');
-  assertEqual(recentFilesSignature({}), '');
-  assertEqual(recentFilesSignature({ video: { name: 'v' } }), '');
-  assertEqual(recentFilesSignature({ log: { name: 'l' } }), '');
-});
-
-test('recentFilesSignature returns a stable string when video + log present', () => {
-  const info = {
-    video: { name: 'v.mp4', size: 100, lastModified: 5 },
-    log: { name: 'l.csv', size: 50, lastModified: 6 },
-    cfg: null,
-  };
-  const sig = recentFilesSignature(info);
-  assertEqual(typeof sig, 'string');
-  if (sig.length === 0) throw new Error('expected non-empty signature');
-  // Same input → same output.
-  assertEqual(recentFilesSignature(info), sig, 'idempotent');
-});
-
-test('recentFilesSignature differs when filenames differ', () => {
-  const a = {
-    video: { name: 'a.mp4', size: 100, lastModified: 5 },
-    log: { name: 'l.csv', size: 50, lastModified: 6 },
-  };
-  const b = {
-    video: { name: 'b.mp4', size: 100, lastModified: 5 },
-    log: { name: 'l.csv', size: 50, lastModified: 6 },
-  };
-  if (recentFilesSignature(a) === recentFilesSignature(b)) {
-    throw new Error('expected distinct signatures for distinct filenames');
-  }
-});
-
-test('signatureFromFiles returns empty when video or log missing', () => {
-  assertEqual(signatureFromFiles({}), '');
-  assertEqual(signatureFromFiles({ video: { name: 'v', size: 1, lastModified: 1 } }), '');
-});
-
-test('signatureFromFiles produces same signature as recentFilesSignature for equivalent metadata', () => {
-  const video = { name: 'v.mp4', size: 100, lastModified: 5 };
-  const log = { name: 'l.csv', size: 50, lastModified: 6 };
-  const cfg = { name: 'c.cfg', size: 20, lastModified: 7 };
-  const sigFromFiles = signatureFromFiles({ video, log, cfg });
-  const sigFromInfo = recentFilesSignature({ video, log, cfg });
-  assertEqual(sigFromFiles, sigFromInfo);
-});
-
-test('signatureFromFiles tolerates non-object File inputs', () => {
-  assertEqual(signatureFromFiles({ video: 'string', log: 42 }), '');
-});
-
-await test('storeHandles + loadHandles round-trip with matching signature', async () => {
-  await clearHandles();
-  const sig = '{"video":{"name":"v"},"log":{"name":"l"}}';
-  const handles = {
-    video: { __slot: 'video' },
-    log: { __slot: 'log' },
-    cfg: { __slot: 'cfg' },
-  };
-  await storeHandles(sig, handles);
-  const loaded = await loadHandles(sig);
-  if (!loaded) throw new Error('expected handles to be present');
-  assertEqual(loaded.video.__slot, 'video');
-  assertEqual(loaded.log.__slot, 'log');
-  assertEqual(loaded.cfg.__slot, 'cfg');
-});
-
-await test('loadHandles returns null when signature mismatches', async () => {
-  await clearHandles();
-  await storeHandles('sig-A', { video: { x: 1 }, log: { x: 2 } });
-  const loaded = await loadHandles('sig-B');
-  assertEqual(loaded, null);
-});
-
-await test('loadHandles returns the record when no expectedSignature is provided', async () => {
-  await clearHandles();
-  await storeHandles('sig-A', { video: { x: 1 }, log: { x: 2 }, cfg: null });
-  const loaded = await loadHandles('');
-  if (!loaded) throw new Error('expected handles regardless of signature');
-  assertEqual(loaded.video.x, 1);
-});
-
-await test('clearHandles removes the stored record', async () => {
-  await clearHandles();
-  await storeHandles('sig-A', { video: { x: 1 }, log: { x: 2 } });
-  await clearHandles();
-  const loaded = await loadHandles('sig-A');
-  assertEqual(loaded, null);
-});
-
-await test('storeHandles is a no-op when signature is not a string', async () => {
-  await clearHandles();
-  await storeHandles(123, { video: { x: 1 }, log: { x: 2 } });
-  const loaded = await loadHandles('123');
-  // Should be null — store rejected the non-string.
-  assertEqual(loaded, null);
-});
+// The recent-files signature API + the `'handles-v1'` IDB store were
+// retired in PR 1b. The sidecar (`.replay.json` next to the log) plus
+// the folder handle persisted by sidecar.js are now the only durable
+// state across reloads. The remaining tests cover the helpers that
+// still ship in fileHandles.js (permission probes, multi-chapter
+// envelope expansion).
 
 // ---------------------------------------------------------------------
 // Multi-chapter envelope: permission target + directory expansion
@@ -529,6 +433,55 @@ await test('queryPermissionForHandles treats rejection as prompt (not granted)',
   const log = { queryPermission: () => Promise.resolve('granted') };
   const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
   assertEqual(ok, false);
+});
+
+// ---------------------------------------------------------------------
+// Picker race handling: AbortError + InvalidStateError → null (no throw)
+// ---------------------------------------------------------------------
+
+await test('pickFile returns null on AbortError (user cancel)', async () => {
+  globalThis.window.showOpenFilePicker = async () => {
+    const e = new Error('user cancelled');
+    e.name = 'AbortError';
+    throw e;
+  };
+  try {
+    const r = await pickFile('log');
+    assertEqual(r, null);
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+});
+
+await test('pickFile returns null on InvalidStateError (picker race)', async () => {
+  // Chrome's one-picker-at-a-time guard fires this when a reload arrives
+  // while a prior picker is still resolving.
+  globalThis.window.showOpenFilePicker = async () => {
+    const e = new Error('File picker already active');
+    e.name = 'InvalidStateError';
+    throw e;
+  };
+  try {
+    const r = await pickFile('log');
+    assertEqual(r, null);
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+});
+
+await test('pickFile re-throws unexpected errors (not Abort / InvalidState)', async () => {
+  globalThis.window.showOpenFilePicker = async () => {
+    throw new Error('something else');
+  };
+  let threw = false;
+  try {
+    await pickFile('log');
+  } catch (e) {
+    threw = e.message === 'something else';
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+  assertEqual(threw, true);
 });
 
 // ---------------------------------------------------------------------
