@@ -198,6 +198,20 @@ export const ReplayPage = () => {
   });
   useEffect(() => { safeLsSet(HUD_SHOW_LS_KEY, showHud ? '1' : '0'); },
             [showHud]);
+
+  // One-shot cleanup of localStorage keys retired in PR 1b. Idempotent
+  // — running on every mount is fine. Still-active keys (per-digest
+  // sync / clips) are not touched.
+  useEffect(() => {
+    const LEGACY_LS_KEYS = [
+      'replay-recent-files-v1',
+      'replay-banner-dismissed-v1',
+    ];
+    for (const key of LEGACY_LS_KEYS) {
+      try { localStorage.removeItem(key); } catch { /* sandbox / disabled */ }
+    }
+  }, []);
+
   const [parseErr, setParseErr]   = useState(null);
   // True while the resume path is mid-load (auto-resume on mount, or
   // banner click). Surfaces a "Resuming…" status pill so the page
@@ -303,6 +317,13 @@ export const ReplayPage = () => {
   // exceeds them — leaving displayIAS / displayPalt /
   // displayPercentLift stuck at the last-seen-future values.
   const [m5SimReinitNonce, setM5SimReinitNonce] = useState(0);
+  // Bumped by the init effect once the freshly-created sim is wired
+  // up. The per-frame M5 effect lists this in its deps so it re-runs
+  // (and renders an immediate first frame) after the reinit completes
+  // — without this, a backward-scrub Jump on a paused video tears down
+  // the sim, rebuilds it, and then never re-renders until the next
+  // setVideoT fires (i.e. when the pilot hits Play).
+  const [m5SimReadyNonce, setM5SimReadyNonce] = useState(0);
 
 
   // Manual clip list. Each entry is { startMs, endMs, label }.
@@ -856,6 +877,13 @@ export const ReplayPage = () => {
           setParseErr(
             `Picked ${r.file.name} only. Re-pick using the multi-select ` +
             `flow to load all chapters together.`);
+          return;
+        }
+        // Chrome's one-picker-at-a-time guard fires InvalidStateError when
+        // a reload arrives while a prior picker is still resolving. Same
+        // remedy as user cancel: fall back to the single chapter.
+        if (dirErr && dirErr.name === 'InvalidStateError') {
+          applyVideoFile(r.file, r.handle);
           return;
         }
         throw dirErr;
@@ -1587,6 +1615,12 @@ export const ReplayPage = () => {
         // a sim-reinit-nonce bump), and using a stale closure value
         // would render the wrong mode for the first frame.
         sim.setMode(m5ModeIdRef.current);
+        // Signal sim readiness so the per-frame M5 effect re-runs and
+        // renders the first frame post-reinit. Without this, a paused
+        // backward-scrub (DataMark Jump on a paused video, ←-step past
+        // the prior position) tears the sim down and never re-renders
+        // until the next setVideoT fires from Play / further seek.
+        setM5SimReadyNonce(n => n + 1);
       } catch (err) {
         if (!cancelled) setParseErr(`M5 sim load error: ${err.message}`);
       }
@@ -2001,7 +2035,7 @@ export const ReplayPage = () => {
       }
     }
   }, [log, cfg, sync, videoT, pausedLogMs, activeSimMode,
-      leftInsetMode, rightInsetMode,
+      leftInsetMode, rightInsetMode, m5SimReadyNonce,
       m5SmoothLateralTau, cppWireFrames, debugMode]);
 
   // ---------- Anchor-mark handlers ---------------------------------

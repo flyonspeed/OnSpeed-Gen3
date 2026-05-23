@@ -196,6 +196,10 @@ export async function pickFile(slot) {
   } catch (err) {
     // User cancelled the picker; AbortError is the standard signal.
     if (err && err.name === 'AbortError') return null;
+    // Chrome's one-picker-at-a-time guard fires InvalidStateError when a
+    // reload arrives while a prior picker is still resolving. Treat as
+    // a non-event so the user doesn't see a toast for a race.
+    if (err && err.name === 'InvalidStateError') return null;
     throw err;
   }
   if (!handle) return null;

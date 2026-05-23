@@ -148,6 +148,10 @@ export async function pickFlightDir() {
     return handle;
   } catch (err) {
     if (err && err.name === 'AbortError') return null;
+    // Chrome's one-picker-at-a-time guard fires InvalidStateError when a
+    // reload arrives while a prior picker is still resolving. Treat as
+    // a non-event so the user doesn't see a toast for a race.
+    if (err && err.name === 'InvalidStateError') return null;
     throw err;
   }
 }
@@ -482,6 +486,10 @@ export async function showSidecarSavePicker({ dirHandle, logFileName }) {
     return await window.showSaveFilePicker(opts);
   } catch (err) {
     if (err && err.name === 'AbortError') return null;
+    // Chrome's one-picker-at-a-time guard fires InvalidStateError when a
+    // reload arrives while a prior picker is still resolving. Treat as
+    // a non-event so the user doesn't see a toast for a race.
+    if (err && err.name === 'InvalidStateError') return null;
     throw err;
   }
 }

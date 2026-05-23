@@ -191,6 +191,7 @@ const {
   expandMultiChapterHandle,
   requestPermissionForHandles,
   queryPermissionForHandles,
+  pickFile,
 } = fh;
 
 // ---------------------------------------------------------------------
@@ -432,6 +433,55 @@ await test('queryPermissionForHandles treats rejection as prompt (not granted)',
   const log = { queryPermission: () => Promise.resolve('granted') };
   const ok = await queryPermissionForHandles({ video: vid, log, cfg: null });
   assertEqual(ok, false);
+});
+
+// ---------------------------------------------------------------------
+// Picker race handling: AbortError + InvalidStateError → null (no throw)
+// ---------------------------------------------------------------------
+
+await test('pickFile returns null on AbortError (user cancel)', async () => {
+  globalThis.window.showOpenFilePicker = async () => {
+    const e = new Error('user cancelled');
+    e.name = 'AbortError';
+    throw e;
+  };
+  try {
+    const r = await pickFile('log');
+    assertEqual(r, null);
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+});
+
+await test('pickFile returns null on InvalidStateError (picker race)', async () => {
+  // Chrome's one-picker-at-a-time guard fires this when a reload arrives
+  // while a prior picker is still resolving.
+  globalThis.window.showOpenFilePicker = async () => {
+    const e = new Error('File picker already active');
+    e.name = 'InvalidStateError';
+    throw e;
+  };
+  try {
+    const r = await pickFile('log');
+    assertEqual(r, null);
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+});
+
+await test('pickFile re-throws unexpected errors (not Abort / InvalidState)', async () => {
+  globalThis.window.showOpenFilePicker = async () => {
+    throw new Error('something else');
+  };
+  let threw = false;
+  try {
+    await pickFile('log');
+  } catch (e) {
+    threw = e.message === 'something else';
+  } finally {
+    delete globalThis.window.showOpenFilePicker;
+  }
+  assertEqual(threw, true);
 });
 
 // ---------------------------------------------------------------------
