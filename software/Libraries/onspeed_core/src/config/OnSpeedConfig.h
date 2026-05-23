@@ -197,6 +197,15 @@ public:
     float   fPitchBias;
     float   fRollBias;
 
+    // Probe recovery factor for OAT ram-rise correction (TAT → SAT
+    // before TAS / density-alt math).  Range [0.0, 1.0]:
+    //   0.0  disables the correction (legacy behavior)
+    //   0.75 default — bare/exposed thermistor (typical GA install)
+    //   1.0  shielded TAT probe
+    // See ahrs/Ahrs.h (AhrsConfig::oatRecoveryFactor) and
+    // sensors/SatCorrect.h.
+    float   fOatRecoveryFactor;
+
     // AHRS algorithm selection: 0=Madgwick (default), 1=EKFQ
     int     iAhrsAlgorithm;
 

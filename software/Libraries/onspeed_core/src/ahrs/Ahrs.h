@@ -79,6 +79,12 @@ struct AhrsConfig {
     int   gyroSmoothingWindow = 30;     // RunningMean window
     float imuSampleRateHz  = 208.0f;
     float pressureSampleRateHz = 50.0f; // fallback dt for IAS derivative
+    // Probe recovery factor for ram-rise SAT correction.  Range [0, 1]:
+    //   0.0  disables (TAS uses raw TAT, no correction)
+    //   0.75 bare/exposed thermistor (default, typical GA install)
+    //   1.0  ideal TAT probe (Kiel/shielded)
+    // See sensors/SatCorrect.h for the math.
+    float oatRecoveryFactor = 0.75f;
 };
 
 class Ahrs {

@@ -77,3 +77,51 @@ Controls which IAS source the calibration wizard uses:
 - **EFIS** — use the EFIS-provided IAS
 
 If you have an EFIS connected with accurate IAS, using `EFIS` may give better calibration results.
+
+## OAT recovery factor (K)
+
+OAT probes installed in the airstream read **total air temperature
+(TAT)** — the freestream temperature plus a ram-heating component from
+kinetic energy at the probe surface. TAT is always warmer than the
+true ambient ("static") temperature. Density altitude and true
+airspeed (TAS) need **static air temperature (SAT)**.
+
+OnSpeed converts TAT → SAT using:
+
+```
+SAT = TAT_K / (1 + K · 0.2 · M²)
+```
+
+where `K` is the **probe recovery factor**:
+
+| K     | Probe type                                  |
+|-------|---------------------------------------------|
+| 0.0   | Disables the correction (TAS uses raw TAT) |
+| 0.75  | Bare / exposed thermistor (typical GA install, default) |
+| 1.0   | Shielded TAT probe (Kiel or similar)        |
+
+Config parameter: `OAT_RECOVERY_FACTOR` (XML) / `oatRecoveryFactor`
+(JSON). Range `[0.0, 1.0]`; out-of-range values fall back to the
+default `0.75`.
+
+### Why this matters
+
+Without ram-rise correction the firmware feeds the warmer TAT into the
+density formula. The result: density altitude is computed *higher*
+than truth, and TAS is computed *higher* than truth. The pilot sees
+optimistic numbers — air thinner than it really is, aircraft faster
+than it really is. The SAT correction brings both back toward the
+real values.
+
+The shift grows with M² and with altitude. Typical magnitudes:
+
+- **RV-10 at 8000 ft, 147 KIAS, +5°C TAT:** SAT ~2.75°C cooler,
+  density-altitude ~330 ft lower, TAS ~0.5% lower than the uncorrected
+  values.
+- **Lancair at FL250, 200 KIAS, −25°C TAT:** SAT ~8.8°C cooler,
+  density-altitude ~1020 ft lower, TAS ~1.8% lower.
+- **Below ~80 KIAS at low altitude:** correction is well under 0.5°C.
+
+Set `K = 0` if your EFIS supplies an already-corrected SAT through
+its serial wire — most don't, but if yours does (check vendor docs)
+you'd otherwise double-correct.

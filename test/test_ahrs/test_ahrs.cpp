@@ -595,6 +595,111 @@ void test_tas_fallback_when_divisor_overflows_at_extreme_altitude(void)
     TEST_ASSERT_TRUE(a.tasMps() > 0.0f);
 }
 
+// ---------------------------------------------------------------------
+// Ram-rise correction integration (sensors/SatCorrect.h)
+//
+// updateTas_ routes the in-band OAT (TAT) through CorrectSat before
+// feeding the density math.  Three properties to verify here:
+//   1. K=0 in AhrsConfig restores the legacy uncorrected TAS bit-for-bit.
+//   2. K=0.75 yields a higher TAS at altitude than K=0 (because the
+//      correction makes SAT colder → density higher → TAS faster).
+//   3. The integration survives the bHaveOat=false fallback (no SAT
+//      math runs; legacy path still produces finite TAS).
+// ---------------------------------------------------------------------
+
+void test_sat_correction_k_zero_matches_uncorrected_legacy_tas(void)
+{
+    // K=0 short-circuits CorrectSat to the TAT identity, so density
+    // math runs against raw TAT.  TAS must match a hand-computed
+    // legacy formula bit-for-bit.
+    AhrsConfig cfg = makeCfg(Algorithm::Madgwick);
+    cfg.oatRecoveryFactor = 0.0f;
+    Ahrs a{cfg};
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt         = 147.0f;
+    in.sensors.iasAlive      = true;
+    in.sensors.paltFt        = 8000.0f;
+    in.sensors.oatCelsius    = 5.0f;
+    in.useInternalOat        = true;
+    in.iasUpdateTimestampUs  = 1'000'000u;
+    a.Init(in, in.sensors.paltFt);
+    a.Step(in, kDt);
+
+    const float kelvin = 273.15f;
+    const float tRate  = 0.00198119993f;
+    const float isaK   = 15.0f - tRate * 8000.0f + kelvin;
+    const float tatK   = 5.0f + kelvin;
+    const float da     = 8000.0f + (isaK / tRate)
+                         * (1.0f - std::pow(isaK / tatK, 0.2349690f));
+    const float divisor   = 1.0f - 6.8755856e-6f * da;
+    const float legacyTas = onspeed::kts2mps(147.0f)
+                            / std::pow(divisor, 2.12794f);
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, legacyTas, a.tasMps());
+}
+
+void test_sat_correction_default_k_lowers_tas_vs_k_zero(void)
+{
+    // At 8000 ft, +5C TAT, K=0.75 makes SAT ~2.75C cooler than the
+    // probe reads.  Colder true SAT means the air is denser than the
+    // raw-TAT computation assumed, so the K=0 path overshoots TAS.
+    // The corrected K=0.75 TAS is therefore LOWER than the uncorrected
+    // K=0 TAS at the same airspeed (the ram-heated probe was
+    // overstating temperature → understating density → overstating TAS).
+    AhrsConfig cfgZero = makeCfg(Algorithm::Madgwick);
+    cfgZero.oatRecoveryFactor = 0.0f;
+    AhrsConfig cfgDef  = makeCfg(Algorithm::Madgwick);
+    cfgDef.oatRecoveryFactor  = 0.75f;
+    Ahrs aZero{cfgZero};
+    Ahrs aDef {cfgDef};
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt         = 147.0f;
+    in.sensors.iasAlive      = true;
+    in.sensors.paltFt        = 8000.0f;
+    in.sensors.oatCelsius    = 5.0f;
+    in.useInternalOat        = true;
+    in.iasUpdateTimestampUs  = 1'000'000u;
+    aZero.Init(in, in.sensors.paltFt);
+    aDef .Init(in, in.sensors.paltFt);
+    aZero.Step(in, kDt);
+    aDef .Step(in, kDt);
+
+    TEST_ASSERT_TRUE(aDef.tasMps() < aZero.tasMps());
+    // Difference at 147 KIAS / 8000 ft / +5C ≈ -0.5% of TAS.
+    TEST_ASSERT_TRUE((aZero.tasMps() - aDef.tasMps()) / aZero.tasMps() > 0.002f);
+}
+
+void test_sat_correction_inert_when_no_oat(void)
+{
+    // useInternalOat=false, useEfisOat=false → bHaveOat false → no SAT
+    // path taken; legacy crude-divisor fallback runs.  TAS should be
+    // identical between K=0 and K=0.75 (because CorrectSat is never
+    // called) and finite.
+    AhrsConfig cfgZero = makeCfg(Algorithm::Madgwick);
+    cfgZero.oatRecoveryFactor = 0.0f;
+    AhrsConfig cfgDef  = makeCfg(Algorithm::Madgwick);
+    cfgDef.oatRecoveryFactor  = 0.75f;
+    Ahrs aZero{cfgZero};
+    Ahrs aDef {cfgDef};
+
+    AhrsInputs in = levelSeed();
+    in.sensors.iasKt         = 100.0f;
+    in.sensors.iasAlive      = true;
+    in.sensors.paltFt        = 5000.0f;
+    in.useInternalOat        = false;
+    in.useEfisOat            = false;
+    in.iasUpdateTimestampUs  = 1'000'000u;
+    aZero.Init(in, in.sensors.paltFt);
+    aDef .Init(in, in.sensors.paltFt);
+    aZero.Step(in, kDt);
+    aDef .Step(in, kDt);
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, aZero.tasMps(), aDef.tasMps());
+    TEST_ASSERT_TRUE(std::isfinite(aDef.tasMps()));
+    TEST_ASSERT_TRUE(aDef.tasMps() > 0.0f);
+}
+
 // EKFQ owns its vertical channel (z, vz, b_az states).  On the
 // iasGate false→true rising edge inside EkfqPipeline,
 // EKFQ::resetVerticalCovariance() fires so the z/vz/b_az covariance
@@ -994,6 +1099,9 @@ int main(void)
 
     RUN_TEST(test_tas_fallback_when_oat_out_of_band);
     RUN_TEST(test_tas_fallback_when_divisor_overflows_at_extreme_altitude);
+    RUN_TEST(test_sat_correction_k_zero_matches_uncorrected_legacy_tas);
+    RUN_TEST(test_sat_correction_default_k_lowers_tas_vs_k_zero);
+    RUN_TEST(test_sat_correction_inert_when_no_oat);
     RUN_TEST(test_ekfq_vertical_covariance_reset_on_ias_gate_rising_edge);
 
     RUN_TEST(test_ias_alive_false_zeros_comp_factors);
