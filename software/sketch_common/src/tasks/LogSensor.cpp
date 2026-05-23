@@ -1094,9 +1094,9 @@ void LogSensor::Write()
             row.vnEstAltFt         = m2ft(static_cast<float>(g_EfisSerial.suVN300.EstAltMeters));
             row.vnGpsFix           = g_EfisSerial.suVN300.GPSFix;
             row.vnDataAgeMs        = efisAge;
-            strncpy(row.vnTimeUtc, g_EfisSerial.suVN300.szTimeUTC,
-                    onspeed::kLogRowUtcTimeLen - 1);
-            row.vnTimeUtc[onspeed::kLogRowUtcTimeLen - 1] = '\0';
+            row.vnTimeStartupNs    = g_EfisSerial.suVN300.TimeStartupNs;
+            row.vnTimeGpsNs        = g_EfisSerial.suVN300.TimeGpsNs;
+            row.vnTimeStatus       = g_EfisSerial.suVN300.TimeStatus;
             }
         else
             {
@@ -1128,19 +1128,17 @@ void LogSensor::Write()
     row.derivedAoaDeg  = ahrsDerivedAoaDeg;
     row.coeffP         = g_fCoeffP;
 
-    // Sidecar accumulator: feed time-of-day + UTC if available.
+    // Sidecar accumulator: feed time-of-day if available. The VN-300
+    // wire-format change (issue #637) dropped the GNSS1.UTC string in
+    // favor of per-sample ns timestamps (vnTimeGpsNs); the sidecar's
+    // ISO-8601 first-time field can be reconstructed offline from
+    // vnTimeGpsNs when dateOk is set.
     {
         const char* hmsOrNull = nullptr;
-        const char* utcOrNull = nullptr;
-        if (g_Config.bReadEfisData) {
-            if (g_EfisSerial.suEfis.szTime[0] != '\0')
-                hmsOrNull = g_EfisSerial.suEfis.szTime;
-            if (g_EfisSerial.enType == EfisSerialPort::EnVN300 &&
-                g_EfisSerial.suVN300.szTimeUTC[0] != '\0' &&
-                g_EfisSerial.suVN300.GPSFix > 0)
-                utcOrNull = g_EfisSerial.suVN300.szTimeUTC;
-        }
-        m_metaBuilder.OnRow(row, hmsOrNull, utcOrNull);
+        if (g_Config.bReadEfisData &&
+            g_EfisSerial.suEfis.szTime[0] != '\0')
+            hmsOrNull = g_EfisSerial.suEfis.szTime;
+        m_metaBuilder.OnRow(row, hmsOrNull, nullptr);
     }
 
     // Send the LogRow struct (not the formatted CSV) to the ring.

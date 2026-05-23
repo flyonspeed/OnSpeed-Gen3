@@ -37,7 +37,7 @@ void tearDown(void) {}
 // ---------------------------------------------------------------------------
 void test_vn300_synth_decodes(void) {
     const Frame& f = Vn300Frame();
-    TEST_ASSERT_EQUAL_size_t(127, f.len);
+    TEST_ASSERT_EQUAL_size_t(138, f.len);
 
     Vn300Parser parser;
     for (std::size_t i = 0; i < f.len; i++) parser.FeedByte(f.bytes[i]);

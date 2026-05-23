@@ -117,7 +117,9 @@ When EFIS type is `VN-300`:
 | `vnEstAltFt` | feet | INS-estimated altitude from Common.Position (sensor-fused GPS+IMU) — filter on `vnGPSFix` |
 | `vnGPSFix` | enum | GPS fix quality |
 | `vnDataAge` | ms | Time since last VN-300 packet |
-| `vnTimeUTC` | HH:MM:SS.mmm | UTC time from VN-300 GPS (millisecond resolution) |
+| `vnTimeStartupNs` | ns | Per-sample timestamp from the VN-300 Common group: nanoseconds since VN-300 boot (TXCO ±20 ppm). Always advancing, no GPS dependency. At 400 Hz output, consecutive rows differ by ~2,500,000 ns. |
+| `vnTimeGpsNs` | ns | Per-sample timestamp: nanoseconds since GPS epoch (1980-01-06 UTC, minus accumulated GPS leap seconds — currently 18 s ahead of UTC). Valid only when `vnTimeStatus & 0x02` (dateOk) is set. |
+| `vnTimeStatus` | bit flags | VN-300 TimeStatus byte (UM005 §5.5.10). `bit0` = timeOk (GpsTow valid), `bit1` = dateOk (`vnTimeGpsNs` valid — GPS week resolved), `bit2` = utcTimeValid. |
 
 ## Tail-Optional Columns (Format Version 2)
 

@@ -249,7 +249,8 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 ",vnYawSigma,vnRollSigma,vnPitchSigma"
                 ",vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown"
                 ",vnWindSpd,vnWindDir,vnWindVertical"
-                ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC");
+                ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge"
+                ",vnTimeStartupNs,vnTimeGpsNs,vnTimeStatus");
         } else {
             ok &= Appendf(out, outCapacity, &len,
                 ",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG"
@@ -328,14 +329,6 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     // EFIS columns (optional)
     if (row.efisEnabled) {
         if (row.efisIsVn300) {
-            // The VN-300 row's last column is `vnTimeUtc`, written as `%s`.
-            // A comma in that string would split into the next CSV column
-            // and corrupt every parser downstream (the tokenizer is not
-            // RFC-4180 quote-aware).  Today the producer in onspeed_core
-            // emits `%u:%u:%u`, but a future format change is the latent
-            // risk.  Refuse to emit the row rather than silently corrupt.
-            if (memchr(row.vnTimeUtc, ',', strnlen(row.vnTimeUtc, sizeof(row.vnTimeUtc))) != nullptr)
-                return 0;
             // VN-300 format.  Wind columns emit as empty cells when NaN.
             ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRateRoll,  2);
             ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRatePitch, 2);
@@ -376,8 +369,13 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
             ok &= CommaFloat(out, outCapacity, &len, row.vnEstAltFt,         2);
             ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnGpsFix);
             ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnDataAgeMs);
-            // Time-of-day string: keep Appendf for %s.
-            ok &= Appendf(out, outCapacity, &len, ",%s", row.vnTimeUtc);
+            // Per-sample VN-300 timestamps (issue #637). %llu for the ns u64s
+            // (printf-promoted to unsigned long long) and %u for the u8
+            // TimeStatus byte. None of these can produce a comma.
+            ok &= Appendf(out, outCapacity, &len, ",%llu,%llu,%u",
+                          (unsigned long long)row.vnTimeStartupNs,
+                          (unsigned long long)row.vnTimeGpsNs,
+                          (unsigned)row.vnTimeStatus);
         } else {
             // Standard EFIS (Dynon, Garmin, MGL, etc.)
             ok &= CommaFloat(out, outCapacity, &len, row.efisIasKt,     2);

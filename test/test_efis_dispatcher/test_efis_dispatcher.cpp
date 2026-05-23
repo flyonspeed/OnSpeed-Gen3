@@ -182,8 +182,8 @@ static void buildMglMsg1(uint8_t buf[44])
     // All other fields remain zero; they're parsed but we don't assert.
 }
 
-// VN-300 binary packet — 127 bytes. CRC-16 must be correct; build via the
-// same rolling-XOR used in EfisSerial.cpp.
+// VN-300 binary packet — 138 bytes (issue #637). CRC-16 must be correct;
+// build via the same rolling-XOR used in EfisSerial.cpp.
 static void appendVnCrc(uint8_t buf[], int n)
 {
     uint16_t crc = 0;
@@ -198,16 +198,18 @@ static void appendVnCrc(uint8_t buf[], int n)
     buf[n - 1] = static_cast<uint8_t>(crc & 0xFF);
 }
 
-static void buildVn300Packet(uint8_t buf[127])
+static void buildVn300Packet(uint8_t buf[138])
 {
-    memset(buf, 0, 127);
-    buf[0] = 0xFA; buf[1] = 0x19;
-    buf[2] = 0xE0; buf[3] = 0x01;
-    buf[4] = 0x91; buf[5] = 0x00;
-    buf[6] = 0x42; buf[7] = 0x01;
+    memset(buf, 0, 138);
+    // 10-byte header: sync + Groups + 4 group masks (Common+Time+GNSS1+AHRS).
+    buf[0] = 0xFA; buf[1] = 0x1B;
+    buf[2] = 0xE3; buf[3] = 0x01;
+    buf[4] = 0x00; buf[5] = 0x02;
+    buf[6] = 0x90; buf[7] = 0x00;
+    buf[8] = 0x42; buf[9] = 0x01;
     // Only the fields the parser reads need be non-zero; the parser
     // handles zero-init fields fine, so leave most of the body zero.
-    appendVnCrc(buf, 127);
+    appendVnCrc(buf, 138);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,9 +360,9 @@ void test_dispatcher_mgl_binary_routes_correctly(void)
 void test_dispatcher_vn300_routes_correctly(void)
 {
     EfisParser parser(EfisType::Vn300);
-    uint8_t buf[127];
+    uint8_t buf[138];
     buildVn300Packet(buf);
-    feedAllBytes(parser, buf, 127);
+    feedAllBytes(parser, buf, 138);
     // VN-300 parses into both an EfisFrame (via TakeFrame) and a Vn300Data
     // (via TakeVn300Data). Both should be present after a full packet.
     TEST_ASSERT_TRUE(parser.TakeFrame().has_value() ||
@@ -371,9 +373,9 @@ void test_dispatcher_vn300_take_data_works_for_vn300(void)
 {
     // Exercises EfisParser.cpp:46 (Vn300 branch of TakeVn300Data).
     EfisParser parser(EfisType::Vn300);
-    uint8_t buf[127];
+    uint8_t buf[138];
     buildVn300Packet(buf);
-    feedAllBytes(parser, buf, 127);
+    feedAllBytes(parser, buf, 138);
     // Drain whatever TakeFrame produces first so TakeVn300Data isn't blocked.
     (void)parser.TakeFrame();
     auto data = parser.TakeVn300Data();
