@@ -123,7 +123,9 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "vnEstAltFt")         { out.idxVnEstAltFt = ordinal; return true; }
     if (name == "vnGPSFix")           { out.idxVnGpsFix = ordinal; return true; }
     if (name == "vnDataAge")          { out.idxVnDataAge = ordinal; return true; }
-    if (name == "vnTimeUTC")          { out.idxVnTimeUtc = ordinal; return true; }
+    if (name == "vnTimeStartupNs")    { out.idxVnTimeStartupNs = ordinal; return true; }
+    if (name == "vnTimeGpsNs")        { out.idxVnTimeGpsNs = ordinal; return true; }
+    if (name == "vnTimeStatus")       { out.idxVnTimeStatus = ordinal; return true; }
 
     return false;
 }
@@ -258,7 +260,7 @@ bool BuildHeaderIndex(std::string_view headerLine,
         }
     }
 
-    // VN-300: any VN-300 column present means all 26 must be. Resolved
+    // VN-300: any VN-300 column present means all 28 must be. Resolved
     // before standard EFIS so the !efisIsVn300 guard below works.
     {
         const int idxs[]  = {
@@ -270,7 +272,8 @@ bool BuildHeaderIndex(std::string_view headerLine,
             out.idxVnYawSigma, out.idxVnRollSigma, out.idxVnPitchSigma,
             out.idxVnGnssVelNedNorth, out.idxVnGnssVelNedEast, out.idxVnGnssVelNedDown,
             out.idxVnGnssLat, out.idxVnGnssLon, out.idxVnGpsFix,
-            out.idxVnDataAge, out.idxVnTimeUtc };
+            out.idxVnDataAge,
+            out.idxVnTimeStartupNs, out.idxVnTimeGpsNs, out.idxVnTimeStatus };
         const char* names[] = {
             "vnAngularRateRoll", "vnAngularRatePitch", "vnAngularRateYaw",
             "vnVelNedNorth", "vnVelNedEast", "vnVelNedDown",
@@ -280,12 +283,13 @@ bool BuildHeaderIndex(std::string_view headerLine,
             "vnYawSigma", "vnRollSigma", "vnPitchSigma",
             "vnGnssVelNedNorth", "vnGnssVelNedEast", "vnGnssVelNedDown",
             "vnGnssLat", "vnGnssLon", "vnGPSFix",
-            "vnDataAge", "vnTimeUTC" };
+            "vnDataAge",
+            "vnTimeStartupNs", "vnTimeGpsNs", "vnTimeStatus" };
         bool any = false;
-        for (int i = 0; i < 26; ++i) if (idxs[i] >= 0) { any = true; break; }
+        for (int i = 0; i < 28; ++i) if (idxs[i] >= 0) { any = true; break; }
         if (any) {
-            if (!allOf(idxs, 26)) {
-                EmitWarn(warnSink, firstMissing(idxs, names, 26));
+            if (!allOf(idxs, 28)) {
+                EmitWarn(warnSink, firstMissing(idxs, names, 28));
             } else {
                 out.efisIsVn300 = true;
                 out.efisEnabled = true;
@@ -512,25 +516,6 @@ bool TakeIntAllowEmpty(const std::string_view* tokens, int tokenCount, int idx,
     outValid = true;
     return true;
 }
-// Copy an indexed token into a fixed-size char buffer, NUL-terminated.
-// An empty token writes a 0-length string with NUL terminator and returns
-// true (matches LogCsv::ParseRow's ParseString). The vnTimeUtc field is
-// emitted as the empty string before the VN-300 first delivers a UTC
-// fix; rejecting empty would drop those early rows.
-bool TakeString(const std::string_view* tokens, int tokenCount, int idx,
-                char* dst, size_t dstCapacity)
-{
-    if (idx < 0) return true;
-    if (idx >= tokenCount) return false;
-    if (dstCapacity == 0) return false;
-    std::string_view tok = tokens[idx];
-    size_t n = tok.size();
-    if (n > dstCapacity - 1) n = dstCapacity - 1;
-    std::memcpy(dst, tok.data(), n);
-    dst[n] = '\0';
-    return true;
-}
-
 }  // namespace
 
 bool ParseRowByIndex(std::string_view line,
@@ -644,8 +629,13 @@ bool ParseRowByIndex(std::string_view line,
         if (!TakeFloat (tokens, tokenCount, idx.idxVnEstAltFt,         row.vnEstAltFt))         return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxVnGpsFix,           row.vnGpsFix))           return false;
         if (!TakeInt   (tokens, tokenCount, idx.idxVnDataAge,          row.vnDataAgeMs))        return false;
-        if (!TakeString(tokens, tokenCount, idx.idxVnTimeUtc,
-                        row.vnTimeUtc, onspeed::kLogRowUtcTimeLen))                             return false;
+        if (!TakeUint64(tokens, tokenCount, idx.idxVnTimeStartupNs,    row.vnTimeStartupNs))    return false;
+        if (!TakeUint64(tokens, tokenCount, idx.idxVnTimeGpsNs,        row.vnTimeGpsNs))        return false;
+        {
+            uint16_t ts16 = 0;
+            if (!TakeUint16(tokens, tokenCount, idx.idxVnTimeStatus, ts16)) return false;
+            row.vnTimeStatus = static_cast<uint8_t>(ts16);
+        }
     } else if (idx.efisEnabled) {
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisIas,           row.efisIasKt))           return false;
         if (!TakeFloat (tokens, tokenCount, idx.idxEfisPitch,         row.efisPitchDeg))        return false;

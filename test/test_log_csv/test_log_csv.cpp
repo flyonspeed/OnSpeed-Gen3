@@ -21,7 +21,6 @@
 #include <types/LogRow.h>
 
 using onspeed::LogRow;
-using onspeed::kLogRowUtcTimeLen;
 namespace csv = onspeed::proto::log_csv;
 
 // ---------------------------------------------------------------------------
@@ -161,8 +160,9 @@ static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = fal
         r.vnEstAltFt         = 4521.75f;
         r.vnGpsFix           = 1;
         r.vnDataAgeMs        = 55;
-        strncpy(r.vnTimeUtc, "2026-04-11T14:30:00Z", kLogRowUtcTimeLen - 1);
-        r.vnTimeUtc[kLogRowUtcTimeLen - 1] = '\0';
+        r.vnTimeStartupNs    = 1'234'567'890ULL;
+        r.vnTimeGpsNs        = 1'400'123'456'789'000ULL;
+        r.vnTimeStatus       = 0x07;   // timeOk + dateOk + utcTimeValid
     }
 
     r.earthVerticalG = 0.98f;
@@ -287,7 +287,9 @@ static void AssertRoundTrip(const LogRow& original)
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnEstAltFt, parsed.vnEstAltFt);
         TEST_ASSERT_EQUAL_INT(original.vnGpsFix,   parsed.vnGpsFix);
         TEST_ASSERT_EQUAL_INT(original.vnDataAgeMs, parsed.vnDataAgeMs);
-        TEST_ASSERT_EQUAL_STRING(original.vnTimeUtc, parsed.vnTimeUtc);
+        TEST_ASSERT_EQUAL_UINT64(original.vnTimeStartupNs, parsed.vnTimeStartupNs);
+        TEST_ASSERT_EQUAL_UINT64(original.vnTimeGpsNs,     parsed.vnTimeGpsNs);
+        TEST_ASSERT_EQUAL_UINT8 (original.vnTimeStatus,    parsed.vnTimeStatus);
     }
 
     // Derived columns (always present)
@@ -393,7 +395,9 @@ void test_header_vn300_columns_present_when_enabled(void)
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnYaw"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnGnssLat"));
     TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnEstAltFt"));
-    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnTimeUTC"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnTimeStartupNs"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnTimeGpsNs"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "vnTimeStatus"));
     TEST_ASSERT_NULL(strstr(s_hdrBuf, "efisIAS"));
 }
 
@@ -549,35 +553,9 @@ void test_large_timestamp(void)
     TEST_ASSERT_EQUAL_UINT64(0xFFFFFFFFFFFFFFFEull, parsed.timeStampUs);
 }
 
-void test_empty_vn300_utc_string(void)
-{
-    LogRow r;
-    r.efisEnabled = true;
-    r.efisIsVn300 = true;
-    // vnTimeUtc is all zeros (empty string) — default-initialised
-    size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
-    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
-
-    LogRow parsed;
-    bool ok = ParseRowAgainstSchema(r, std::string_view(s_rowBuf, fmtLen), parsed);
-    TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("", parsed.vnTimeUtc);
-}
-
-// Issue #194: vnTimeUtc is the last column of a VN-300 row and is emitted
-// as `%s` with no quoting. An embedded comma would split into the next
-// column and corrupt every downstream parser. FormatRow refuses to emit
-// such a row rather than silently corrupting the log.
-void test_vn300_utc_with_comma_refuses_to_format(void)
-{
-    LogRow r = MakeTestRow(false, true, true);   // EFIS + VN-300
-    // Inject a comma into vnTimeUtc. A future format change that produced
-    // "2026-04-24 14:30:00,42" would trigger this.
-    snprintf(r.vnTimeUtc, sizeof(r.vnTimeUtc), "12:34:56,78");
-
-    size_t fmtLen = csv::FormatRow(r, s_rowBuf, sizeof(s_rowBuf));
-    TEST_ASSERT_EQUAL_size_t(0u, fmtLen);
-}
+// (Issue #194's vnTimeUtc-with-comma test was deleted alongside the
+// vnTimeUtc column; the replacement columns are u64/u8 numerics which
+// cannot produce a comma on emit.)
 
 // ============================================================================
 // Test: malformed input
@@ -1219,8 +1197,6 @@ int main(int, char**)
     // Edge values
     RUN_TEST(test_zero_row_formats_and_parses);
     RUN_TEST(test_large_timestamp);
-    RUN_TEST(test_empty_vn300_utc_string);
-    RUN_TEST(test_vn300_utc_with_comma_refuses_to_format);
 
     // Malformed input
     RUN_TEST(test_empty_line_returns_false);

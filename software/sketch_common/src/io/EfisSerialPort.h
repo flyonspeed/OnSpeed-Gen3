@@ -96,7 +96,13 @@ public:
         double  GnssLat;
         double  GnssLon;
         double  EstAltMeters;   // INS-estimated altitude (Common.Position LLA)
-        char    szTimeUTC[24];
+
+        // Per-sample timestamps from the VN-300 Common group (issue #637).
+        // Stamped at IMU sample time, so each 400 Hz frame carries a
+        // distinct value ~2.5 ms apart.
+        uint64_t TimeStartupNs; // ns since VN-300 boot
+        uint64_t TimeGpsNs;     // ns since GPS epoch; valid iff dateOk bit set
+        uint8_t  TimeStatus;    // bit0=timeOk, bit1=dateOk, bit2=utcTimeValid
 
         // Wind triangle, computed from GnssVelNed + ownship attitude + TAS.
         // NaN when no valid wind solution (low TAS, NaN inputs, no GPS fix).

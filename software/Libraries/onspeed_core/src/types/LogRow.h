@@ -23,9 +23,6 @@
 
 namespace onspeed {
 
-// Maximum length for the VN-300 UTC time string field, including null terminator.
-static constexpr int kLogRowUtcTimeLen = 32;
-
 struct LogRow {
     // --- Core sensor columns (always present) ---
 
@@ -171,11 +168,16 @@ struct LogRow {
     float vnEstAltFt         = 0.0f;
     int   vnGpsFix           = 0;
     int   vnDataAgeMs        = 0;
-    // Last column of a VN-300 row, written by FormatRow as `%s`.  CSV row
-    // integrity depends on this string containing no commas — a comma here
-    // would split into the next column on parse and corrupt every downstream
-    // field.  FormatRow asserts this on emission.  See issue #194.
-    char  vnTimeUtc[kLogRowUtcTimeLen] = {};
+    // Per-sample timestamps from the VN-300 Common group (issue #637).
+    // Stamped at IMU sample time, so each frame at 400 Hz carries a
+    // distinct value ~2.5 ms apart.
+    uint64_t vnTimeStartupNs = 0;   // ns since VN-300 boot (TXCO ±20 ppm)
+    uint64_t vnTimeGpsNs     = 0;   // ns since GPS epoch 1980; valid iff
+                                     // (vnTimeStatus & 0x02) set
+    // VN-300 TimeStatus byte (UM005 §5.5.10).
+    // bit0=timeOk (GpsTow valid), bit1=dateOk (TimeGps valid),
+    // bit2=utcTimeValid.
+    uint8_t vnTimeStatus     = 0;
 
     // --- Post-EFIS derived columns (always present) ---
 

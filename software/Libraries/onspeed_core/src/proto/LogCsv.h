@@ -29,7 +29,8 @@
 //   vnYawSigma, vnRollSigma, vnPitchSigma,
 //   vnGnssVelNedNorth, vnGnssVelNedEast, vnGnssVelNedDown,
 //   vnWindSpd, vnWindDir, vnWindVertical,
-//   vnGnssLat, vnGnssLon, vnEstAltFt, vnGPSFix, vnDataAge, vnTimeUTC,
+//   vnGnssLat, vnGnssLon, vnEstAltFt, vnGPSFix, vnDataAge,
+//   vnTimeStartupNs, vnTimeGpsNs, vnTimeStatus,
 //
 //   [if EFIS enabled and type != VN-300]
 //   efisIAS, efisPitch, efisRoll, efisLateralG, efisVerticalG,

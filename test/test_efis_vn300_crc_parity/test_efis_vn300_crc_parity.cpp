@@ -126,20 +126,20 @@ static void test_two_bytes_full_sweep()
 }
 
 // ===========================================================================
-// Test 4: 126-byte deterministic pseudo-random buffer
-// (matches VN-300 packet length minus the leading 0xFA sync).
+// Test 4: 137-byte deterministic pseudo-random buffer
+// (matches VN-300 138-byte packet length minus the leading 0xFA sync).
 // ===========================================================================
 static void test_packet_length()
 {
-    uint8_t buf[126];
+    uint8_t buf[137];
     uint32_t s = 1u;
-    for (int i = 0; i < 126; i++)
+    for (int i = 0; i < 137; i++)
     {
         s = s * 1664525u + 1013904223u;   // LCG
         buf[i] = static_cast<uint8_t>(s >> 24);
     }
-    const uint16_t ref = referenceCrc(buf, 126);
-    const uint16_t tab = tableCrc(buf, 126);
+    const uint16_t ref = referenceCrc(buf, 137);
+    const uint16_t tab = tableCrc(buf, 137);
     if (ref != tab) {
         char msg[128];
         snprintf(msg, sizeof(msg), "packet mismatch: ref=0x%04x tab=0x%04x", ref, tab);
@@ -148,21 +148,21 @@ static void test_packet_length()
 }
 
 // ===========================================================================
-// Test 5: 16 distinct random seeds × 126-byte packets.
+// Test 5: 16 distinct random seeds * 137-byte packets.
 // ===========================================================================
 static void test_many_packets()
 {
     for (uint32_t seed = 1; seed <= 16; seed++)
     {
-        uint8_t buf[126];
+        uint8_t buf[137];
         uint32_t s = seed * 2654435761u;
-        for (int i = 0; i < 126; i++)
+        for (int i = 0; i < 137; i++)
         {
             s = s * 1664525u + 1013904223u;
             buf[i] = static_cast<uint8_t>(s >> 16);
         }
-        const uint16_t ref = referenceCrc(buf, 126);
-        const uint16_t tab = tableCrc(buf, 126);
+        const uint16_t ref = referenceCrc(buf, 137);
+        const uint16_t tab = tableCrc(buf, 137);
         if (ref != tab) {
             char msg[128];
             snprintf(msg, sizeof(msg),

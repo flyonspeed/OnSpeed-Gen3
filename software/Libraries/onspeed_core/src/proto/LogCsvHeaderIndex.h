@@ -122,7 +122,10 @@ struct HeaderIndex {
     int idxVnEstAltFt          = -1;
     int idxVnGpsFix            = -1;
     int idxVnDataAge           = -1;
-    int idxVnTimeUtc           = -1;
+    // Per-sample VN-300 timestamps (issue #637).
+    int idxVnTimeStartupNs     = -1;
+    int idxVnTimeGpsNs         = -1;
+    int idxVnTimeStatus        = -1;
 
     // Always-present derived columns at end of row.
     int idxEarthVerticalG      = -1;
@@ -169,8 +172,8 @@ bool BuildHeaderIndex(std::string_view headerLine,
 //
 // Returns true on success. Returns false if the row has fewer tokens than
 // idx.totalColumns, or if any indexed numeric token is empty or fails
-// parsing (matches LogCsv::ParseRow behavior). Empty string-typed tokens
-// (today: vnTimeUtc) parse to a 0-length string, also matching LogCsv.
+// parsing (matches LogCsv::ParseRow behavior). No string-typed columns
+// exist on the current VN-300 row (per-sample timestamps are u64 numeric).
 //
 // Applies the issue #182 sign-flip recovery: the CSV PitchRate column
 // stores -imuPitchRateDps, so on parse we negate to recover the raw value.

@@ -70,7 +70,9 @@ EfisSerialPort::EfisSerialPort()
     suVN300.GnssLat          = 0.00;
     suVN300.GnssLon          = 0.00;
     suVN300.EstAltMeters     = 0.00;
-    suVN300.szTimeUTC[0]     = '\0';
+    suVN300.TimeStartupNs    = 0;
+    suVN300.TimeGpsNs        = 0;
+    suVN300.TimeStatus       = 0;
     suVN300.WindSpd        = std::nanf("");
     suVN300.WindDir       = std::nanf("");
     suVN300.WindVertical   = std::nanf("");
@@ -120,7 +122,11 @@ void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
 
     if (enType != EnNone)
     {
-        pEfisSerial->begin(115200, hwSerialConfig, kEfisRx, kEfisTx, false);
+        // VN-300 runs at 921600 baud to fit the 138-byte frame at 400 Hz
+        // (55.2 kB/s, 60% utilization). Other EFIS types stay at 115200
+        // (the de-facto avionics serial standard for Dynon/Garmin/MGL).
+        const uint32_t baud = (enType == EnVN300) ? 921600 : 115200;
+        pEfisSerial->begin(baud, hwSerialConfig, kEfisRx, kEfisTx, false);
     }
 }
 
@@ -301,9 +307,9 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
     suVN300.GnssLon          = data.gnssLon;
     suVN300.EstAltMeters     = data.estAltMeters;
     suVN300.GPSFix           = data.gpsFix;
-
-    strncpy(suVN300.szTimeUTC, data.szTimeUTC, sizeof(suVN300.szTimeUTC) - 1);
-    suVN300.szTimeUTC[sizeof(suVN300.szTimeUTC) - 1] = '\0';
+    suVN300.TimeStartupNs    = data.timeStartupNs;
+    suVN300.TimeGpsNs        = data.timeGpsNs;
+    suVN300.TimeStatus       = data.timeStatus;
 
     // Wind triangle.  Snapshot TAS without a mutex: aligned 32-bit float
     // DRAM loads are atomic on Xtensa LX7, so no torn-read is possible for
