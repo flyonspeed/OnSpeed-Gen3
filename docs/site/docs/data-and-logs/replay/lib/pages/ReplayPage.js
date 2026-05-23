@@ -64,21 +64,18 @@ import { findDataMarks, logMsToVideoSec } from '../replay/dataMarks.js';
 import { useReplayJournal, markKey } from '../replay/journal.js';
 import { DataMarkPanel } from '../components/DataMarkPanel.js';
 import { reassembleResults } from '../replay/reassemble.js';
-import { useReplayPersistence, RecentFilesBanner } from '../replay/persistence.js';
+import { useReplayPersistence } from '../replay/persistence.js';
 import {
-  isFileHandleApiSupported, pickFile, storeHandles, clearHandles,
-  requestPermissionForHandles, signatureFromFiles, useFileHandleResume,
-  expandMultiChapterHandle, ReplayResumeBanner,
+  isFileHandleApiSupported, pickFile,
 } from '../replay/fileHandles.js';
 import {
   isDirectoryPickerSupported, pickFlightDir, storeFlightDirHandle,
-  loadFlightDirHandle, queryDirPermission, requestDirPermission,
-  discoverFlightContents, findSidecarHandle, readSidecarFromHandle,
-  showSidecarSavePicker, useSidecar,
-  SidecarSaveBanner, SidecarSaveIndicator,
+  loadFlightDirHandle, queryDirPermission,
+  findDiscoveryRowFor,
+  useSidecar,
 } from '../replay/sidecar.js';
-import { migrateJournalToSidecar } from '../replay/sidecar-migration.js';
-import { sidecarFileNameFor } from '../replay/sidecar-schema.js';
+import { switchSession } from '../replay/session.js';
+import { SaveStatePill } from '../components/SaveStatePill.js';
 import { M5Sim } from '../replay/m5sim.js';
 import { buildWireFramesFromTask } from '../replay/buildWireFrames.js';
 import { PresentationFilter,
@@ -336,9 +333,6 @@ export const ReplayPage = () => {
   // contains more than one .csv, the engineer chooses one before the
   // page commits to a log.
   const [logPickerOptions, setLogPickerOptions] = useState(null);
-  // Banner-dismissed flag for the save banner. Per-session only; the
-  // banner reappears next reload if the engineer makes another edit.
-  const [sidecarBannerDismissed, setSidecarBannerDismissed] = useState(false);
   // Sidecar discovery result for the current flight folder. Kept around
   // so the "Open log" picker can re-enumerate without re-walking the
   // directory after a save.
@@ -356,54 +350,22 @@ export const ReplayPage = () => {
   const videoHandleRef = useRef(null);
   const logHandleRef = useRef(null);
   const cfgHandleRef = useRef(null);
+  // POSIX-style paths of each picked file relative to the active
+  // flight-folder dirHandle. Empty when the file came from a per-file
+  // picker (no dirHandle context) or the dirHandle.resolve() API isn't
+  // available. Plumbed into the sidecar `subject.<slot>.relativePath`
+  // so the next reload can find the same files even when split into
+  // subfolders.
+  const videoRelPathRef = useRef('');
+  const logRelPathRef = useRef('');
+  const cfgRelPathRef = useRef('');
 
-  // Resume-on-reload state. Reads IDB for handles matching the
-  // previously-recorded recent-files signature. resumeReady fires
-  // only when the FSA API is supported AND a matching record exists.
-  const fileHandleResume = useFileHandleResume({
-    recentFilesSig: persistence.recentFilesSig,
-  });
-
-  // Live mirrors of the three File objects. Used by persistHandles
-  // (which fires inside a state-setter and can't see the latest React
-  // state). Updated alongside setVideoFile/setLogFile/setCfgFile.
+  // Live mirrors of the three File objects so callbacks scheduled
+  // before React commits see the most recent pick. Updated alongside
+  // setVideoFile / setLogFile / setCfgFile.
   const videoFileRef = useRef(null);
   const logFileRef = useRef(null);
   const cfgFileRef = useRef(null);
-
-  // Persist the current handle bundle whenever both video + log
-  // handles exist. Mirrors persistence.notifyFilePicked's video+log
-  // gating. The cfg handle is optional (null if pilot hasn't picked
-  // one). Signature key derives from the live file metadata so
-  // the next reload's resume lookup matches.
-  //
-  // Reads from refs (not React state) so it sees writes from the
-  // current event handler synchronously — state-setter timing would
-  // otherwise miss the just-picked file.
-  const persistHandlesIfReady = useCallback(() => {
-    if (!isFileHandleApiSupported()) return;
-    const v = videoHandleRef.current;
-    const l = logHandleRef.current;
-    if (!v || !l) return;
-    // Multi-chapter sessions: `videoFileRef.current` is chapter 0,
-    // so the IDB key uses chapter 0's {name, size, lastModified}.
-    // Two unrelated GoPro sessions whose chapter 0 has identical
-    // metadata would overwrite each other; same limitation as the
-    // single-chapter path (and same as the legacy file-input flow).
-    // The Resume banner's persistence-key surface keeps the same
-    // shape so this stays in lockstep with the recent-files banner.
-    const sig = signatureFromFiles({
-      video: videoFileRef.current,
-      log: logFileRef.current,
-      cfg: cfgFileRef.current,
-    });
-    if (!sig) return;
-    storeHandles(sig, {
-      video: v,
-      log: l,
-      cfg: cfgHandleRef.current || null,
-    }).catch(() => { /* best-effort, surfaced via console only */ });
-  }, []);
 
   // Mark-in flow: when the pilot clicks "Mark clip in" we stash the
   // current video time; the next "Mark clip out" click completes the
@@ -577,11 +539,10 @@ export const ReplayPage = () => {
       setVideoUrl(null);
     }
     videoFileRef.current = first;
-    persistence.notifyFilePicked('video', first);
     // Multi-chapter sessions store the directory handle + the ordered
-    // chapter filename list so Resume can re-walk the directory with a
-    // single permission prompt. Single-chapter sessions store the bare
-    // file handle (existing PR #533 shape).
+    // chapter filename list so a future resume can re-walk the
+    // directory with a single permission prompt. Single-chapter
+    // sessions store the bare file handle (existing PR #533 shape).
     if (timeline && directoryHandle && chapterHandles && chapterHandles.length > 1) {
       videoHandleRef.current = {
         kind: 'multi-chapter',
@@ -592,8 +553,7 @@ export const ReplayPage = () => {
       videoHandleRef.current = handle ||
         (chapterHandles && chapterHandles[0]) || null;
     }
-    if (handle || chapterHandles || directoryHandle) persistHandlesIfReady();
-  }, [videoUrl, persistence, persistHandlesIfReady]);
+  }, [videoUrl]);
 
   // Compat wrapper for the existing single-file callsites (resume
   // banner, etc.). Equivalent to applyVideoFiles([f], handle).
@@ -624,18 +584,14 @@ export const ReplayPage = () => {
       setPausedLogMs(null);
       setPendingInVideoSec(null);
       logFileRef.current = f;
-      persistence.notifyFilePicked('log', f);
-      if (handle) {
-        logHandleRef.current = handle;
-        persistHandlesIfReady();
-      }
+      if (handle) logHandleRef.current = handle;
       return true;
     } catch (err) {
       setParseErr(`Could not parse log: ${err.message}`);
       setLog(null);
       return false;
     }
-  }, [persistence, persistHandlesIfReady]);
+  }, [persistence]);
 
   const applyCfgFile = useCallback(async (f, handle) => {
     setParseErr(null);
@@ -647,18 +603,14 @@ export const ReplayPage = () => {
       setCfgFile(f);
       setCfgFilename(f.name);
       cfgFileRef.current = f;
-      persistence.notifyFilePicked('cfg', f);
-      if (handle) {
-        cfgHandleRef.current = handle;
-        persistHandlesIfReady();
-      }
+      if (handle) cfgHandleRef.current = handle;
       return true;
     } catch (err) {
       setParseErr(`Could not parse config: ${err.message}`);
       setCfg(null);
       return false;
     }
-  }, [persistence, persistHandlesIfReady]);
+  }, []);
 
   // <input type="file"> onChange handlers — used on Firefox / Safari
   // and as a fallback if the FSA picker fails. The handle ref stays
@@ -683,10 +635,165 @@ export const ReplayPage = () => {
     await applyCfgFile(f, null);
   };
 
+  // ---------- Session lifecycle ------------------------------------
+  //
+  // `sessionTearDown` clears every file slot, the parsed-log memo, the
+  // M5 sim state, the video element, and the sidecar handle. Called
+  // at the top of every `switchSession` invocation so a folder change
+  // can't carry the previous folder's state forward.
+  //
+  // The detachLog call below is plumbed through a ref because the
+  // sidecar hook is declared later in the body. The hook fills the
+  // ref in the effect immediately after its own setup, before any
+  // session action could fire.
+  const sidecarDetachRef = useRef(() => {});
+  const sessionTearDown = useCallback(() => {
+    // Sidecar: drop the handle + saved doc + dirty-timer.
+    try { sidecarDetachRef.current(); } catch {}
+    // Files + parsed state.
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoFiles([]);
+    setVideoTimeline(null);
+    setActiveChapterIndex(0);
+    setVideoUrl(null);
+    videoFileRef.current = null;
+    videoHandleRef.current = null;
+    videoRelPathRef.current = '';
+
+    setLog(null);
+    setLogFile(null);
+    setLogFilename('');
+    logFileRef.current = null;
+    logHandleRef.current = null;
+    logRelPathRef.current = '';
+
+    setCfg(null);
+    setCfgFile(null);
+    setCfgFilename('');
+    cfgFileRef.current = null;
+    cfgHandleRef.current = null;
+    cfgRelPathRef.current = '';
+
+    // Derived UI state — anything keyed off the log goes here.
+    setClips([]);
+    setSync(null);
+    setPausedLogMs(null);
+    setPendingInVideoSec(null);
+    setLogPickerOptions(null);
+    setParseErr(null);
+    // Force a fresh M5 sim init on the next mount so the new log's
+    // first frame doesn't see the prior log's gHistory cursor.
+    setM5SimReinitNonce(n => n + 1);
+    // Reset the apply-sidecar suppression flag so future loads can
+    // re-arm it cleanly.
+    sidecarApplyingRef.current = false;
+  }, [videoUrl]);
+
+  // Build the ops bundle every render so callbacks have current
+  // closures. switchSession only awaits — it doesn't capture the bundle
+  // across React renders, so the per-render rebuild is cheap.
+  const buildSessionOps = useCallback((sourceTag) => ({
+    tearDown: sessionTearDown,
+    setSource: (tag, dir) => {
+      if (tag === 'folder' || tag === 'restore') {
+        setFlightDirHandle(dir || null);
+      } else {
+        setFlightDirHandle(null);
+      }
+    },
+    mountLog: async (file, handle, relPath) => {
+      logRelPathRef.current = relPath || file.name || '';
+      await applyLogFile(file, handle);
+    },
+    mountVideo: async (file, handle, relPath) => {
+      videoRelPathRef.current = relPath || file.name || '';
+      await applyVideoFile(file, handle);
+    },
+    mountConfig: async (file, handle, relPath) => {
+      cfgRelPathRef.current = relPath || file.name || '';
+      await applyCfgFile(file, handle);
+    },
+    loadSidecar: async () => {
+      // No-op: the useSidecar hook auto-loads off (logFilename, dirHandle)
+      // once the mounts above commit. The match-walk in session.js
+      // already returns the resolved sidecar row for diagnostics.
+    },
+    showPicker: (logs, sidecarMap, onChosen) => {
+      setLogPickerOptions({ logs, sidecarMap: sidecarMap || {}, onChosen });
+    },
+    reportError: (msg) => setParseErr(msg),
+    sourceTag,
+  }), [sessionTearDown, applyLogFile, applyVideoFile, applyCfgFile]);
+
+  // The single mutation entry point for the session. Every file/folder
+  // pick funnels through here. Wrapping switchSession in a closure
+  // keeps the call sites short.
+  const doSwitchSession = useCallback(async (intent) => {
+    const ops = buildSessionOps(intent.kind);
+    return await switchSession(intent, ops);
+  }, [buildSessionOps]);
+
+  // "Open flight folder" handler. Opens showDirectoryPicker in
+  // readwrite mode, persists the directory handle, and switchSession
+  // walks the folder + applies the discovery via session.js's match
+  // decision tree.
+  const onOpenFlightFolder = useCallback(async () => {
+    try {
+      const dir = await pickFlightDir();
+      if (!dir) return; // user cancelled
+      await storeFlightDirHandle(dir);
+      await doSwitchSession({ kind: 'folder', dirHandle: dir });
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      setParseErr(`Could not open flight folder: ${err.message}`);
+    }
+  }, [doSwitchSession]);
+
+  // Multi-log picker — engineer chose a log from the modal.
+  const onLogPickerChose = useCallback(async (logRow) => {
+    const opts = logPickerOptions;
+    setLogPickerOptions(null);
+    if (opts && typeof opts.onChosen === 'function') {
+      try {
+        await opts.onChosen(logRow);
+      } catch (err) {
+        setParseErr(`Could not open log: ${err.message}`);
+      }
+    }
+  }, [logPickerOptions]);
+
+  const onLogPickerCancel = useCallback(() => {
+    setLogPickerOptions(null);
+  }, []);
+
+  // Auto-resume the previously-picked flight directory at mount time.
+  // queryPermission probes without surfacing a prompt; the auto-resume
+  // only fires when it returns 'granted' (Chrome 122+ "Allow on every
+  // visit"). Otherwise the engineer clicks "Open flight folder" again
+  // to re-grant.
+  const flightDirResumedRef = useRef(false);
+  useEffect(() => {
+    if (flightDirResumedRef.current) return;
+    if (!isDirectoryPickerSupported()) return;
+    flightDirResumedRef.current = true;
+    loadFlightDirHandle().then(async (handle) => {
+      if (!handle) return;
+      const perm = await queryDirPermission(handle, 'readwrite');
+      if (perm === 'granted') {
+        doSwitchSession({ kind: 'restore', dirHandle: handle });
+      }
+      // Otherwise leave the handle dormant; "Open flight folder" will
+      // re-engage it (or the engineer will pick a different folder).
+    }).catch(err => console.warn('sidecar: dir-handle resume failed', err));
+  // doSwitchSession is stable enough to fire once. Re-runs are gated
+  // by flightDirResumedRef.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // FSA picker handlers — used on Chrome / Edge. Each opens the OS
-  // file dialog via showOpenFilePicker, retrieves a FileSystemFileHandle
-  // for re-grant on next reload, then delegates to the same apply*
-  // helpers the <input> path uses.
+  // file dialog via showOpenFilePicker, retrieves a FileSystemFileHandle,
+  // then routes through switchSession (for log/cfg) or applies directly
+  // (for the GoPro multi-chapter video flow).
   const fsaSupported = useState(() => isFileHandleApiSupported())[0];
 
   // Pick a video via the File System Access picker. When the pilot
@@ -703,6 +810,17 @@ export const ReplayPage = () => {
     try {
       const r = await pickFile('video');
       if (!r) return;
+      // Standalone video picks flip the session to 'files' source. The
+      // GoPro multi-chapter flow stays as-is below; the session-source
+      // flip just closes the previous folder context so the sidecar
+      // doesn't get written against an unrelated log.
+      if (flightDirHandle) {
+        // In a folder session — replace the video slot, keep log/cfg
+        // intact, drop the dirHandle so the sidecar stops writing
+        // against the prior folder.
+        setFlightDirHandle(null);
+      }
+      videoRelPathRef.current = r.file?.name || '';
       const pattern = detectGoProChapterPattern(r.file?.name || '');
       if (!pattern || typeof window === 'undefined' ||
           typeof window.showDirectoryPicker !== 'function') {
@@ -759,25 +877,35 @@ export const ReplayPage = () => {
     } catch (err) {
       setParseErr(`Could not open video: ${err.message}`);
     }
-  }, [applyVideoFile, applyVideoFiles]);
+  }, [applyVideoFile, applyVideoFiles, flightDirHandle]);
 
   const pickLogViaFsa = useCallback(async () => {
     try {
       const r = await pickFile('log');
-      if (r) await applyLogFile(r.file, r.handle);
+      if (!r) return;
+      // Route through switchSession so the prior session (any folder
+      // context, the old cfg/video) is torn down before the new log
+      // mounts. The single-file pick can't preserve sidecar context;
+      // engineers who want sidecar auto-save should pick a folder.
+      await doSwitchSession({
+        kind: 'file-pick', slot: 'log', file: r.file, handle: r.handle,
+      });
     } catch (err) {
       setParseErr(`Could not open log: ${err.message}`);
     }
-  }, [applyLogFile]);
+  }, [doSwitchSession]);
 
   const pickCfgViaFsa = useCallback(async () => {
     try {
       const r = await pickFile('cfg');
-      if (r) await applyCfgFile(r.file, r.handle);
+      if (!r) return;
+      await doSwitchSession({
+        kind: 'file-pick', slot: 'config', file: r.file, handle: r.handle,
+      });
     } catch (err) {
       setParseErr(`Could not open config: ${err.message}`);
     }
-  }, [applyCfgFile]);
+  }, [doSwitchSession]);
 
   // ---------- Sidecar wiring (Phase 1) -----------------------------
   //
@@ -857,40 +985,114 @@ export const ReplayPage = () => {
   }, [journal.markAnnotations, journal.clipAnnotations,
       journal.hudPitchOffsetDeg, leftInsetMode, rightInsetMode]);
 
+  // Cheap stable signature for the cfg/video files. Fast enough to call
+  // from the snapshot builder. Uses size+lastModified rather than a
+  // content hash — good enough to differentiate "is this the same file"
+  // across reloads; the heavy SHA-256 stays on the log file alone where
+  // persistence already needs it.
+  const fileFingerprint = useCallback((file) => {
+    if (!file) return '';
+    const name = file.name || '';
+    const size = Number(file.size) || 0;
+    const lm = Number(file.lastModified) || 0;
+    return `${size}-${lm}-${name.length}`;
+  }, []);
+
   const buildSubject = useCallback(() => {
     const sub = {};
     if (logFile) {
+      // Compute duration from the parsed log's timestamp column once it
+      // lands. Empty / single-row logs report 0.
+      let durationSec = 0;
+      if (log && log.timeStamp && log.Length > 1) {
+        const ts = log.timeStamp;
+        const first = ts[0];
+        const last = ts[log.Length - 1];
+        if (Number.isFinite(first) && Number.isFinite(last) && last > first) {
+          durationSec = Math.round((last - first) / 1000);
+        }
+      }
       sub.log = {
         name: logFile.name,
+        relativePath: logRelPathRef.current || '',
         hash: persistence.logDigest || '',
         sizeBytes: logFile.size || 0,
         rowCount: log ? log.Length : 0,
-        durationSec: 0, // PR 2 fills this from parsed log
+        durationSec,
       };
     }
     if (cfgFile) {
       sub.config = {
         name: cfgFile.name,
-        hash: '', // PR 2: compute on load
+        relativePath: cfgRelPathRef.current || '',
+        hash: fileFingerprint(cfgFile),
         ahrsAlgorithm: cfg && cfg.ahrsAlgorithm ? String(cfg.ahrsAlgorithm) : '',
       };
     }
     if (videoFile) {
+      // Pull duration from the live <video> element if it's loaded.
+      const v = videoRef.current;
+      const vDur = (v && Number.isFinite(v.duration)) ? Math.round(v.duration) : 0;
+      const tlDur = (videoTimeline && Number.isFinite(videoTimeline.totalDurationSec))
+        ? Math.round(videoTimeline.totalDurationSec)
+        : 0;
       sub.video = {
         name: videoFile.name,
-        hash: '',
-        durationSec: 0,
+        relativePath: videoRelPathRef.current || '',
+        hash: fileFingerprint(videoFile),
+        durationSec: tlDur || vDur || 0,
       };
     }
     return sub;
-  }, [logFile, cfgFile, videoFile, persistence.logDigest, log, cfg]);
+  }, [logFile, cfgFile, videoFile, persistence.logDigest, log, cfg,
+      videoTimeline, fileFingerprint]);
 
   // Callback fired when readSidecarForLog returns a parsed doc. Pulls
-  // marks/clips/sync/hud out of the doc into local state. PR 1
-  // reconciliation rule: sidecar wins. PR 2 layers per-record merge.
-  const onSidecarLoaded = useCallback((doc) => {
+  // marks/clips/sync/hud out of the doc into local state, and asks the
+  // accompanying recursive discovery for any subject files we haven't
+  // loaded yet (video, cfg). PR 1 reconciliation rule: sidecar wins.
+  // PR 2 layers per-record merge.
+  const onSidecarLoaded = useCallback((doc, discovery) => {
     if (!doc) return;
     sidecarApplyingRef.current = true;
+    // Auto-attach missing files from the discovery bundle. Resolution
+    // prefers subject.<slot>.relativePath, then falls back to basename
+    // (covers older sidecars that pre-date the relativePath bump and
+    // direct-file-pick workflows where the path wasn't recorded).
+    if (discovery && doc.subject) {
+      (async () => {
+        try {
+          const sub = doc.subject;
+          if (!videoFileRef.current && sub.video) {
+            const row = findDiscoveryRowFor(discovery, 'videos', sub.video);
+            if (row) {
+              const f = row.file || await row.handle.getFile();
+              videoRelPathRef.current = row.relativePath || f.name || '';
+              await applyVideoFile(f, row.handle);
+            }
+          }
+          if (!cfgFileRef.current && sub.config) {
+            const row = findDiscoveryRowFor(discovery, 'configs', sub.config);
+            if (row) {
+              const f = row.file || await row.handle.getFile();
+              cfgRelPathRef.current = row.relativePath || f.name || '';
+              await applyCfgFile(f, row.handle);
+            }
+          }
+          // Stash the log's relative path even when the log was already
+          // attached — buildSubject reads this ref to write the next
+          // sidecar revision, so the on-disk path persists.
+          if (sub.log) {
+            const row = findDiscoveryRowFor(discovery, 'logs', sub.log);
+            if (row && row.relativePath) {
+              logRelPathRef.current = row.relativePath;
+            }
+          }
+        } catch (err) {
+          console.warn('sidecar: subject auto-attach failed', err);
+        }
+      })();
+    }
     try {
       // Marks: feed each into the journal so the UI overlay refreshes.
       // The journal upsert function dedupes on (value, logTimeMs), so
@@ -948,6 +1150,14 @@ export const ReplayPage = () => {
     onSidecarLoaded,
   });
 
+  // Plumb the sidecar's detachLog into the ref consumed by
+  // sessionTearDown. The ref starts as a no-op (declared above the
+  // sidecar hook for ordering); this effect installs the real one as
+  // soon as the hook stabilizes.
+  useEffect(() => {
+    sidecarDetachRef.current = sidecar.detachLog || (() => {});
+  }, [sidecar.detachLog]);
+
   // Mark the sidecar dirty whenever a tracked piece of state changes,
   // EXCEPT when the change comes from the sidecar load pipeline (the
   // `sidecarApplyingRef` flag) or before we have a log to attach to.
@@ -962,222 +1172,6 @@ export const ReplayPage = () => {
       journal.hudPitchOffsetDeg, clips, sync,
       leftInsetMode, rightInsetMode, logFilename,
       sidecar.markDirty]);
-
-  // "Open flight folder" handler. Opens showDirectoryPicker in
-  // readwrite mode, persists the directory handle, walks for logs,
-  // and either picks the single log or surfaces the multi-log
-  // picker modal.
-  const onOpenFlightFolder = useCallback(async () => {
-    try {
-      const dir = await pickFlightDir();
-      if (!dir) return; // user cancelled
-      setFlightDirHandle(dir);
-      await storeFlightDirHandle(dir);
-      const discovery = await discoverFlightContents(dir);
-      flightDiscoveryRef.current = discovery;
-      if (discovery.logs.length === 0) {
-        setParseErr(
-          `No .csv logs found in "${dir.name}". Pick a folder containing OnSpeed SD logs.`);
-        return;
-      }
-      // Pick the most-recent cfg (if any) silently before the log.
-      let cfgPicked = null;
-      if (discovery.configs.length > 0) {
-        const sorted = [...discovery.configs].sort((a, b) => {
-          const am = (a.file && a.file.lastModified) || 0;
-          const bm = (b.file && b.file.lastModified) || 0;
-          return bm - am;
-        });
-        cfgPicked = sorted[0];
-      }
-      const applyChosen = async (logRow) => {
-        const file = logRow.file || await logRow.handle.getFile();
-        await applyLogFile(file, logRow.handle);
-        if (cfgPicked) {
-          const cfgFileObj = cfgPicked.file ||
-            await cfgPicked.handle.getFile();
-          await applyCfgFile(cfgFileObj, cfgPicked.handle);
-        }
-      };
-      if (discovery.logs.length === 1) {
-        await applyChosen(discovery.logs[0]);
-      } else {
-        // Multi-log picker: present the modal. Sort by lastModified
-        // descending so the most-recent log surfaces first.
-        const sorted = [...discovery.logs].sort((a, b) => {
-          const am = (a.file && a.file.lastModified) || 0;
-          const bm = (b.file && b.file.lastModified) || 0;
-          return bm - am;
-        });
-        setLogPickerOptions({ logs: sorted, onChosen: applyChosen });
-      }
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      setParseErr(`Could not open flight folder: ${err.message}`);
-    }
-  }, [applyLogFile, applyCfgFile]);
-
-  // Multi-log picker — engineer chose a log from the modal.
-  const onLogPickerChose = useCallback(async (logRow) => {
-    const opts = logPickerOptions;
-    setLogPickerOptions(null);
-    if (opts && typeof opts.onChosen === 'function') {
-      try {
-        await opts.onChosen(logRow);
-      } catch (err) {
-        setParseErr(`Could not open log: ${err.message}`);
-      }
-    }
-  }, [logPickerOptions]);
-
-  const onLogPickerCancel = useCallback(() => {
-    setLogPickerOptions(null);
-  }, []);
-
-  // Save-banner handler. Engineer clicked Save → call
-  // showSaveFilePicker with the sidecar's suggested filename →
-  // attachHandle on the sidecar hook. The hook writes immediately.
-  const onSidecarSaveClick = useCallback(async () => {
-    if (!logFilename) return;
-    try {
-      const handle = await showSidecarSavePicker({
-        dirHandle: flightDirHandle,
-        logFileName: logFilename,
-      });
-      if (!handle) return; // user cancelled
-      await sidecar.attachHandle(handle);
-    } catch (err) {
-      setParseErr(`Could not save sidecar: ${err.message}`);
-    }
-  }, [logFilename, flightDirHandle, sidecar]);
-
-  const onSidecarBannerDismiss = useCallback(() => {
-    setSidecarBannerDismissed(true);
-  }, []);
-
-  // Re-grant permission on a previously-picked flight directory at
-  // mount time. Mirrors the useFileHandleResume pattern but for the
-  // directory handle. The auto-resume only fires when queryPermission
-  // returns 'granted' (Chrome 122+ "Allow on every visit"); otherwise
-  // the engineer clicks "Open flight folder" again to re-grant.
-  const flightDirResumedRef = useRef(false);
-  useEffect(() => {
-    if (flightDirResumedRef.current) return;
-    if (!isDirectoryPickerSupported()) return;
-    flightDirResumedRef.current = true;
-    loadFlightDirHandle().then(async (handle) => {
-      if (!handle) return;
-      const perm = await queryDirPermission(handle, 'readwrite');
-      if (perm === 'granted') {
-        setFlightDirHandle(handle);
-      }
-      // Otherwise leave the handle dormant; "Open flight folder" will
-      // re-engage it (or the engineer will pick a different folder).
-    }).catch(err => console.warn('sidecar: dir-handle resume failed', err));
-  }, []);
-
-  // Shared resume load body. Reads the three files via the (already-
-  // granted) FSA handles and re-feeds them through the apply* helpers.
-  // Called by both onResumeClick (user-gesture banner click, runs
-  // requestPermissionForHandles first) and the auto-resume effect (page
-  // load, queryPermission already reported 'granted'). `getFile()` may
-  // still fail if a file was deleted between sessions — the catch
-  // surfaces the error and leaves the banner up for a manual retry.
-  const performResumeLoad = useCallback(async (handles) => {
-    setResuming(true);
-    try {
-      const isMultiChapter = handles.video && handles.video.kind === 'multi-chapter';
-      // Log + cfg are always single-file handles; video may be either.
-      const [lFile, cFile] = await Promise.all([
-        handles.log.getFile(),
-        handles.cfg ? handles.cfg.getFile() : Promise.resolve(null),
-      ]);
-      if (isMultiChapter) {
-        // Permission on the directory handle was already granted (by
-        // requestPermissionForHandles or queryPermissionForHandles).
-        // Subsequent entries() iteration and entry.getFile() reads on
-        // an already-granted directory do NOT need a fresh user-gesture
-        // token, so awaiting the walk here is safe even though it
-        // crosses several async hops.
-        const expanded = await expandMultiChapterHandle(handles.video);
-        if (!expanded || expanded.files.length === 0) {
-          throw new Error('multi-chapter directory is empty or chapters moved');
-        }
-        if (expanded.files.length < handles.video.chapterNames.length) {
-          setParseErr(
-            `Resumed with ${expanded.files.length} of ` +
-            `${handles.video.chapterNames.length} chapters — some files moved ` +
-            `or were renamed.`);
-        }
-        await applyVideoFiles(
-          expanded.files, expanded.handles[0], expanded.handles, expanded.directoryHandle);
-      } else {
-        const vFile = await handles.video.getFile();
-        applyVideoFile(vFile, handles.video);
-      }
-      const logOk = await applyLogFile(lFile, handles.log);
-      if (cFile && logOk) await applyCfgFile(cFile, handles.cfg);
-      fileHandleResume.markUsed();
-    } catch (err) {
-      setParseErr(`Resume failed: ${err.message}`);
-    } finally {
-      setResuming(false);
-    }
-  }, [fileHandleResume, applyVideoFile, applyVideoFiles, applyLogFile, applyCfgFile]);
-
-  // Resume-banner click handler. MUST run the permission request
-  // synchronously in the same user-gesture tick — no awaits before
-  // requestPermissionForHandles or browsers reject the prompt.
-  // After grant, getFile() each handle and re-feed the apply* helpers.
-  const onResumeClick = useCallback(async () => {
-    const handles = fileHandleResume.availableHandles;
-    if (!handles) return;
-    // Permission request first — same gesture. Browsers batch the
-    // prompts when called sequentially in this tick.
-    const granted = await requestPermissionForHandles(handles);
-    if (!granted) {
-      // Collapse the banner so the pilot only sees one signal — the
-      // error message. Leaving the banner up alongside the error
-      // reads as "Resume failed but click here to try again" when in
-      // fact the browser already denied without a prompt and another
-      // click won't help.
-      fileHandleResume.dismiss();
-      setParseErr('Permission denied for one or more files. Pick them manually.');
-      return;
-    }
-    await performResumeLoad(handles);
-  }, [fileHandleResume, performResumeLoad]);
-
-  const onResumeDismiss = useCallback(() => {
-    fileHandleResume.dismiss();
-  }, [fileHandleResume]);
-
-  // Auto-resume: when the hook reports queryPermission is still
-  // 'granted' on every stored handle (typical within-browser-session
-  // reload), skip the banner click and load the files at mount. The ref
-  // pins this to fire exactly once per (signature, handles) pair so a
-  // re-render after markUsed() doesn't retrigger the load. Pilots who
-  // dismissed the recent-files banner last session won't see the
-  // recent-files banner; we also suppress auto-resume in that case via
-  // the `persistence.bannerInfo` gate so the page stays as the pilot
-  // left it (manual re-pick).
-  // Auto-resume gates only on autoResumeReady (handles present AND
-  // queryPermission returned 'granted' on all of them). The
-  // recent-files banner dismissal is a separate signal — pilots
-  // dismiss the banner to declutter the page, NOT to opt out of
-  // silent reload. Treating them as one gate strands users who
-  // dismissed the banner once and then never see their files
-  // come back automatically.
-  const autoResumedSigRef = useRef('');
-  useEffect(() => {
-    if (!fileHandleResume.autoResumeReady) return;
-    const handles = fileHandleResume.availableHandles;
-    if (!handles) return;
-    if (autoResumedSigRef.current === persistence.recentFilesSig) return;
-    autoResumedSigRef.current = persistence.recentFilesSig;
-    performResumeLoad(handles);
-  }, [fileHandleResume.autoResumeReady, fileHandleResume.availableHandles,
-      persistence.recentFilesSig, performResumeLoad]);
 
   // ---------- Auto-detect takeoff in the log -----------------------
 
@@ -1289,6 +1283,29 @@ export const ReplayPage = () => {
     };
     v.addEventListener('loadedmetadata', onMeta);
     return () => v.removeEventListener('loadedmetadata', onMeta);
+  }, [videoUrl]);
+
+  // Sync `videoT` to the active global-second on every `seeked` event
+  // while the video is paused. rVFC doesn't fire on a paused video, so
+  // a programmatic seek (jumpToMark, ←/→ frame-step, timeline scrub,
+  // resume-on-load) doesn't otherwise update videoT — and the per-frame
+  // M5-sim effect, which keys on videoT, sticks at the prior playhead
+  // value. Inset displays then read stale until the next play tick.
+  // While playing, the rVFC tick takes over and we let it own videoT.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onSeeked = () => {
+      if (!v.paused) return;
+      const tl = videoTimelineRef.current;
+      const idx = activeChapterIndexRef.current;
+      const globalT = tl && tl.chapters[idx]
+        ? tl.chapters[idx].startSec + v.currentTime
+        : v.currentTime;
+      setVideoT(globalT);
+    };
+    v.addEventListener('seeked', onSeeked);
+    return () => v.removeEventListener('seeked', onSeeked);
   }, [videoUrl]);
 
   // Seek the live video to a global timeline-second. Handles cross-
@@ -2578,20 +2595,6 @@ export const ReplayPage = () => {
 
   return html`
       <div class="replay-page">
-        ${resuming
-          ? null
-          : (fileHandleResume.resumeReady
-              ? html`<${ReplayResumeBanner}
-                        info=${persistence.rawBannerInfo}
-                        onResume=${onResumeClick}
-                        onDismiss=${onResumeDismiss} />`
-              : html`<${RecentFilesBanner} info=${persistence.bannerInfo}
-                                           onDismiss=${persistence.dismissBanner} />`)}
-        ${sidecar.showSaveBanner && !sidecarBannerDismissed && html`
-          <${SidecarSaveBanner}
-            logFileName=${logFilename}
-            onSave=${onSidecarSaveClick}
-            onDismiss=${onSidecarBannerDismiss} />`}
         ${logPickerOptions && html`
           <div class="replay-log-picker-overlay">
             <div class="replay-log-picker-modal">
@@ -2667,10 +2670,15 @@ export const ReplayPage = () => {
           `}
           ${resuming && html`
             <span class="replay-status">Resuming…</span>`}
-          ${sidecar.sidecarHandle && html`
-            <${SidecarSaveIndicator}
-              saveState=${sidecar.saveState}
-              lastSavedAt=${sidecar.lastSavedAt} />`}
+          <${SaveStatePill}
+            hasLog=${!!logFilename}
+            hasHandle=${!!sidecar.sidecarHandle}
+            saveState=${sidecar.saveState}
+            lastSavedAt=${sidecar.lastSavedAt}
+            lastError=${sidecar.lastError}
+            autoSaveDisabled=${sidecar.autoSaveDisabled}
+            onManualSave=${sidecar.flushNow}
+            onToggleAutoSave=${sidecar.toggleAutoSave} />
           ${cfg && html`
             <span class="replay-status">
               ${cfg.flaps.length} flap detents loaded · ${cfgFilename}

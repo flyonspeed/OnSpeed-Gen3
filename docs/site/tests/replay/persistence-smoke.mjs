@@ -291,21 +291,9 @@ test('localStorage key contracts: clips key format', () => {
   assertEqual(parsed[1].label, 'clip 02');
 });
 
-test('localStorage key contracts: recent-files key format', () => {
-  mockLs.clear();
-  const value = {
-    video: { name: 'flight.mp4', size: 1234567, lastModified: 1700000000000 },
-    log:   { name: 'flight.csv', size: 999,     lastModified: 1700000000001 },
-    cfg:   null,
-  };
-  mockLs.setItem('replay-recent-files-v1', JSON.stringify(value));
-  const raw = mockLs.getItem('replay-recent-files-v1');
-  if (!raw) throw new Error('expected recent-files key to be written');
-  const parsed = JSON.parse(raw);
-  assertEqual(parsed.video.name, 'flight.mp4');
-  assertEqual(parsed.log.size, 999);
-  assertEqual(parsed.cfg, null);
-});
+// The legacy `replay-recent-files-v1` key was retired in PR 1b. The
+// sidecar (`.replay.json` next to the log) plus the folder handle in
+// IDB are the only persistence surfaces now.
 
 // ---------------------------------------------------------------------
 // Report

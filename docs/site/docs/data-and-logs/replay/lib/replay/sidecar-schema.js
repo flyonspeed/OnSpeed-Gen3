@@ -87,6 +87,10 @@ export function logNameForSidecar(sidecarFileName) {
 // consistent.
 export function emptySession({ log, config, video, createdBy, author } = {}) {
   const now = nowISO();
+  // relativePath is POSIX-style, relative to the directory handle the
+  // user picked (the flight folder root). Optional — basename fallback
+  // covers older sidecars and direct-file-pick workflows.
+  const cleanRelPath = (p) => (typeof p === 'string' && p) ? p : '';
   return {
     $schema: SIDECAR_SCHEMA_URL,
     schemaVersion: SCHEMA_VERSION,
@@ -102,6 +106,7 @@ export function emptySession({ log, config, video, createdBy, author } = {}) {
     subject: {
       log: log ? {
         name: typeof log.name === 'string' ? log.name : '',
+        relativePath: cleanRelPath(log.relativePath),
         hash: typeof log.hash === 'string' ? log.hash : '',
         sizeBytes: Number.isFinite(log.sizeBytes) ? log.sizeBytes : 0,
         rowCount: Number.isFinite(log.rowCount) ? log.rowCount : 0,
@@ -109,12 +114,14 @@ export function emptySession({ log, config, video, createdBy, author } = {}) {
       } : null,
       config: config ? {
         name: typeof config.name === 'string' ? config.name : '',
+        relativePath: cleanRelPath(config.relativePath),
         hash: typeof config.hash === 'string' ? config.hash : '',
         ahrsAlgorithm: typeof config.ahrsAlgorithm === 'string'
           ? config.ahrsAlgorithm : '',
       } : null,
       video: video ? {
         name: typeof video.name === 'string' ? video.name : '',
+        relativePath: cleanRelPath(video.relativePath),
         hash: typeof video.hash === 'string' ? video.hash : '',
         durationSec: Number.isFinite(video.durationSec) ? video.durationSec : 0,
       } : null,
@@ -162,6 +169,11 @@ function checkLogSubject(l) {
   if (!isNum(l.sizeBytes))   return 'subject.log.sizeBytes must be a number';
   if (!isNum(l.rowCount))    return 'subject.log.rowCount must be a number';
   if (!isNum(l.durationSec)) return 'subject.log.durationSec must be a number';
+  // relativePath is optional. When present, must be a string. Older
+  // sidecars written before PR #640's relativePath bump simply omit it.
+  if (l.relativePath !== undefined && !isString(l.relativePath)) {
+    return 'subject.log.relativePath must be a string when present';
+  }
   return null;
 }
 
@@ -187,11 +199,13 @@ function checkSubject(sub) {
   const logErr = checkLogSubject(sub.log);
   if (logErr) return logErr;
   const cfgErr = checkOptionalSubject('config', sub.config, [
-    ['name', 'string'], ['hash', 'string'], ['ahrsAlgorithm', 'string'],
+    ['name', 'string'], ['relativePath', 'string'],
+    ['hash', 'string'], ['ahrsAlgorithm', 'string'],
   ]);
   if (cfgErr) return cfgErr;
   const vidErr = checkOptionalSubject('video', sub.video, [
-    ['name', 'string'], ['hash', 'string'], ['durationSec', 'number'],
+    ['name', 'string'], ['relativePath', 'string'],
+    ['hash', 'string'], ['durationSec', 'number'],
   ]);
   if (vidErr) return vidErr;
   return null;

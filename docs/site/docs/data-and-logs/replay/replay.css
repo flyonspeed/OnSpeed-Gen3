@@ -597,57 +597,10 @@
   text-decoration: underline;
 }
 
-.replay-recent-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6px 10px;
-  margin-bottom: 4px;
-  background: #2a2418;
-  border: 1px solid var(--yellow, #fffd40);
-  border-radius: 4px;
-  color: var(--ink, #eee);
-  font-size: 12px;
-}
-.replay-recent-text {
-  flex: 1 1 auto;
-  color: #d8c97a;
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-}
-.replay-recent-dismiss {
-  flex: 0 0 auto;
-  border: 1px solid #4a3f1f;
-  background: transparent;
-  color: #d8c97a;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 3px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.replay-recent-dismiss:hover {
-  background: #4a3f1f;
-  color: var(--yellow, #fffd40);
-}
-.replay-recent-resume {
-  flex: 0 0 auto;
-  border: 1px solid var(--yellow, #fffd40);
-  background: #4a3f1f;
-  color: var(--yellow, #fffd40);
-  padding: 4px 12px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-}
-.replay-recent-resume:hover {
-  background: var(--yellow, #fffd40);
-  color: #1a1410;
-}
+/* The legacy `.replay-recent-banner` / `.replay-recent-resume` styles
+   were removed alongside the RecentFilesBanner / ReplayResumeBanner
+   components. Sidecar + folder-handle resume is the only persistence
+   surface now (see lib/replay/sidecar.js and the SaveStatePill). */
 
 /* File-picker buttons (FSA path). Render in place of the native
    <input type="file"> on browsers with showOpenFilePicker. Sized to
@@ -769,90 +722,52 @@
    Visually distinct from the recent-files banner (yellow) so the two
    don't blur together: green to signal "this is a save action you can
    take", not "we're trying to restore something." */
-.replay-sidecar-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6px 10px;
-  margin-bottom: 4px;
-  background: #182a1c;
-  border: 1px solid var(--green, #00ff3a);
-  border-radius: 4px;
-  color: var(--ink, #eee);
+/* SaveStatePill — toolbar surface for the sidecar's save state.
+   Replaces both the legacy save banner and the older status span. The
+   pill is always visible; its color + label communicate the current
+   state. Click to force-save, right-click to disable auto-save. */
+.replay-sidecar-pill {
   font-size: 12px;
-}
-.replay-sidecar-banner-text {
-  flex: 1 1 auto;
-}
-.replay-sidecar-banner-text code {
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
-  background: #0e1f12;
-  padding: 1px 5px;
-  border-radius: 2px;
-  color: #8ee68f;
-}
-.replay-sidecar-banner-save {
-  flex: 0 0 auto;
-  border: 1px solid var(--green, #00ff3a);
-  background: #1f4a2b;
-  color: var(--green, #00ff3a);
-  padding: 4px 12px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-}
-.replay-sidecar-banner-save:hover {
-  background: var(--green, #00ff3a);
-  color: #0e1f12;
-}
-.replay-sidecar-banner-dismiss {
-  flex: 0 0 auto;
-  border: 1px solid #1f4a2b;
-  background: transparent;
-  color: #8ee68f;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 3px;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.replay-sidecar-banner-dismiss:hover {
-  background: #1f4a2b;
-  color: var(--green, #00ff3a);
-}
-
-/* Save-state pill in the toolbar once a sidecar handle is attached.
-   Reuses the existing .replay-status sizing and adds a state-specific
-   color tint. */
-.replay-sidecar-status {
-  font-size: 12px;
-  color: #8ee68f;
-  background: #182a1c;
-  border: 1px solid #1f4a2b;
-  border-radius: 3px;
-  padding: 2px 8px;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
   white-space: nowrap;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid #1f4a2b;
+  background: #182a1c;
+  color: #8ee68f;
+  font-weight: 500;
 }
-.replay-sidecar-status.is-saving {
+.replay-sidecar-pill:hover {
+  filter: brightness(1.15);
+}
+.replay-sidecar-pill.is-idle,
+.replay-sidecar-pill.is-ready {
+  color: #aaa;
+  background: #1c1c1c;
+  border-color: #333;
+}
+.replay-sidecar-pill.is-pending,
+.replay-sidecar-pill.is-dirty,
+.replay-sidecar-pill.is-saving {
   color: #d8c97a;
   border-color: #4a3f1f;
   background: #2a2418;
 }
-.replay-sidecar-status.is-dirty {
-  color: #d8c97a;
-  border-color: #4a3f1f;
-  background: #2a2418;
+.replay-sidecar-pill.is-saved {
+  color: #8ee68f;
+  border-color: #1f4a2b;
+  background: #182a1c;
 }
-.replay-sidecar-status.is-error {
+.replay-sidecar-pill.is-error {
   color: #ff8888;
   border-color: #5a1f1f;
   background: #2a1818;
+}
+.replay-sidecar-pill.is-off {
+  color: #999;
+  background: #2a2a2a;
+  border-color: #555;
 }
 
 /* "Open flight folder" button — sits in the toolbar before the file

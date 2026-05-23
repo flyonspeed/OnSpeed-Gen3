@@ -293,6 +293,70 @@ test('parseSidecar tolerates unknown top-level fields (preserves what it knows)'
 });
 
 // ---------------------------------------------------------------------
+// relativePath (PR #640 follow-up — Sam's playtest finding #1)
+// ---------------------------------------------------------------------
+
+test('emptySession seeds relativePath fields from inputs', () => {
+  const doc = emptySession({
+    log:    { name: 'log_007.csv',  relativePath: '11 May 26 Cockpit/log_007.csv',
+              hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+    config: { name: 'onspeed2.cfg', relativePath: '11 May 26 Cockpit/onspeed2.cfg',
+              hash: '', ahrsAlgorithm: '' },
+    video:  { name: 'GOPR0314.MP4', relativePath: '11 May 26 Raw Video/GOPR0314.MP4',
+              hash: '', durationSec: 0 },
+  });
+  assertEqual(doc.subject.log.relativePath,
+              '11 May 26 Cockpit/log_007.csv');
+  assertEqual(doc.subject.config.relativePath,
+              '11 May 26 Cockpit/onspeed2.cfg');
+  assertEqual(doc.subject.video.relativePath,
+              '11 May 26 Raw Video/GOPR0314.MP4');
+});
+
+test('emptySession defaults relativePath to empty string when omitted', () => {
+  const doc = emptySession({
+    log: { name: 'l.csv', hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+  });
+  assertEqual(doc.subject.log.relativePath, '');
+});
+
+test('parseSidecar round-trips relativePath through emit/parse', () => {
+  const doc = emptySession({
+    log:   { name: 'log_007.csv',  relativePath: 'Cockpit/log_007.csv',
+             hash: '', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+    video: { name: 'GOPR0314.MP4', relativePath: 'Raw Video/GOPR0314.MP4',
+             hash: '', durationSec: 0 },
+  });
+  const r = parseSidecar(JSON.stringify(doc));
+  assertEqual(r.ok, true, r.ok ? '' : r.error);
+  assertEqual(r.value.subject.log.relativePath,   'Cockpit/log_007.csv');
+  assertEqual(r.value.subject.video.relativePath, 'Raw Video/GOPR0314.MP4');
+});
+
+test('parseSidecar accepts an older sidecar with no relativePath field', () => {
+  // Hand-rolled doc that pre-dates the relativePath bump. Should still
+  // parse — the field is optional and the reader falls back to basename.
+  const doc = emptySession({
+    log: { name: 'l.csv', hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+  });
+  // Strip relativePath to simulate a v1-era sidecar.
+  delete doc.subject.log.relativePath;
+  const r = parseSidecar(JSON.stringify(doc));
+  assertEqual(r.ok, true, r.ok ? '' : r.error);
+  assertEqual(r.value.subject.log.name, 'l.csv');
+});
+
+test('parseSidecar rejects a non-string relativePath when present', () => {
+  const doc = emptySession({
+    log: { name: 'l.csv', hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+  });
+  doc.subject.log.relativePath = 42; // wrong type
+  const r = parseSidecar(JSON.stringify(doc));
+  assertEqual(r.ok, false);
+  assertTrue(r.error.includes('relativePath'), r.error);
+});
+
+// ---------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------
 

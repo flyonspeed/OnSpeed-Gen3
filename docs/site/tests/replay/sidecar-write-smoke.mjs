@@ -53,6 +53,7 @@ try {
 const {
   writeSidecar, readSidecarFromHandle,
   discoverFlightContents, findSidecarHandle,
+  mutateSidecar, flushSidecar,
 } = mod;
 
 const schemaMod = await import(path.resolve(
@@ -233,6 +234,87 @@ await test('readSidecarFromHandle returns error on no-handle input', async () =>
   const r = await readSidecarFromHandle(null);
   assertEqual(r.ok, false);
   assertTrue(r.error.includes('invalid handle'), r.error);
+});
+
+// ---------------------------------------------------------------------
+// relativePath round-trip — PR #640 follow-up.
+// ---------------------------------------------------------------------
+
+await test('writeSidecar round-trips relativePath for log/config/video', async () => {
+  const handle = makeMemoryFileHandle('log_007.csv.replay.json');
+  const doc = emptySession({
+    log: {
+      name: 'log_007.csv',
+      relativePath: '11 May 26 Cockpit/log_007.csv',
+      hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1,
+    },
+    config: {
+      name: 'onspeed2.cfg',
+      relativePath: '11 May 26 Cockpit/onspeed2.cfg',
+      hash: '', ahrsAlgorithm: '',
+    },
+    video: {
+      name: 'GOPR0314.MP4',
+      relativePath: '11 May 26 Raw Video/GOPR0314.MP4',
+      hash: '', durationSec: 0,
+    },
+  });
+  await writeSidecar(handle, doc);
+  const r = await readSidecarFromHandle(handle);
+  assertEqual(r.ok, true, r.ok ? '' : r.error);
+  assertEqual(r.value.subject.log.relativePath,
+              '11 May 26 Cockpit/log_007.csv');
+  assertEqual(r.value.subject.config.relativePath,
+              '11 May 26 Cockpit/onspeed2.cfg');
+  assertEqual(r.value.subject.video.relativePath,
+              '11 May 26 Raw Video/GOPR0314.MP4');
+});
+
+// ---------------------------------------------------------------------
+// mutateSidecar / flushSidecar — PR 1b additions.
+// ---------------------------------------------------------------------
+
+await test('mutateSidecar bumps revision and updatedAt', async () => {
+  const doc = emptySession({
+    log: { name: 'a.csv', hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+  });
+  const r0 = doc.session.revision;
+  const u0 = doc.session.updatedAt;
+  // Tiny sleep so the ISO timestamp moves.
+  await new Promise(r => setTimeout(r, 5));
+  const next = mutateSidecar(doc, { marks: [{ value: 1, logTimeMs: 100 }] });
+  assertEqual(next.session.revision, r0 + 1, 'revision bumped');
+  if (next.session.updatedAt === u0) {
+    throw new Error('expected updatedAt to advance');
+  }
+  assertEqual(next.marks.length, 1);
+  assertEqual(doc.session.revision, r0, 'input doc untouched');
+});
+
+await test('mutateSidecar merges subject patches without clobbering', async () => {
+  const doc = emptySession({
+    log: { name: 'a.csv', hash: 'a', sizeBytes: 1, rowCount: 0, durationSec: 0 },
+  });
+  const next = mutateSidecar(doc, {
+    subject: { log: { rowCount: 50, durationSec: 12 } },
+  });
+  // Patch fields applied.
+  assertEqual(next.subject.log.rowCount, 50);
+  assertEqual(next.subject.log.durationSec, 12);
+  // Untouched fields preserved.
+  assertEqual(next.subject.log.name, 'a.csv');
+  assertEqual(next.subject.log.hash, 'a');
+});
+
+await test('flushSidecar wraps writeSidecar with the same semantics', async () => {
+  const handle = makeMemoryFileHandle('a.csv.replay.json');
+  const doc = emptySession({
+    log: { name: 'a.csv', hash: 'a', sizeBytes: 1, rowCount: 1, durationSec: 1 },
+  });
+  await flushSidecar(handle, doc);
+  const r = await readSidecarFromHandle(handle);
+  assertEqual(r.ok, true);
+  assertEqual(r.value.subject.log.name, 'a.csv');
 });
 
 // Final report
