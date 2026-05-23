@@ -705,9 +705,27 @@ export const ReplayPage = () => {
       logRelPathRef.current = relPath || file.name || '';
       await applyLogFile(file, handle);
     },
-    mountVideo: async (file, handle, relPath) => {
-      videoRelPathRef.current = relPath || file.name || '';
-      await applyVideoFile(file, handle);
+    mountVideo: async (fileOrEnvelope, handle, relPath) => {
+      // Multi-chapter envelope from session.js clustering: expand the
+      // chapter list and pass through applyVideoFiles, which builds
+      // the timeline and registers the directory handle for resume.
+      // The legacy single-file path is unchanged (envelope shape gated
+      // on the explicit `kind:'multi-chapter'` marker).
+      if (fileOrEnvelope && fileOrEnvelope.kind === 'multi-chapter') {
+        const chapters = Array.isArray(fileOrEnvelope.chapters)
+          ? fileOrEnvelope.chapters : [];
+        const files = chapters.map(c => c.file).filter(Boolean);
+        const handles = chapters.map(c => c.handle || null);
+        videoRelPathRef.current = relPath || fileOrEnvelope.relativePath || '';
+        await applyVideoFiles(
+          files,
+          handles[0] || null,
+          handles,
+          fileOrEnvelope.directoryHandle || null);
+        return;
+      }
+      videoRelPathRef.current = relPath || fileOrEnvelope?.name || '';
+      await applyVideoFile(fileOrEnvelope, handle);
     },
     mountConfig: async (file, handle, relPath) => {
       cfgRelPathRef.current = relPath || file.name || '';

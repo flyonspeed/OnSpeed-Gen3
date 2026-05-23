@@ -43,6 +43,7 @@ import {
 import {
   sidecarFileNameFor, logNameForSidecar,
 } from './sidecar-schema.js';
+import { groupChapterSiblings } from './chapters.js';
 
 // Re-export the depth-1 enumerator from sidecar.js so callers that
 // follow the plan can `import { discoverFlightContents } from
@@ -230,9 +231,10 @@ async function _applyMatch(match, discovery, dirHandle, ops) {
     return match;
   }
   if (match.kind === 'auto-load') {
-    // Pick most-recent cfg and video silently from the discovery bundle.
+    // Pick most-recent cfg and most-recent video (or GoPro chapter
+    // cluster) silently from the discovery bundle.
     const cfgPicked = pickMostRecent(discovery.configs);
-    const videoPicked = pickMostRecent(discovery.videos);
+    const videoPicked = await pickVideoSlot(discovery.videos, dirHandle);
     try {
       // Order matters: log first (the digest drives downstream state),
       // then cfg, then video, then sidecar load.
@@ -253,7 +255,7 @@ async function _applyMatch(match, discovery, dirHandle, ops) {
     if (typeof ops.showPicker === 'function') {
       ops.showPicker(match.logs, match.sidecarMap, async (chosenLog) => {
         const cfgPicked = pickMostRecent(discovery.configs);
-        const videoPicked = pickMostRecent(discovery.videos);
+        const videoPicked = await pickVideoSlot(discovery.videos, dirHandle);
         try {
           await _mountRow(ops, 'log', chosenLog);
           if (cfgPicked) await _mountRow(ops, 'config', cfgPicked);
@@ -275,6 +277,15 @@ async function _applyMatch(match, discovery, dirHandle, ops) {
 }
 
 async function _mountRow(ops, slot, row) {
+  // Multi-chapter video envelope: forward as-is to mountVideo. The
+  // React layer's mountVideo handler knows to expand the chapter
+  // list and build the timeline via applyVideoFiles. Same shape that
+  // expandMultiChapterHandle produces today on the legacy resume path.
+  if (slot === 'video' && row && row.kind === 'multi-chapter') {
+    if (typeof ops.mountVideo !== 'function') return;
+    await ops.mountVideo(row, null, row.relativePath || '');
+    return;
+  }
   const file = row.file || (row.handle && await row.handle.getFile());
   if (!file) return;
   const handle = row.handle || null;
@@ -296,6 +307,113 @@ function pickMostRecent(rows) {
     return bm - am;
   });
   return sorted[0];
+}
+
+// ---------------------------------------------------------------------
+// Video slot selection — GoPro chapter clustering.
+//
+// `pickVideoSlot(videos, rootDirHandle)` examines the discovered video
+// rows and decides whether they form a GoPro multi-chapter recording.
+// Each row carries { name, relativePath, handle, file }. Rows are
+// grouped by parent directory (so chapters in `Raw Video/` cluster
+// among themselves, not with an unrelated chapter from a different
+// subfolder). For each parent-dir group, `groupChapterSiblings` finds
+// the largest cluster sharing a GoPro seq number.
+//
+// Resolution:
+//   - If the largest cluster has >= 2 chapters: return a multi-chapter
+//     envelope (`{kind:'multi-chapter', chapters, directoryHandle,
+//     relativePath, ...}`). `_mountRow` forwards the envelope to the
+//     React mountVideo op, which expands it via `applyVideoFiles`.
+//   - Otherwise: return `pickMostRecent(videos)` unchanged.
+//
+// The envelope's `chapters` array is sorted by chapterIndex with shape
+// `{file, handle, chapterIndex, relativePath}` — same downstream
+// consumers expect what `applyVideoFiles` already builds when the FSA
+// picker walks a directory directly.
+// ---------------------------------------------------------------------
+export async function pickVideoSlot(videos, rootDirHandle) {
+  if (!Array.isArray(videos) || videos.length === 0) return null;
+  const cluster = clusterVideoChapters(videos);
+  if (!cluster) return pickMostRecent(videos);
+  // Walk from the root dirHandle down to the parent of the chapter
+  // files. The cluster's `parentRelativePath` is the POSIX subpath; if
+  // empty, the chapters live at the root.
+  let parentDir = rootDirHandle || null;
+  if (parentDir && cluster.parentRelativePath) {
+    const segs = cluster.parentRelativePath.split('/').filter(Boolean);
+    for (const seg of segs) {
+      try { parentDir = await parentDir.getDirectoryHandle(seg); }
+      catch { parentDir = null; break; }
+    }
+  }
+  return {
+    kind: 'multi-chapter',
+    chapters: cluster.chapters,
+    directoryHandle: parentDir,
+    // Preserve relativePath of the first chapter for sidecar
+    // round-tripping: the sidecar's subject.video.relativePath /
+    // subject.video.name target the first chapter (option A).
+    relativePath: cluster.chapters[0]?.relativePath || '',
+    name: cluster.chapters[0]?.file?.name || cluster.chapters[0]?.name || '',
+    file: cluster.chapters[0]?.file || null,
+    handle: cluster.chapters[0]?.handle || null,
+  };
+}
+
+// Examine the discovered video rows and return the largest GoPro
+// chapter cluster, scoped to a single parent directory. Returns
+//   { chapters: [{file, handle, chapterIndex, relativePath, name}],
+//     parentRelativePath }
+// or null if no cluster of >= 2 chapters was found in any directory.
+//
+// Per-parent scoping matters: Vac's flight folders can have GoPro
+// footage in multiple subfolders (cockpit cam + tail cam), and
+// chapters from different recordings shouldn't merge into a single
+// cluster even when their seq numbers happen to match. Each parent
+// dir's videos cluster among themselves; the largest cluster wins.
+export function clusterVideoChapters(videos) {
+  if (!Array.isArray(videos) || videos.length === 0) return null;
+  // Bucket rows by parent directory (relativePath up to the last '/').
+  const byParent = new Map();
+  for (const row of videos) {
+    const rel = typeof row.relativePath === 'string' ? row.relativePath : '';
+    const slash = rel.lastIndexOf('/');
+    const parent = slash >= 0 ? rel.slice(0, slash) : '';
+    if (!byParent.has(parent)) byParent.set(parent, []);
+    byParent.get(parent).push(row);
+  }
+  let bestChapters = null;
+  let bestParent = '';
+  let bestSize = 0;
+  for (const [parent, rows] of byParent.entries()) {
+    // groupChapterSiblings expects file-like objects with `.name`.
+    // We feed it the row's `.file` (preferred) or a stub with the row
+    // name — chapter detection only reads `.name`. After grouping we
+    // re-stitch the row's handle/relativePath back onto each cluster
+    // entry so downstream consumers have the full envelope.
+    const fileLikes = rows.map(r => r.file || { name: r.name });
+    const grouped = groupChapterSiblings(fileLikes);
+    if (grouped.length < 2) continue;
+    if (grouped.length > bestSize) {
+      bestSize = grouped.length;
+      bestParent = parent;
+      // Re-stitch row metadata onto each cluster entry by matching name.
+      const rowByName = new Map(rows.map(r => [r.name, r]));
+      bestChapters = grouped.map(g => {
+        const row = rowByName.get(g.file.name) || {};
+        return {
+          file: row.file || g.file,
+          handle: row.handle || null,
+          chapterIndex: g.chapterIndex,
+          relativePath: row.relativePath || g.file.name,
+          name: g.file.name,
+        };
+      });
+    }
+  }
+  if (!bestChapters) return null;
+  return { chapters: bestChapters, parentRelativePath: bestParent };
 }
 
 // Re-export sidecar filename helpers so callers don't need a second
