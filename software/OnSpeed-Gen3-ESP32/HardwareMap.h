@@ -250,8 +250,31 @@ constexpr int kBaudConsole = 921600;
 // ---------------------------------------------------------------------------
 // Task timing (tied to hardware sampling rates)
 // ---------------------------------------------------------------------------
-// IMU hardware is configured for 208 Hz; AHRS runs at this rate.
-constexpr int kImuSampleRateHz = 208;
+// IMU hardware is configured for 416 Hz; AHRS runs at this rate.
+//
+// EXPERIMENTAL: 416 Hz doubles the IMU sample rate from the prior
+// production value of 208 Hz. The "416 Hz" option in the Log Rate
+// dropdown is gated behind an "experimental — flight test only" label
+// because:
+//   - AHRS gains (Madgwick β, EKFQ process noise) are tuned for the
+//     208 Hz dt. At 416 Hz the dt halves; filter behavior may differ
+//     slightly from the validated baseline until follow-up retune
+//     work (see #644) completes.
+//   - Native test goldens (test_ahrs, test_ekfq_octave, regression
+//     snapshot) are still on 208 Hz fixtures.
+//   - SavGol derivative window sizes haven't been re-validated.
+//
+// What WAS proven on the bench (45 min synth+web stress at 416 Hz):
+//   - SD writer captures 100% of samples (zero drops)
+//   - Web latency stays under 5 sec p95 under aggressive concurrent
+//     /api/logs + websocket load
+//   - No panics, no WDT, no brownouts on bench power
+//   - peak imu_lateMaxUsAT = 780 us (well under the 4.8 ms IMU period)
+//
+// 416 Hz is the next ODR step on the LSM6-class IMU (CTRL1_XL[3:0]=0110
+// and CTRL2_G[3:0]=0110; see IMU330.cpp). 832 Hz is the step above
+// that, also viable but not yet bench-validated.
+constexpr int kImuSampleRateHz = 416;
 
 // Pressure sensors (pitot, AOA, static) are polled at 50 Hz.
 constexpr int kPressureSampleRateHz = 50;

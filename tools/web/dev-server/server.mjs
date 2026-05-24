@@ -890,8 +890,9 @@ function substituteAoaConfig(tpl, cfg, js, postJs) {
 
   body = body.replaceAll('{{sdLoggingEnabledSel}}',  selAttr(!!cfg.sdLogging));
   body = body.replaceAll('{{sdLoggingDisabledSel}}', selAttr(!cfg.sdLogging));
-  body = body.replaceAll('{{logRate50Sel}}',  selAttr(cfg.logRate !== 208));
+  body = body.replaceAll('{{logRate50Sel}}',  selAttr(cfg.logRate === 50));
   body = body.replaceAll('{{logRate208Sel}}', selAttr(cfg.logRate === 208));
+  body = body.replaceAll('{{logRate416Sel}}', selAttr(cfg.logRate === 416));
 
   body = body.replaceAll('{{serialOutG3xSel}}',
                          selAttr(cfg.serialOutFormat === 'G3X'));

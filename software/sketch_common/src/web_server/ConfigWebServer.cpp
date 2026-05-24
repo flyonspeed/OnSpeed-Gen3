@@ -816,8 +816,9 @@ void HandleConfig()
 
     sBody.replace("{{sdLoggingEnabledSel}}",  sel(g_Config.bSdLogging));
     sBody.replace("{{sdLoggingDisabledSel}}", sel(!g_Config.bSdLogging));
-    sBody.replace("{{logRate50Sel}}",  sel(g_Config.iLogRate != 208));
+    sBody.replace("{{logRate50Sel}}",  sel(g_Config.iLogRate == 50));
     sBody.replace("{{logRate208Sel}}", sel(g_Config.iLogRate == 208));
+    sBody.replace("{{logRate416Sel}}", sel(g_Config.iLogRate == 416));
 
     sBody.replace("{{serialOutG3xSel}}",
                   sel(g_Config.sSerialOutFormat == "G3X"));
@@ -1246,7 +1247,12 @@ void HandleConfigSave()
     }
 
     // Logging rate
-    if (CfgServer.hasArg("logRate")) { int v = CfgServer.arg("logRate").toInt(); g_Config.iLogRate = (v == 208) ? 208 : 50; }
+    if (CfgServer.hasArg("logRate")) {
+        int v = CfgServer.arg("logRate").toInt();
+        // Accept only known rates; everything else collapses to 50 Hz
+        // (pressure-rate, the safe default).
+        g_Config.iLogRate = (v == 416) ? 416 : (v == 208) ? 208 : 50;
+    }
 
     // Aircraft parameters
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();

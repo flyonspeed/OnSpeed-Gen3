@@ -74,11 +74,14 @@ void IMU330::Init()
   delay(50);
 
   // enable accelerometer
-  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL1_XL), 0b01011100); // 208hz ODR, +/-8G, LPF2 disabled
+  // ODR_XL[3:0] = 0110 = 416 Hz (next LSM6 step above the prior
+  // 0101 = 208 Hz). Range and LPF bits unchanged.
+  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL1_XL), 0b01101100); // 416hz ODR, +/-8G, LPF2 disabled
   delay(50);
 
   // enable gyroscope
-  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL2_G), 0b01010000); // 208 hz, 250dps
+  // ODR_G[3:0] = 0110 = 416 Hz, full-scale unchanged.
+  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL2_G), 0b01100000); // 416 hz, 250dps
   delay(50);
 
   // disable gyroscope hi-pass filter
