@@ -125,7 +125,8 @@ struct Vn300Data {
 // Both are cleared by the respective Take calls.
 //
 // State machine:
-//   Waiting for sync: looks for the sequence 0xFA followed by 0x19.
+//   Waiting for sync: looks for the sequence 0xFA followed by 0x1B
+//                     (the new Groups byte for Common+Time+GNSS1+AHRS).
 //   Collecting: accumulates bytes until bufLen_ == kPacketSize.
 //   On completion: validates header + CRC, then decodes.
 class Vn300Parser {

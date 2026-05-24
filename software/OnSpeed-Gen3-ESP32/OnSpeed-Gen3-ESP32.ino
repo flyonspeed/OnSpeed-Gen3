@@ -36,7 +36,7 @@ Do a text search for comments starting with "////"
 // replaces Serial2 for the EFIS UART.  Forward-declare its accessors
 // so setup() can install the driver and wire its Stream pointer into
 // g_EfisSerial before EfisReadTask is spawned.
-bool   EfisReadTaskInit();
+bool   EfisReadTaskInit(uint32_t baud);
 class  Stream;
 Stream* GetEfisStream();
 #endif
@@ -254,7 +254,13 @@ void setup()
     // takes exclusive ownership of UART_NUM_2.  If install fails (which
     // would be a hardware bug), fall back to the legacy Serial2.begin
     // path so the box still boots into a usable state.
-    if (EfisReadTaskInit()) {
+    // VN-300 needs 921600 baud (138 B × 400 Hz = 55.2 kB/s on the wire,
+    // way over the 115200 ceiling). All other EFIS types use 115200.
+    // This must agree with EfisSerialPort::Init's baud selection in the
+    // Serial2 fallback path below, which uses the same condition.
+    const uint32_t kEfisBaud =
+        (g_EfisSerial.enType == EfisSerialPort::EnVN300) ? 921600 : 115200;
+    if (EfisReadTaskInit(kEfisBaud)) {
         g_EfisSerial.InitWithStream(g_EfisSerial.enType, GetEfisStream());
     } else {
         g_Log.println(MsgLog::EnEfis, MsgLog::EnError,

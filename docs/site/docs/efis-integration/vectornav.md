@@ -80,11 +80,21 @@ The Control Center GUI ships with the VN-300. Connect over USB and:
 
 ### Configure by sending raw register commands
 
-The same config can be sent over the VN-300's serial port (or USB) as ASCII commands. Each is a single line ending with `\r\n`. Send these in order, waiting for the ACK between each:
+The same config can be sent over the VN-300's serial port (or USB) as ASCII commands. Each is a single line ending with `\r\n`. Send these in order, waiting for the ACK between each.
+
+In VectorNav Control Center's terminal, the `*XX` placeholder works (VNCC computes the checksum for you):
 
 ```
 $VNWRG,75,1,1,1B,01E3,0200,0090,0142*XX
 $VNWRG,5,921600,1*XX
+$VNWNV*57
+```
+
+In a plain serial terminal (minicom, screen, PuTTY) the checksum must be exact. The precomputed values are:
+
+```
+$VNWRG,75,1,1,1B,01E3,0200,0090,0142*50
+$VNWRG,5,921600,1*7E
 $VNWNV*57
 ```
 
@@ -101,7 +111,7 @@ What each line does:
 - **`$VNWRG,5,921600,1`** — writes register 5 (Serial Baud Rate) to 921600 on port 1. **VNCC will lose the connection immediately after this command — reconnect at 921600 to continue.**
 - **`$VNWNV`** — persists all current settings to non-volatile memory. Without this, every power cycle reverts to factory defaults.
 
-The trailing `*XX` is the NMEA-style XOR checksum of every character between `$` and `*`. Let VNCC compute these for you; hand-computed checksums are error-prone.
+The trailing `*XX` is the NMEA-style XOR checksum of every character between `$` and `*`. If you modify any command field, recompute the checksum (e.g. in Python: `c=0; [c:=c^b for b in payload.encode()]; print(f'{c:02X}')`). VectorNav silently ignores commands with a bad checksum.
 
 ### Coupling between firmware and VN-300
 

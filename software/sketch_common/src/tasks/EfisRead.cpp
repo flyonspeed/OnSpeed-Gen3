@@ -80,10 +80,10 @@
 // uses it). EfisSerialPort::pSerial points at this stream.
 static IdfUartStream s_efisUartStream;
 
-bool EfisReadTaskInit() {
+bool EfisReadTaskInit(uint32_t baud) {
     const bool ok = s_efisUartStream.Begin(
         UART_NUM_2, kEfisRx, kEfisTx,
-        /*baud=*/115200,
+        baud,
         /*rxBufferSize=*/2048,
         /*queueLength=*/16);
     if (!ok) {
