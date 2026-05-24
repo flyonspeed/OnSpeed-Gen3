@@ -1022,13 +1022,26 @@ void HandleConfigSave()
     std::vector<FOSConfig::SuFlaps> aOldFlaps;
     // Bounded take — Core 1's ImuReadTask is also a serial taker; an
     // unbounded portMAX_DELAY here under bursty web load can stack up
-    // mutex waits that stall the IMU schedule. 100ms is generous for
-    // the trivial swap+clamp under the lock; if we can't get it,
-    // ImuReadTask is genuinely starved and refusing to apply config
-    // is the right outcome.
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+    // mutex waits that stall the IMU schedule. The swap+clamp under
+    // the lock is microseconds, but ImuReadTask's own AHRS.Process()
+    // hold can be ~50ms under load, plus same-mutex contention from
+    // other paths — 500ms is the conservative ceiling. On timeout we
+    // MUST send a 503 to the client and return: by this point in
+    // HandleConfigSave, several g_Config fields above (iAoaSmoothing,
+    // iPressureSmoothing, suDataSrc, sReplayLogFileName, etc.) have
+    // already been mutated in memory but SaveConfigurationToFile()
+    // happens AFTER this block. A bare `return` would leave the
+    // browser hanging AND skip the save, producing in-memory state
+    // that contradicts what's on disk until reboot. The 503 response
+    // tells the pilot to retry; the in-memory state will be overwritten
+    // on the next successful save.
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
         g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
-                      "HandleConfigSave: xAhrsMutex unavailable; flap config not applied");
+                      "HandleConfigSave: xAhrsMutex unavailable; flap config not applied; sending 503");
+        CfgServer.send(503, "text/plain",
+                       "System busy applying config. In-memory config is partially "
+                       "updated but NOT saved to SD. Please retry the save in a few "
+                       "seconds, or reboot to revert to the previous saved config.");
         return;
     }
     g_Config.aFlaps.swap(aOldFlaps);          // park old data

@@ -267,6 +267,15 @@ void LogSensorCommitTask(void *pvParams)
     {
         g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
                       "LogSensor: PSRAM alloc for staging buffer failed; task idle");
+        // Close the log file so producer-side LogSensor::Write() sees
+        // m_hLogFile not open and falls into the rate-limited "Log file
+        // is not open; discarding queued log data" warning path. Without
+        // this, producers keep queuing into the ring buffer forever and
+        // the failure is silent until ring drops start.
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) {
+            if (m_hLogFile.isOpen()) m_hLogFile.close();
+            xSemaphoreGive(xWriteMutex);
+        }
         while (true) vTaskDelay(pdMS_TO_TICKS(5000));
     }
 
@@ -923,7 +932,12 @@ void LogSensor::Close()
     // carryover row + 1-511 bytes of residual would overflow WRITE_BUF_SIZE
     // and the bounds check would silently drop the carryover.
     FlushStagingBufferLocked();
-    if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
+    // szWriteBuf is null until the writer task ran EnsureWriteBufferAllocated();
+    // uCarryoverLen is also 0 in that case (only set by the drain loop), so
+    // this branch is unreachable from a fresh-Open()+Close() with no rows.
+    // The explicit null guard is defense-in-depth against a future producer
+    // path that could populate carryover without going through the drain.
+    if (szWriteBuf != nullptr && uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
         {
         memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);
         uBufUsed += uCarryoverLen;
