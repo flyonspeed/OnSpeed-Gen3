@@ -250,8 +250,13 @@ constexpr int kBaudConsole = 921600;
 // ---------------------------------------------------------------------------
 // Task timing (tied to hardware sampling rates)
 // ---------------------------------------------------------------------------
-// IMU hardware is configured for 208 Hz; AHRS runs at this rate.
-constexpr int kImuSampleRateHz = 208;
+// IMU hardware is configured for 416 Hz; AHRS runs at this rate.
+// STRESS-BRANCH ONLY (experiment/vn300-416hz-stress): bumped from the
+// production value of 208 Hz to exercise the SD writer / xWriteMutex /
+// ring under 2x sample-rate load. Do NOT merge to master without also
+// retuning AHRS gains, Madgwick beta, SavGol windows, and the EKFQ
+// regression goldens.
+constexpr int kImuSampleRateHz = 416;
 
 // Pressure sensors (pitot, AOA, static) are polled at 50 Hz.
 constexpr int kPressureSampleRateHz = 50;

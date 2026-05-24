@@ -166,6 +166,14 @@ void setup()
     // ------------------
     g_Config.LoadConfig();
 
+    // STRESS-BRANCH ONLY (experiment/vn300-416hz-stress): hardcode
+    // iLogRate=416 to log every IMU sample at the bumped 416 Hz rate.
+    // The web UI radio is left untouched (still shows 50/208), but the
+    // value here wins because LogSensor reads g_Config.iLogRate at
+    // runtime. If the user clicks Save in the web UI it will overwrite
+    // this — that's fine, they can just reboot.
+    g_Config.iLogRate = 416;
+
     // Init the various serial interfaces
     // ----------------------------------
 
