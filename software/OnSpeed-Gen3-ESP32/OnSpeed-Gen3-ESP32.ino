@@ -390,14 +390,23 @@ void setup()
 #endif
 
         xTaskCreatePinnedToCore(SensorReadTask,       "Read Sensors",   5000, NULL, 5, &xTaskReadSensors, 1);
-        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
+        // ImuReadTask is deferred to the very end of setup() (see below,
+        // just before "System ready"). At higher IMU sample rates,
+        // ImuReadTask's delayMicroseconds() busy-wait at priority 5 can
+        // starve the Arduino setup() task (priority 1) on Core 1, which
+        // blocks CfgWebServerInit() and prevents the WiFi AP from coming
+        // up. Spawning ImuReadTask last means setup() is essentially
+        // done by the time the priority-5 hot loop begins.
         if (bLoggingRingBufferOk)
             // Writer pinned to Core 0 to keep the SD-bus work (writes,
-            // syncs, sidecar refresh) off Core 1 where the 208 Hz IMU
+            // syncs, sidecar refresh) off Core 1 where the IMU
             // task lives. Core 0 already hosts WiFi and the web server;
             // xWriteMutex serializes SD access across cores correctly.
             xTaskCreatePinnedToCore(LogSensorCommitTask,  "Write Data",     5000, NULL, 1, &xTaskWriteLog,     0);
-        if (g_Config.iLogRate == 208)
+        // Use >= 208 so any future higher rates (e.g. 416) still take
+        // the IMU-driven log-write path rather than fall through to
+        // the 50 Hz pressure path.
+        if (g_Config.iLogRate >= 208)
             Serial.printf("Logging at %iHz\n", int(g_AHRS.fImuSampleRate));
         else
             g_Log.println("Logging at 50Hz");
@@ -500,6 +509,20 @@ void setup()
 
     g_Log.println("System ready.");
     g_Log.print("# ");
+
+    // ImuReadTask is deferred to the END of setup() (after CfgWebServerInit,
+    // DataServerInit, and all other init). At higher IMU sample rates the
+    // task's delayMicroseconds() busy-wait at priority 5 starves the
+    // Arduino setup() task (priority 1) on Core 1 — at 208 Hz the impact
+    // is benign because the busy-wait window is small relative to the
+    // period, but at higher rates (PR for 416 Hz forthcoming) it blocks
+    // CfgWebServerInit() entirely and the WiFi AP never comes up. Spawning
+    // last means steady-state tasks are the only Core 1 competition by
+    // the time the hot loop begins. Only fires in the Sensors data-source
+    // mode; Replay/TestPot/RangeSweep paths create the task in their own
+    // blocks above.
+    if (g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
+        xTaskCreatePinnedToCore(ImuReadTask,          "Read IMU",       5000, NULL, 5, &xTaskReadImu,     1);
     }
 
 

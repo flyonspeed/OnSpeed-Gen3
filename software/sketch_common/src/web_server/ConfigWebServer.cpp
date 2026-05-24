@@ -1020,7 +1020,17 @@ void HandleConfigSave()
     // reseed below -- by then any reader on Core 1 that grabbed a
     // pointer into the old buffer has long since dropped it.
     std::vector<FOSConfig::SuFlaps> aOldFlaps;
-    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+    // Bounded take — Core 1's ImuReadTask is also a serial taker; an
+    // unbounded portMAX_DELAY here under bursty web load can stack up
+    // mutex waits that stall the IMU schedule. 100ms is generous for
+    // the trivial swap+clamp under the lock; if we can't get it,
+    // ImuReadTask is genuinely starved and refusing to apply config
+    // is the right outcome.
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "HandleConfigSave: xAhrsMutex unavailable; flap config not applied");
+        return;
+    }
     g_Config.aFlaps.swap(aOldFlaps);          // park old data
     g_Config.aFlaps.swap(aNewFlaps);          // install new data
     if (g_Config.aFlaps.empty())
@@ -1391,7 +1401,15 @@ void HandleConfigSave()
     // toggled an unrelated checkbox like SD logging.  Take xAhrsMutex
     // either way for ConfigAxes() — IMU axis pointers are read by
     // ImuReadTask on Core 1 and must not tear during the reassignment.
-    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+    //
+    // Bounded take: 500ms (AHRS.Init can take ~50ms; ConfigAxes is fast).
+    // If ImuReadTask is busy, retrying is better than blocking the web
+    // handler indefinitely and starving Core 1 indirectly.
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "HandleConfigSave: xAhrsMutex unavailable; AHRS reseed skipped");
+        return;
+    }
     g_pIMU->ConfigAxes();
     if (bAhrsInputChanged)
         g_AHRS.Init(kImuSampleRateHz);
@@ -1474,9 +1492,20 @@ void HandleConfigUpload()
             // LoadConfigFromString() calls g_pIMU->ConfigAxes() and
             // g_AHRS.Init() internally, so hold xAhrsMutex to prevent
             // ImuReadTask from calling g_AHRS.Process() concurrently.
-            xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
-            bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
-            xSemaphoreGive(xAhrsMutex);
+            //
+            // Bounded take: XML parse + AHRS reseed can run 100-200ms;
+            // 1 sec is the conservative upper bound. Failure means the
+            // pilot retries the upload, which is fine for a one-shot
+            // config push.
+            bool gotAhrs = (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
+            if (gotAhrs) {
+                bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
+                xSemaphoreGive(xAhrsMutex);
+            } else {
+                g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                              "Upload: xAhrsMutex unavailable; config not applied (retry upload)");
+                bUploadedConfigStringGood = false;
+            }
 
             if (bUploadedConfigStringGood)
                 g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "UPLOAD Good Config String\n");
@@ -1649,7 +1678,15 @@ void HandleSensorConfig()
         g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
 
-        xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        // Bounded take — bias-cal handler runs AHRS.Init() + Process()
+        // (~50-100ms total). 500ms is conservative.
+        if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                          "Bias-cal: xAhrsMutex unavailable; calibration skipped");
+            sPage += "<br><br><p>Calibration unavailable (system busy).</p>";
+            CfgServer.send(503, "text/html", sPage);
+            return;
+        }
         g_AHRS.Init(kImuSampleRateHz);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
