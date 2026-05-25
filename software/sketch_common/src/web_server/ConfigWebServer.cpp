@@ -1365,7 +1365,16 @@ void HandleConfigSave()
             (fpBefore.bReadEfisData != fpAfter.bReadEfisData) ||
             (fpBefore.sEfisType     != fpAfter.sEfisType)     ||
             (fpBefore.iLogRate      != fpAfter.iLogRate);
+        // Skip the rotation entirely when this save requires a reboot.
+        // The boot path will open a fresh log naturally with the new
+        // iLogRate-derived IMU rate. Without this gate the in-memory
+        // iLogRate flips immediately but the IMU hardware ODR doesn't
+        // change until reboot, so the rotated file's header would claim
+        // the new rate while rows arrived at the old one — mismatched
+        // cadence vs declared rate within a single file confuses every
+        // downstream parser.
         if (fpBefore.bSdLogging && fpAfter.bSdLogging && bSchemaChanged &&
+            !rebootRequired &&
             g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
             {
             if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
@@ -1384,6 +1393,12 @@ void HandleConfigSave()
                     "active log file now has inconsistent header. Manually "
                     "rotate by toggling sdLogging off and on, or reboot.");
                 }
+            }
+        else if (bSchemaChanged && rebootRequired)
+            {
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                "Schema/cadence change pending reboot; skipping log rotation "
+                "(new file opens after restart).");
             }
 
         // Save configuration. SaveConfigurationToFile retries up to
