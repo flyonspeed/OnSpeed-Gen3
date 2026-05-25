@@ -165,7 +165,7 @@ public:
     constexpr SnapshotPublisher() noexcept = default;
 
     // Single-writer side. UB if called concurrently from multiple
-    // tasks against the same instance.
+    // tasks against the same instance — see "INVARIANTS" above.
     void publish(const Payload& p) noexcept {
         const uint32_t v = version_.load(std::memory_order_relaxed);
         // Bump version to odd ("writing"). Release semantics so the
@@ -173,9 +173,15 @@ public:
         // reader that acquires v+1 or later.
         version_.store(v + 1, std::memory_order_release);
 
-        // Release fence: ensures the memcpy stores below cannot be
-        // reordered before this fence by the compiler or CPU. Pairs
-        // with the reader's acquire fence around its memcpy.
+        // Defensive release fence. STRICTLY REDUNDANT with the
+        // release-store above (which already prevents reorderings of
+        // subsequent stores past it under the C++20 model), but kept
+        // as belt-and-suspenders against a future edit that downgrades
+        // the version_.store to memory_order_relaxed by accident.
+        // Cost is one Xtensa MEMW (~5 cycles) per publish, negligible
+        // against the memcpy. If you remove this AND audit every
+        // version_.store to confirm release semantics, the seqcount
+        // protocol still holds.
         std::atomic_thread_fence(std::memory_order_release);
 
         // Bulk copy the payload. memcpy on trivially-copyable bytes
@@ -187,21 +193,31 @@ public:
         // reader's subsequent acquire-load that sees this value
         // synchronizes-with the memcpy above (the release-store
         // forms happens-before with the reader's acquire-load that
-        // observes v+2 or later).
+        // observes v+2 or later). This is the load-bearing release
+        // for the seqcount protocol.
         version_.store(v + 2, std::memory_order_release);
     }
 
     // Multi-reader side. Spins until a coherent copy is obtained
     // and returns it. NEVER returns a torn copy — the seqcount loop
-    // retries unboundedly. For callers who would rather skip a frame
-    // than spin, use tryRead() instead.
+    // retries unboundedly.
     //
-    // On the ESP32-S3 at our rates (writer publishing at 208–416 Hz,
-    // payload memcpy ~100 ns at 256 bytes), the expected number of
-    // retries per call is < 1. The unbounded spin is correct because
-    // the writer ALWAYS finishes a publish in bounded time (a single
-    // memcpy of trivially-copyable bytes); the reader can't get
-    // starved indefinitely on a properly-implemented writer.
+    // DEADLINED CALLERS MUST USE tryRead() INSTEAD. read() can spin
+    // for the duration of one publish() under contention; under
+    // pathological scheduling (e.g. writer task preempted between
+    // version bumps by a higher-priority interrupt) it can spin for
+    // the duration of THAT preemption. A reader on a real-time
+    // deadline (audio task, IMU task, deterministic-cadence display
+    // task) MUST NOT use read(). Use tryRead() and skip the frame
+    // on bailout.
+    //
+    // On the ESP32-S3 at typical rates (writer publishing at 208–416
+    // Hz, payload memcpy ~150-200 ns at 100 bytes including barriers),
+    // the expected number of retries per call is < 1 when the reader
+    // rate is much lower than the writer rate. When reader and writer
+    // run at comparable rates on different cores, collision frequency
+    // scales with the ratio of memcpy duration to publish period;
+    // for our use cases this stays under a few percent.
     Payload read() const noexcept {
         Payload out;
         for (;;) {
@@ -210,15 +226,19 @@ public:
                 // Writer in progress; spin.
                 continue;
             }
-            // Acquire fence before memcpy: pairs with the writer's
-            // release fence + v+2 release-store, so the memcpy below
-            // sees writer's prior writes if v1 caught the publish.
+            // Defensive acquire fence. STRICTLY REDUNDANT with the
+            // acquire-load of v1 above (the acquire semantics
+            // prevent subsequent loads from being reordered before
+            // it under the C++20 model). Kept as belt-and-suspenders
+            // against a future edit that downgrades v1's load to
+            // memory_order_relaxed by accident. See the parallel
+            // fence on the writer side.
             std::atomic_thread_fence(std::memory_order_acquire);
             std::memcpy(&out, &data_, sizeof(Payload));
-            // Acquire fence after memcpy: ensures the memcpy bytes
-            // are loaded before the v2 check, and prevents the
-            // compiler/CPU from speculatively prefetching memcpy
-            // bytes from a state past the v2 load.
+            // Same defensive role. The acquire on the v2 load below
+            // already establishes the ordering; this fence ensures
+            // the memcpy reads happen-before v2 even if v2's load
+            // ever gets downgraded.
             std::atomic_thread_fence(std::memory_order_acquire);
             const uint32_t v2 = version_.load(std::memory_order_acquire);
             if (v1 == v2) {
@@ -239,6 +259,8 @@ public:
             if ((v1 & 1u) != 0u) {
                 continue;
             }
+            // See read() for the fence rationale (defensive,
+            // redundant with the surrounding acquire-loads).
             std::atomic_thread_fence(std::memory_order_acquire);
             std::memcpy(&out, &data_, sizeof(Payload));
             std::atomic_thread_fence(std::memory_order_acquire);

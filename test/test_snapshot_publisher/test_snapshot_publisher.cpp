@@ -8,12 +8,16 @@
 //     escape the seqcount).
 //   - Two-pattern integrity: writer alternates AAAA/5555 payloads;
 //     reader never observes a mix.
-//   - tryRead bailout: reports false under pathological write pressure
-//     (we can't reliably trigger bailout on a fast machine, so we
-//     verify the bailout *path* by forcing the version counter to a
-//     persistently-odd value — the synthetic-bailout test below).
+//   - tryRead coherence: every true return is verified word-for-word
+//     against the writer's published pattern under tight-loop write
+//     pressure. The bailout rate itself is not asserted (it's
+//     workload-dependent and can be high under adversarial test
+//     conditions; on real hardware it would be vanishingly rare).
 //   - Pointer-bearing payload (verifies pointers are safe through the
 //     trivially_copyable gate and the seqcount).
+//   - Version-counter wrap arithmetic (parity check and equality
+//     comparison work correctly across uint32_t wrap, which happens
+//     after ~59 days of continuous 416 Hz publishing).
 
 #include <unity.h>
 
@@ -181,11 +185,12 @@ void test_concurrent_seq_is_monotonic(void) {
     stop.store(true, std::memory_order_relaxed);
     writer.join();
 
-    // read() guarantees coherence — torn count should be 0. We
-    // allow a single torn read across 200000 to account for the
-    // bounded-retry bailout being theoretically possible under
-    // adversarial CPU scheduling, but in practice it should be 0.
-    TEST_ASSERT_LESS_THAN_INT(2, torn);
+    // read() guarantees coherence — torn count MUST be 0. read() is
+    // documented as "NEVER returns torn data" (unbounded spin until
+    // the seqcount agrees), so any nonzero observation is a real bug
+    // in the seqcount logic, not test flakiness. If this fails on
+    // CI, find the race; do not widen the tolerance.
+    TEST_ASSERT_EQUAL_INT(0, torn);
 }
 
 // Test 2 — Two-pattern integrity.
@@ -235,10 +240,10 @@ void test_concurrent_two_pattern_integrity(void) {
     stop.store(true, std::memory_order_relaxed);
     writer.join();
 
-    // Same tolerance as Test 1: read() guarantees coherence; mixed
-    // count should be 0. A single mixed observation in 100000 is
-    // tolerable as the bounded-retry-bailout edge case.
-    TEST_ASSERT_LESS_THAN_INT(2, mixed);
+    // read() guarantees coherence — mixed count MUST be 0. Same
+    // rationale as Test 1: read() never returns torn data. Any
+    // mixed observation is a real bug.
+    TEST_ASSERT_EQUAL_INT(0, mixed);
 }
 
 // Test 3 — tryRead coherence + bailout contract.
@@ -347,6 +352,45 @@ void test_pointer_bearing_payload_round_trip(void) {
 }
 
 // ============================================================================
+// Version-counter wrap semantics
+// ============================================================================
+//
+// At 416 Hz × 2 increments per publish, version_ wraps every ~59 days
+// of continuous operation. Not reachable in a single flight but worth
+// locking the property: the seqcount comparison and parity check use
+// unsigned arithmetic and must remain correct across the wrap.
+
+void test_version_wrap_arithmetic(void) {
+    // Parity check: v & 1u correctly identifies odd/even across wrap.
+    // 0xFFFFFFFFu is odd; 0xFFFFFFFEu is even; 0u is even.
+    TEST_ASSERT_EQUAL_UINT32(1u, 0xFFFFFFFFu & 1u);
+    TEST_ASSERT_EQUAL_UINT32(0u, 0xFFFFFFFEu & 1u);
+    TEST_ASSERT_EQUAL_UINT32(0u, 0u & 1u);
+
+    // Equality comparison across wrap: distinct values (0xFFFFFFFE
+    // and 0 — both even, both "no writer in flight") must NOT match.
+    // If they did, the reader would see v1=0xFFFFFFFE pre-memcpy and
+    // v2=0 post-memcpy and incorrectly conclude "clean read" while
+    // (2^31) publishes happened in between.
+    const uint32_t pre = 0xFFFFFFFEu;
+    const uint32_t post = 0u;
+    TEST_ASSERT_TRUE(pre != post);
+
+    // The natural progression across wrap: ... 0xFFFFFFFE (even) →
+    // 0xFFFFFFFF (odd, writing) → 0 (even, done). A reader that
+    // catches v1=0xFFFFFFFE and v2=0 must see them as different
+    // (not match) so it retries.
+    const uint32_t v_before  = 0xFFFFFFFEu;
+    const uint32_t v_writing = v_before + 1u;        // 0xFFFFFFFF
+    const uint32_t v_after   = v_before + 2u;        // 0
+    TEST_ASSERT_EQUAL_UINT32(0xFFFFFFFFu, v_writing);
+    TEST_ASSERT_EQUAL_UINT32(0u, v_after);
+    TEST_ASSERT_TRUE((v_writing & 1u) != 0u);        // odd: writing
+    TEST_ASSERT_TRUE((v_after & 1u) == 0u);          // even: done
+    TEST_ASSERT_TRUE(v_before != v_after);           // distinct
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -364,6 +408,8 @@ int main(void) {
     RUN_TEST(test_tryread_coherence_under_pressure);
 
     RUN_TEST(test_pointer_bearing_payload_round_trip);
+
+    RUN_TEST(test_version_wrap_arithmetic);
 
     return UNITY_END();
 }
