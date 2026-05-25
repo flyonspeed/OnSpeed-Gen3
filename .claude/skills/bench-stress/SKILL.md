@@ -70,7 +70,9 @@ Before stressing anything, watch a clean PERF heartbeat. Healthy V4P at 208 Hz E
 - `sync_max` 3-10 ms every 5 s (file sync cadence)
 - `ring` oscillates 0-80 % in waves, drains within a couple PERF windows
 - `drops=0 dbg_drops=0 short=0 paused_drops=0`
-- `imu_late=0` or `imu_late=1` with `imu_lateMaxUs<1000` (a recurring sub-ms stall is the writer-yield pattern, expected)
+- `imu_late=0` (count of >1 ms schedule-resets — sub-ms jitter shows up in `imu_lateMaxUs` peak only)
+- `imu_lateMaxUs` typically a few hundred μs (per-window peak); recurring `~750us` is the writer-yield pattern, expected
+- `imu_lateMaxUsAT` all-time peak since boot; multi-ms here means a real stall happened
 - `overflow=0 overflow_bytes=0` mostly; `overflow=1` with `~400-430 bytes` per window during sustained high-ring is the NOSPLIT carryover slot working as designed (each fired window drains exactly one row safely — not data loss)
 - `heap=~8 MB, psram=~7.9 MB`, both stable
 
