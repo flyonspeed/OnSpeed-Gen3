@@ -247,26 +247,26 @@ void ImuReadTask(void *pvParams)
             // All-time worst — never reset by the per-window PERF emit.
             // A multi-ms stall that lands between heartbeats was getting
             // wiped by the next emit, so single-event spikes (like the
-            // 613ms blocked-on-xAhrsMutex case in the 416Hz stress) were
+            // 613us blocked-on-xAhrsMutex case in the 416Hz stress) were
             // invisible. This counter preserves them.
             uint32_t uPrevAT = __atomic_load_n(&g_uImuMaxLateUsAllTime, __ATOMIC_RELAXED);
             while (uLate > uPrevAT &&
                    !__atomic_compare_exchange_n(&g_uImuMaxLateUsAllTime, &uPrevAT, uLate,
                                                 false, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
                 {}
-
-            // Also count any non-trivial lateness (>100 us = ~2% of
-            // the IMU period) so we can see how often Core 1 has
-            // sub-millisecond hiccups, not just the >1ms outliers.
-            if (iLateUs > 100)
-                __atomic_fetch_add(&g_uImuLateResets, 1u, __ATOMIC_RELAXED);
         }
 
-        // Reset the schedule on real lateness (>1 ms). Smaller hiccups
-        // let the task naturally catch up via the iWaitUs > 0 check
-        // above — next iteration just fires immediately.
+        // Schedule-reset on real lateness (>1 ms). Smaller hiccups let
+        // the task naturally catch up via the iWaitUs > 0 check above —
+        // next iteration just fires immediately. g_uImuLateResets counts
+        // these schedule-resets (matching its name); the sub-ms
+        // noise floor is captured by g_uImuMaxLateUs / g_uImuMaxLateUsAT
+        // (peak metrics, no count) so a noisy floor doesn't trip the
+        // PERF heartbeat on every iteration.
         if (iLateUs > 1000)
         {
+            __atomic_fetch_add(&g_uImuLateResets, 1u, __ATOMIC_RELAXED);
+
             const unsigned long uNowMs = millis();
             if ((uNowMs - uLastLateLogMs) > 1000)
             {

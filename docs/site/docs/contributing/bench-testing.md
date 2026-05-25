@@ -60,7 +60,9 @@ Before you stress anything, watch a clean PERF heartbeat. The writer emits a per
 | `dbg_drops` | 0 |
 | `short` | 0 |
 | `paused_drops` | 0 |
-| `imu_late` | 0, or 1 with `imu_lateMaxUs<1000` (recurring sub-ms pattern is the writer-yield, expected) |
+| `imu_late` | 0 (count of >1 ms schedule-resets; sub-ms jitter shows up in `imu_lateMaxUs` only) |
+| `imu_lateMaxUs` | typically a few hundred microseconds (per-window peak; well under the IMU period) |
+| `imu_lateMaxUsAT` | all-time peak since boot; multi-ms here means a real stall happened |
 | `overflow` | 0 mostly; 1 with ~400-430 bytes during sustained high ring is the NOSPLIT carryover slot — not a drop |
 | `heap` | ~8 MB stable |
 | `psram` | ~7.9 MB stable |
@@ -156,7 +158,7 @@ If any of these fail, the PR is not ready. Report what failed (with the `.dbg` s
 ## Things that look wrong but aren't
 
 - **A single `overflow=1` per PERF window with 400-430 bytes during high ring.** The NOSPLIT carryover slot is doing its job; each fired window drains exactly one row safely. Not a drop. Only worry about overflow if it's accompanied by non-zero `drops`.
-- **A recurring `imu_late=1 imu_lateMaxUs=~750us`.** This is the writer's `vTaskDelay(1)` yield producing a sub-millisecond IMU stall. Not a flight-critical lateness. Below the 4.8 ms IMU period by a factor of six.
+- **`imu_lateMaxUs=~750us` per window with `imu_late=0`.** This is the writer's `vTaskDelay(1)` yield producing a sub-millisecond IMU stall. Not a flight-critical lateness; well under the IMU period. The `imu_late` count stays 0 because that counter only increments on >1 ms schedule-resets — sub-ms jitter shows up via `imu_lateMaxUs` peak only.
 - **`paused_drops` rising during a `/download` operation.** That's the whole point of the counter — visibility into the cost of holding the producer paused while a download runs. The PR #501 change made this counter exist so the cost is no longer silent.
 
 ## Why this matters
