@@ -4,7 +4,7 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
-> **Last reconciled with master:** 2026-05-23, against tip `40a141eb`. Three more days brought another wave: **PR #622 (May 21) extracted EFIS and boom UART reads into dedicated Core 0 tasks** with their own IDF event queues and ring buffers — the streams are now truly independent at the task level, not just structurally. PR #625 moved `FormatRow` off Core 1 onto the writer task (producer captures struct; consumer formats). PR #634 added a `LogSensor::Write` snapshot-under-`xAhrsMutex` (the §2 discipline showing up narrowly, in production). PR #639 gave each task its own SPSC PERF ring for high-fidelity per-task instrumentation. PR #618 added synthetic EFIS + boom streams for bench-rate exploration. **Together with PR #590's four-stage AHRS pipeline, the firmware's stream-processing architecture is now real at every layer except the sink-side composition (`LiveDataFrame`).** See the new **"Stream topology and rate planning"** section below for the per-stream rate map and what the rate-bump (208 → 400/800 Hz) question requires, **"What's already moving in this direction"** for the running scoreboard, and **"Next priority"** at the bottom.
+> **Last reconciled with master:** 2026-05-27, against tip `2070bae1`. Four more days. The concurrency primitive the doc has been calling for is now in code review: **PR #653 (open) lands `SnapshotPublisher<T>` — a lock-free single-writer seqcount snapshot** in `onspeed_core/src/util/`, with 9 native race-condition tests. This is the foundation for both #645 (`LogProducerTask`) and the eventual `LiveDataFrame` composition layer. Also: PR #646 added universal SD-writer hardening (32 KB PSRAM staging, 8 KB size gate + 100 ms age gate, 1 MB PSRAM ring) plus bounded `xAhrsMutex` holds in web handlers (was `portMAX_DELAY` → now 100–1000 ms with 503 fallback). PR #647 added experimental 416 Hz IMU rate — bit-identical at 50 / 208, opt-in at 416. **The plan now has its concurrency primitive (#653), its rate scaffolding (#647), and its writer hardening (#646) all converging.** Step 1 of the doc's planning sequence is no longer aspirational — it's been decomposed into commits, and commit 1 is in code review. See **"Step 1 in flight (PR #653)"** below for the merged design, **"What's already moving in this direction"** for the running scoreboard, and **"Next priority"** at the bottom for the post-#653 sequence.
 
 ## The model
 
@@ -161,6 +161,56 @@ The user's question turned the abstraction into something concrete. The composed
 - Future MAVLink emit: project to ATTITUDE + AOA_SSA + VFR_HUD shapes, write at MAVLink rate
 
 The struct doesn't grow with each new consumer. The set of *projections* grows, and the set of *writer tasks* grows. **The pre-condition for this design to pay off is the snapshot itself: until LiveDataFrame exists, every new logging path has to invent its own snapshot.** This is precisely the architectural argument for step 1, restated for the user's specific upcoming work.
+
+## Step 1 in flight (PR #653, 2026-05-27)
+
+The composed `LiveDataFrame` design and #645's `LogProducerTask` design merged into one composed plan, and PR #653 lands its first commit.
+
+### The merged design — versioned snapshot primitive + composed view
+
+This doc has been arguing for `LiveDataFrame` (composed sub-struct view) for several months. Issue #645 sharpened the picture with a different emphasis: the *concurrency primitive* underneath the snapshot — versioned-counter lock-free reads, not `xAhrsMutex`-based snapshotting. **The two designs aren't competitors; they're the two halves of one stack.**
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  Consumers (DataServer, LogProducer, M5 wire, audio, etc.)    │
+└─────────────────────────────┬─────────────────────────────────┘
+                              │ reads
+┌─────────────────────────────▼─────────────────────────────────┐
+│  LiveDataFrame composition (BuildLiveDataFrame, pure)         │
+│  — composes per-stream snapshots into one frame at one moment │
+└─────────────────────────────┬─────────────────────────────────┘
+                              │ N lock-free reads
+┌─────────────────────────────▼─────────────────────────────────┐
+│  Per-stream SnapshotPublisher<T> primitives                   │
+│  (g_ImuSnap, g_PressureSnap, g_AhrsSnap, g_FlapSnap, ...)     │
+└─────────────────────────────┬─────────────────────────────────┘
+                              │ single-writer publish() per stream
+┌─────────────────────────────▼─────────────────────────────────┐
+│  Producer tasks (ImuReadTask, SensorReadTask, EfisReadTask,   │
+│  BoomReadTask, Flaps::Update, ...)                            │
+└───────────────────────────────────────────────────────────────┘
+```
+
+The primitive (PR #653) is per-stream and lock-free. The composition (`BuildLiveDataFrame`, future PR) reads N snapshots and assembles. Consumers read the composed frame and get coherent multi-stream views without ever taking `xAhrsMutex`.
+
+### PR #653 specifics
+
+- Header-only template at `software/Libraries/onspeed_core/src/util/SnapshotPublisher.h` (~250 lines including extensive race-correctness comments).
+- 9 native race tests in `test/test_snapshot_publisher/` covering: default state, single-threaded publish/read, monotonicity under concurrent writes, two-pattern integrity (alternating 0xAA / 0x55), `tryRead()` bailout contract, pointer-bearing payloads.
+- Standard seqcount pattern: writer bumps version to odd before publish, even after; readers spin until v1 == v2 after reading. `read()` is unbounded (always returns coherent); `tryRead()` bails after 8 retries.
+- **No callsite migrations in PR #653.** Pure infrastructure. Future PRs introduce specific publishers (`g_AhrsSnap`, `g_FlapSnap`, etc.) one at a time.
+
+The companion local plan (`local-plans/PLAN_RATE_DECOUPLED_FILTER.md`) sequences seven commits. Commit 1 is this PR. Commits 2–4 migrate consumers off `xAhrsMutex` one at a time. Commits 5–6 split EKFQ's predict/correct schedule and move AHRS update from `ImuReadTask` to `SensorReadTask`. Optional commit 7 introduces `LogProducerTask` at configurable wake rate.
+
+### What this commits the doc to
+
+Three real updates to the plan's framing, locked in by #653 landing:
+
+1. **The concurrency primitive is lock-free seqcount, not mutex.** §1 of the plan previously sketched a mutex-based snapshot (extending PR #634's narrow `xAhrsMutex` pattern). That was wrong-design. PR #653 is the right design.
+
+2. **Per-stream snapshots are the foundation; `LiveDataFrame` is the composition view.** This doc had implied one composite atomic struct. That's not what we're building — single-writer is *per-stream* (ImuReadTask writes IMU; SensorReadTask writes pressures; etc.), so the primitive is per-stream too. Composition happens at the read side.
+
+3. **DataServer migration is the first validation target, not LogSensor.** The previous reconciliation (May 23) recommended LogSensor-first because PR #634's narrow snapshot was already there. That was wrong. PR #634's snapshot uses `xAhrsMutex` — exactly the thing the new primitive eliminates. DataServer-first validates the lock-free primitive against its motivating measurement (the 18-20 ms IMU stalls under web load from PR #647's bench data).
 
 ## Where we succeed
 
@@ -368,9 +418,16 @@ This section tracks landed work that pulls in the model's direction. It's intent
 - **PR #601** *Cal wizard numerical regression test for `analyzeDecel` (Phase A of #219).* The cal-wizard pipeline gets a real test fixture.
 - **PR #619** *X-Plane: smooth on-ground → in-flight percent-lift transition.* Plugin polish.
 
-**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days through May 18 fixed the reliability around the surfaces and ratified the canonical-shape pattern on the web side. The two days through May 20 ratified the upstream half of the pattern in firmware code (four-stage AHRS) and turned the AHRS step into an offline-tunable unit. **The three days since (May 20 → 23) made the upstream streams genuinely independent tasks, formalized the producer-captures-struct-consumer-formats pattern at the SD log seam, and added the bench infrastructure (synth streams + per-task PERF rings) for rate-bump exploration.** Schema discipline at the WS layer (#369), wire-version discipline at the M5 layer (#386), an external-facing protocol reference (#345), the X-Plane plugin as a complete frontend (#394–#420), the cal wizard ported off the legacy path (#373), the Python tooling formalizing the shape (#380), the JS side shipping the canonical-shape pattern (#526), the snapshot-discipline payoff demonstrated in reverse via PR #530's silent-data-loss fixes, the four-stage pipeline shipping on the upstream side (PR #590), the AHRS-as-tunable-unit shipping for offline analysis (PR #595), and now **the upstream tasks shipping as independent units with their own rings (PR #622/#639), the snapshot pattern appearing in production (PR #634), and the producer/consumer struct-handoff shipping at the log seam (PR #625)** — all converging toward step 1.
+**Four more days (May 23 → May 27) — the concurrency primitive lands in code review:**
 
-What still has *not* landed: the C++ `LiveDataFrame` snapshot in DataServer (§2), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **The case for step 1 is now structurally complete on every axis except the actual struct.** The Python side committed to the shape (#380). The JS side ships the equivalent (#526). The C++ upstream half ships the four-stage pipeline (#590). The upstream streams are independent tasks (#622). The snapshot pattern is in production at one seam (#634). The producer/consumer struct-handoff is in production at another seam (#625). **Step 1 is the work of writing down what the firmware is already doing in three places, generalized, with a name.**
+- **PR #653 (open)** *`SnapshotPublisher<T>` — lock-free single-writer seqcount snapshot.* The concurrency primitive this doc has been pointing at, generalized from #645's design sketch into a header-only template. ~250 lines of code + 9 native race tests. No callsite migrations; pure infrastructure. **This is step 1, commit 1.** See "Step 1 in flight" section above for the merged design (per-stream `SnapshotPublisher<T>` primitive + `LiveDataFrame` composition view on top).
+- **PR #647** *416 Hz IMU rate option (experimental opt-in).* Adds the IMU-rate-bump option the May 23 reconciliation discussed. 50 / 208 are bit-identical to production; 416 is the only mode that bumps IMU + AHRS together. Bench-tested at 416 Hz under synth load + aggressive web stress with 100% CSV capture. PR description explicitly notes: *"once 416 validates in flight we expect to flip IMU to always-416 and let `iLogRate` become a pure log-cadence selector — but that flip needs #645 (LogProducerTask with atomic AHRS/sensor snapshots) to land first."* The architecture is gated on #645 (which is gated on #653).
+- **PR #646** *Universal writer + web-mutex hardening.* 32 KB PSRAM staging buffer, 8 KB size gate + 100 ms age gate, 1 MB PSRAM ring. Bounded `xAhrsMutex` holds in web handlers (was `portMAX_DELAY` → now 100–1000 ms with 503 fallback). Writer pipeline is now rate-agnostic — works correctly at any iLogRate from 1 Hz to 416 Hz. **This is the writer-side prerequisite for the rate-decoupled producer that #645/#653 enable.**
+- **Side-effects from #647** captured several bench-surfaced bugs: `Serial.end()` chip wedge fix; new `imu_lateMaxUsAT` PERF counter that survives per-window resets; ImuReadTask deferred to end of `setup()` so WiFi softAP comes up first.
+
+**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days through May 18 fixed the reliability around the surfaces and ratified the canonical-shape pattern on the web side. The two days through May 20 ratified the upstream half of the pattern in firmware code (four-stage AHRS) and turned the AHRS step into an offline-tunable unit. The three days through May 23 made the upstream streams genuinely independent tasks. **The four days since (May 23 → 27) landed the writer-side rate-agnosticism (#646), the experimental high-rate IMU option (#647), and — in code review — the lock-free concurrency primitive (#653) that decouples writers from readers.** Step 1 is no longer aspirational; commit 1 of step 1 is in code review.
+
+What still has *not* landed: the rest of step 1's commits (consumer migrations, `LiveDataFrame` composition layer, `LogProducerTask`), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **Step 1's first commit is in flight; the rest follow as a sequenced series of migrations off `xAhrsMutex`.** Each migration is its own bench-validated PR.
 
 ## Data sources: what's complete, what's missing
 
@@ -514,7 +571,11 @@ These are the discipline questions to ask. If the answer to any of them is "edit
 
 This document defines the *shape*. Detailed sequencing belongs in its own plan. The list below is the rough order of leverage, with explicit notes on **where we should adopt an existing standard rather than invent our own**.
 
-### 1. `LiveDataFrame` + `LiveDataView` (medium) — **the single highest-leverage open piece**
+### 1. `SnapshotPublisher` + `LiveDataFrame` + `LiveDataView` — **in flight (PR #653 is commit 1)**
+
+**Status update (2026-05-27):** PR #653 is in code review and implements commit 1 of this step — the `SnapshotPublisher<T>` lock-free seqcount primitive. The full step is now a sequenced series of commits per the merged design (see "Step 1 in flight" section above). The composition layer (`LiveDataFrame`) and view accessor (`LiveDataView`) build on top of #653's per-stream snapshots; each consumer migrates off `xAhrsMutex` in its own follow-up PR.
+
+**Why the design changed from earlier reconciliations:** Previous versions of this doc proposed a mutex-based composed snapshot. That was wrong. PR #645 (`LogProducerTask` architecture) made the case that the right primitive is *lock-free per-stream snapshots* — the writer (e.g., `ImuReadTask`) is never blocked by a slow reader (e.g., a web handler holding `xAhrsMutex` while the SD card is busy). PR #647's bench data showed 18-20 ms IMU stalls under web load with the mutex pattern; the seqcount primitive eliminates that contention entirely. **`LiveDataFrame` is now the composition layer over per-stream lock-free snapshots, not a single mutex-protected composite struct.**
 
 Build the snapshot at the sink boundary as a *composed* type — directly holding the existing per-stream snapshot structs (`ImuSample`, `SensorSample`, `AhrsOutputs`, `EfisFrame`, `FlapState`, `BoomFrame`) — and pair it with a `LiveDataView` accessor layer that exposes selection-policy fusion (`PreferEfis`, `PreferInternal`, `EfisOnly`, `InternalOnly`) and freshness gating to consumers. Fixes §2 (the 25-global address-book reader) by making the snapshot the one place fusion logic lives, instead of the four ad-hoc per-consumer copies that exist today (see "Why the view layer matters" below).
 
@@ -662,71 +723,57 @@ Each step is independently reviewable and shippable. None require a top-down rew
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
 
-## Next priority (as of 2026-05-23)
+## Next priority (as of 2026-05-27)
 
-Same headline as the May 6, 18, and 20 reads: **step 1 — the C++ `LiveDataFrame` snapshot in `onspeed_core/proto/`** — is the single highest-leverage move. After the May 20 → 23 cluster, the case is structurally complete and the user's upcoming rate/logging work makes the payoff concrete.
+**Step 1's commit 1 is in code review (PR #653).** The doc has been arguing for `LiveDataFrame` for months; the foundation primitive landed in code review four days ago. The question shifts from "what's next?" to "what comes after #653 lands?"
 
-### Why this is the right call, restated for the 2026-05-23 state
+The composed plan now follows the local-plan sequence (`local-plans/PLAN_RATE_DECOUPLED_FILTER.md`), with each commit independently bench-validated:
 
-The pattern is no longer aspirational anywhere:
-- Python (`LiveSnapshot`, PR #380): citing this doc by name.
-- JS (`M5State`, PR #526): canonical struct + adapters + unified renderer.
-- C++ upstream (PR #590): four-stage AHRS pipeline with named handoffs.
-- C++ task topology (PR #622): EFIS and boom streams as independent Core 0 tasks with their own buffers.
-- C++ snapshot pattern (PR #634): in production at one sink (`LogSensor::Write` mutex-snapshots `g_AHRS`).
-- C++ producer/consumer struct handoff (PR #625): in production at another sink (`LogRow` produced on Core 1, formatted on the writer task).
-- C++ Optuna substrate (PR #595): treats `Ahrs::Step()` as an offline-tunable unit-under-test against recorded logs.
+### After #653 lands — the commit sequence
 
-**Step 1 is the work of formalizing what the firmware is already doing in five different places, generalized, with a name.** It is not a speculative refactor.
+**Commit 2 — Migrate first consumer (`Housekeeping`) off `xAhrsMutex`.** New file `software/sketch_common/src/ahrs/AhrsSnapshot.h` defining `AhrsSnapshotPayload` + `g_AhrsSnapshot` global publisher. `ImuReadTask` publishes after `Process()`; `Housekeeping` drops its `xAhrsMutex` take and reads from the snapshot instead. **Smallest possible blast radius (4 fields, 10 Hz consumer, no flap vector).** Validates the pattern on hardware before fanning out.
 
-Stage 4 (`AhrsOutputs`) hands off cleanly. Stage 5 needs to:
-1. Compose the existing sub-structs (`ImuSample`, `SensorSample`, `AhrsOutputs`, `EfisFrame`, `BoomFrame`, `FlapState`) plus display-tier derived state (percent anchors, pip) into one named carrier.
-2. Snapshot once per sink-tick under the relevant mutex (extending PR #634's pattern from one field set to the full struct).
-3. Provide a `LiveDataView` accessor with selection-policy fusion (`PreferEfis` / `PreferInternal` / `EfisOnly` / `InternalOnly`) and freshness gating, so the four ad-hoc fusion sites in DataServer/DisplaySerial/audio/cal-wizard collapse into one tested layer.
+**Commit 3 — Expand `g_AhrsSnapshot` payload and migrate every read-only consumer.** Full payload (17 fields covering everything any pure-AHRS consumer reads). Migrate `LogSensor::Write` (replaces PR #634's narrow snapshot), `DataServer::UpdateLiveDataJson` (drops `xAhrsMutex` from web handlers — **this is where the 18-20 ms IMU stall measurement validates the design**), `ApiHandlers` (4 endpoints), `DisplaySerial::Write` (the AHRS-only fields). **`xAhrsMutex` is now held only by writers + flap-vector readers.**
 
-### Five customers, not two — what's lined up to consume Stage 5
+**Commit 4 — Publish `g_FlapSnapshot`, migrate flap readers.** Final readers off `xAhrsMutex`. Rename `xAhrsMutex` to `xFlightStateMutex` to reflect its narrower writer-vs-writer contract. End state: every read-only consumer is lock-free.
 
-1. **WebSocket JSON encoder** (current DataServer.cpp, 25 global reads). The original step-1 motivator.
-2. **M5 wire encoder** (DisplaySerial.cpp). Currently builds `DisplayBuildInputs` from globals; would migrate to project from `LiveDataFrame`.
-3. **Pilot CSV log** (LogSensor + LogRow). Already producer/consumer-split (PR #625) and already snapshotting (PR #634). Migration is mostly renaming `LogRow` field accesses to `frame.imu.*` / `frame.sensors.*` / etc.
-4. **Binary cloning log** (per user's new plan): write `{frame.imu, frame.efis.rawBytes}` at IMU rate for offline replay. *Not built; the user's upcoming work.*
-5. **Pilot tuning log** (per user's new plan): write `{frame.imu, frame.sensors, frame.ahrs_pre_smoothing}` at IMU rate for offline smoothing-parameter tuning. *Not built; the user's upcoming work.*
+**Commit 5 — EKFQ predict/correct schedule split.** This is where the high-rate IMU win materializes: predict at IMU rate (cheap gyro integration), correct at 50 Hz (the natural rate of fresh accel-filtered + baro data). At 1666 Hz IMU, projects `subsys.ekfq.correct` from 60% Core 1 → ~9%. Madgwick stays monolithic.
 
-Plus the offline harness (host_main / Optuna) consuming the same shape for byte-equality validation, and future MAVLink / BLE / HUD sinks.
+**Commit 6 — Move AHRS update from `ImuReadTask` to `SensorReadTask`.** The real architectural shift. `ImuReadTask` becomes "IMU SPI → predict → publish." `SensorReadTask` owns the correct step. **The single-writer constraint of `SnapshotPublisher` (called out in the #653 review) means this commit needs either two separate publishers (predict-side + correct-side) or both publishes moved to the same task. The local plan needs to be revised here before commit 6 lands.**
 
-The user's upcoming binary + pilot-tuning logging plan **doesn't need a new struct** — it needs `LiveDataFrame` to exist, then needs two more writer tasks each consuming a different subset. Without `LiveDataFrame`, each new logger has to invent its own snapshot mechanism and timing discipline. With it, "add a logger" means "pick a sub-struct set, attach a ring, register a writer."
+**Optional commit 7 — `LogProducerTask` at configurable rate.** Once commits 3 and 6 are in, the log producer no longer inherits any sensor task's rate. `iLogRate` becomes a true rate selector (1 Hz to 416 Hz, fully configurable). This is what #645 was originally proposing; it now lands cleanly because the snapshot infrastructure is already in place.
 
-### Rate-bump compatibility — confirmed by the topology
+### Where the user's upcoming binary + pilot-tuning logging plan fits
 
-The May 20–23 work made rate-bumping a *local* change, not a system-wide one:
-- IMU rate is already a config field (`AhrsConfig::imuSampleRateHz`), set from `kImuSampleRateHz` at boot.
-- SPI clocks are per-CS (PR #635); IMU has 2 MHz headroom.
-- ImuReadTask's critical section is now ~67 µs (PR #630); contention with pressure read is gone.
-- Synth streams (PR #618) let bench-test the rate change without hardware.
-- Per-task PERF rings (PR #639) measure the impact with high fidelity.
+After commit 7 lands, the user's two upcoming log streams are mechanical:
 
-The bottleneck the rate-bump will hit first is **log throughput** at 416/832 Hz IMU (the current 60 KB ring holds ~3.5 s of LogRow items at 208 Hz; at 832 Hz that's ~0.9 s, dangerously close to WiFi-induced writer stall durations). Step 1 (LiveDataFrame) is *exactly* the structural change that lets us split the log into "binary IMU-rate ring" + "CSV pilot-tuning ring" + "20 Hz indexer ring," each sized for its own consumer.
+- **Binary cloning log**: a new writer task that wakes at IMU rate, reads `{g_ImuSnap, g_EfisRawBytes}`, writes binary frames to a dedicated SD file. ~80 lines, no new struct needed.
+- **Pilot tuning log**: a new writer task that wakes at IMU rate, reads `{g_ImuSnap, g_SensorSnap, g_AhrsSnap-pre-smoothing}`, writes binary frames for offline smoothing-parameter tuning. Requires the pre-smoothing variant of AhrsOutputs (small AHRS interface change), then ~80 lines.
+
+Both **drop in as additional writer tasks against the same per-stream lock-free snapshots**, with no re-invention.
+
+### Rate-bump (PR #647's 416 Hz mode) becomes the always-on path
+
+PR #647's PR description is explicit: *"once 416 validates in flight we expect to flip IMU to always-416 and let `iLogRate` become a pure log-cadence selector — but that flip needs #645 (LogProducerTask with atomic AHRS/sensor snapshots) to land first."*
+
+That flip is **commit 7 of this sequence.** After it lands, IMU rate is set by hardware ODR; AHRS rate is 50 Hz (driven by SensorReadTask); log rate is whatever the pilot picks. All three rates are independent — the architectural payoff the doc has been pointing at for months becomes the production configuration.
 
 ### What's *not* the next priority, with the same nuance from May 20
 
-- **MAVLink emit (#4)** still depends on step 1.
-- **OAT / boom re-injection in LogReplay (#3)** still closes mechanically once step 1 lands.
-- **Parallel estimators (#7)** still depends on step 1 + a separate upstream-parallel design exercise (EKFQ/Madgwick are mutually exclusive today).
+- **MAVLink emit (#4)** still depends on the snapshot infrastructure landing. Once commits 3-4 are in, MAVLink emit is a new consumer that reads `g_AhrsSnap` + `g_SensorSnap` + `g_FlapSnap` lock-free and emits ATTITUDE / AOA_SSA / VFR_HUD. Falls out cleanly.
+- **OAT / boom re-injection in LogReplay (#3)** still closes mechanically once snapshot infrastructure is in place. The replay path publishes synthetic data into the same snapshots; consumers read the same way regardless of source.
+- **Parallel estimators (#7)** still depends on the snapshot infrastructure + a separate upstream-parallel design exercise (EKFQ/Madgwick are mutually exclusive today). With per-stream snapshots, adding a new `g_FitDerivedAoaSnap` (the live IAS-to-AOA fit residual estimator the doc has mentioned) is just another publisher.
 
 ### Recommendation — what to do next
 
-Three options, same shape as the May 20 read, now with the added context of the user's rate/logging plan:
+The earlier recommendation options (a/b/c/d) are now superseded by the #653 sequence. The next action is:
 
-**(a) Doc updates only.** What we just did. Useful if the user wants to noodle more before committing.
+**(a') Wait for #653 to merge.** It's in code review now. Bench validation in the review thread is the load-bearing check.
 
-**(b) Doc + design artifact PR.** Worktree off master, write `LiveDataFrame.h` and `LiveDataView.h` as header-only design artifacts. ~150 lines. Concrete shape to react to before committing.
+**(b') Start commit 2 (Housekeeping migration) as the next PR.** Smallest blast radius. Validates the snapshot publisher works against a real consumer with real timing. ~50 lines.
 
-**(c) Doc + initial migration PR.** Worktree off master, follow the PR #373 model: write `LiveDataFrame.h` + `BuildLiveDataFrame()` + `FormatLiveDataJson(const LiveDataFrame&, char*, size_t)` in `onspeed_core/proto/`. Wire `DataServer::UpdateLiveDataJson()` to call them. **Pin with a byte-equality differential test** (same pattern as `test_calwiz_save_diff`). Behavior-preserving by construction.
+**(c') In parallel, draft the local plan's commit-6 revision** addressing the single-writer constraint the #653 review surfaced. Either split the publisher into two (predict-side + correct-side, with readers picking by version), or restructure so one task hosts both publishes. The plan as written has this latent bug; better to resolve it on paper before commit 6 starts.
 
-**(d) Doc + initial migration PR scoped at LogSensor.** New option, motivated by the May 20–23 work. Instead of starting at DataServer, start at LogSensor — because LogSensor *already* has the snapshot pattern (PR #634) and *already* has the producer/consumer split (PR #625). The work would be: generalize PR #634's narrow `g_AHRS` snapshot into a full `LiveDataFrame` snapshot covering all upstream streams, then have `LogRow` build from the frame. Same byte-equality test pattern. Lower blast radius than starting at DataServer, and finishes the snapshot pattern at the seam where it already half-exists. **Then DataServer (option c work) becomes a follow-up.**
+I'd do (a') and (b') in sequence; (c') as background design work that doesn't block anything until commit 5 finishes.
 
-**My recommendation is now (d), not (c).** PR #634's existing snapshot is a foothold. Extending it to a full `LiveDataFrame` at the LogSensor seam means the snapshot ships at a sink that's already mid-migration to the right pattern, with all the producer/consumer-split tests already in place. DataServer's migration follows once `LiveDataFrame` exists in core.
-
-The user's upcoming binary + pilot-tuning logging plan then *directly drops in* as two additional consumers of the same snapshot, with the same producer/consumer-split shape PR #625 established. No re-invention.
-
-**Honest framing:** the C++ side has shipped the pattern in five places. The struct that ties them together is the only piece left. Every new sink (including the user's two upcoming logs) pays a tax for the missing struct. Doing the work at the LogSensor seam first — where the discipline already exists in narrow form — is now the cheapest possible entry.
+**Honest framing:** the C++ side has shipped the pattern in five places, and the formal primitive is now in code review (sixth place). Every step from here is incremental — one consumer migration at a time, each with its own bench validation. The "overdue" framing of earlier reconciliations becomes "in flight" as #653 merges.
