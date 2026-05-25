@@ -157,6 +157,9 @@ If any of these fail, report the failure (with the `.dbg` snippet) and **do not 
 | `wifi:CCMP replay detected` | WiFi link glitch (not OnSpeed firmware) — TCP packets dropped/replayed. Caused stuck POST responses in our bench session. | Disconnect/reconnect from AP |
 | `E BOD: Brownout detector was triggered` | Insufficient power (often USB-only). Not a firmware bug. | Bench power supply |
 | Format completes but TWDT "task not found" spam during format | Benign — SdFat's internal yield calls `esp_task_wdt_reset()` from worker threads not registered with TWDT. Crash-safe. | Annoying log noise only |
+| WiFi clients can't authenticate (browser shows "incorrect password" from multiple machines, AP visible in scan, softAP returned 1 in serial) | Internal SRAM heap fragmented below ~4 KB largest-free-block — WiFi can't allocate EAPOL handshake buffers. Check `heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)`; <4 KB is danger. Caused by large BSS allocations in internal SRAM (think: any static C array > 8 KB). | Default any large allocation to `heap_caps_malloc(N, MALLOC_CAP_SPIRAM \| MALLOC_CAP_8BIT)` instead of static C arrays |
+| CSV gaps cluster in a 1-3 min window mid-run, otherwise clean | Usually a same-time event in another task (look for `WriteDisplayDataTask Late` in serial, or a CCMP-replay storm). The IMU itself isn't necessarily late — something holding a shared mutex for hundreds of ms can block ImuReadTask. Trace via the `xAhrsMutex` callers; web handlers with unbounded `portMAX_DELAY` taken are the usual suspect. | `grep -nE "xSemaphoreTake.*xAhrsMutex.*portMAX_DELAY" software/` |
+| Web `/api/logs` p95 latency > 5 sec under stress | Arduino WebServer is synchronous (handleClient processes one connection at a time). Aggressive concurrent clients backlog. This is a platform limit (#356 documented), not a regression — but worth confirming master + same stress profile shows the same number before blaming a PR. | Async server rewrite is the only fix; until then it's a known bound |
 
 ## Anti-patterns
 
@@ -166,6 +169,31 @@ If any of these fail, report the failure (with the `.dbg` snippet) and **do not 
 - **Treating brownouts as bugs.** They're a power supply issue. Fix the power and retest before chasing the firmware.
 - **Declaring a PR clean from one short run.** 10 minutes is the minimum useful duration. 30 minutes is much better for sustained-load issues. Card wear-leveling pauses cluster minutes apart on some cards.
 - **Comparing against the wrong baseline.** Old firmware behaved differently. Always compare to a recent clean run on the same hardware.
+- **Trusting `imu_lateMaxUs` alone to characterize IMU schedule health.** The per-window counter resets on every PERF emit. A multi-ms IMU stall that lands between heartbeats is wiped before being emitted. Always cross-check against the CSV gap distribution — a 600 ms gap in the CSV with `imu_lateMaxUs` peaking at 700 µs means the per-window counter missed the spike. Compute gaps with `awk -F, 'NR>2{print $2-prev} {prev=$2}' log_NNN.csv | sort -rn | head` and look for anything > 2× the expected period.
+- **Using synth-fed bytes to validate a UART-facing change.** The synth path skips the entire UART driver / RX buffer / IDF queue stack. A bug in any of those is invisible to a synth-only test. Validate UART-facing changes by tracing from the production callsite to the wire (look for `EfisReadTaskInit` / `InitWithStream`), not from `FeedByte()` upward.
+- **Allocating > a few KB in internal SRAM by static C array.** Internal SRAM is what WiFi DMA buffers come from; large BSS allocations fragment the heap and WiFi handshakes start failing silently (clients see "incorrect password"). Default to `heap_caps_malloc(N, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` for anything > 8 KB unless there's a specific reason to keep it in internal SRAM. Watch `largest_block` in PERF, not just total free heap — heap can be 8 MB free with `largest_block` < 4 KB (fragmentation, not exhaustion).
+
+## Key PERF heartbeat fields and what to watch
+
+```
+PERF write_max=A sync_max=B ring=C%/D
+  drops=E dbg_drops=F short=G
+  imu_late=H imu_lateMaxUs=I
+  overflow=K overflow_bytes=L paused_drops=M
+  heap=NK psram=OK
+```
+
+- `write_max` — worst SD write call in this window (µs). >80 ms warrants attention; >200 ms = SD wear-leveling event, check if ring absorbed it.
+- `sync_max` — worst f.sync() call. Usually <10 ms; spikes to 30+ ms during heavy writes are normal but noteworthy.
+- `ring=C%/D` — current ring depth as percent of capacity D. **Steady-state mean should be 30-60%, not 80+%.** Pinned high means writer can't keep up.
+- `drops/dbg_drops/short` — must be 0. Any non-zero = data loss.
+- `imu_late` — count of >100 µs late iterations in this window.
+- `imu_lateMaxUs` — worst lateness in this window. **Resets every emit**, so a multi-ms stall between emits is invisible here. Always cross-check against the CSV gap distribution.
+- `overflow_bytes` — carryover slot bytes; non-zero is the NOSPLIT slot working as designed, not data loss.
+- `paused_drops` — only acceptable during `/download` windows. Steady non-zero outside that = stuck `g_bPause`.
+- `heap=NK` — total free heap (internal + PSRAM combined). Drop over time = leak.
+- `psram=OK` — PSRAM-specific free. Should be stable at hardware capacity (~8 MB on V4P).
+- `largest_block=Q` (separate log line) — internal SRAM largest contiguous free block. <4 KB = WiFi will fail. Production V4P should stay >7 KB. If `heap` is huge but `largest_block` is tiny, you have fragmentation, not exhaustion.
 
 ## References
 
