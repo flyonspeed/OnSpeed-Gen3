@@ -50,6 +50,7 @@ extern volatile uint32_t g_uDebugRingDrops;
 // contention preventing the IMU task from running on schedule.
 extern volatile uint32_t g_uImuLateResets;
 extern volatile uint32_t g_uImuMaxLateUs;
+extern volatile uint32_t g_uImuMaxLateUsAllTime;
 
 // PERF tick thresholds. Emit an event-driven line if any of:
 //   - any data ring drops happened this window
@@ -114,10 +115,59 @@ static uint32_t      s_uPausedDropCount = 0;
 // chunks so SdFat can pass full sectors straight to multi-block SPI.
 // Accessed from LogSensorCommitTask and LogSensor::Close(); both code
 // paths must hold xWriteMutex when touching szWriteBuf or uBufUsed.
+//
+// Sized at 32 KB (64 sectors). At higher data rates a small buffer
+// forces the writer through many small iterations per PERF window —
+// each iteration takes xWriteMutex, blocking the web server. 32 KB
+// lets the writer drain in a small number of large iterations, with
+// the mutex held in long-but-rare windows (a better total contention
+// profile under web load).
+//
+// PSRAM-allocated (see EnsureWriteBufferAllocated below). A 32 KB BSS
+// (internal SRAM) allocation fragments the internal heap enough that
+// WiFi's EAPOL handshake can fail to allocate its control buffers
+// (the largest contiguous free block falls below the ~4 KB threshold
+// WiFi needs). PSRAM is plentiful (~8 MB free on V4P), DMA-capable
+// via cache, and unused by WiFi internals.
+//
+// Also: SD cards prefer larger contiguous writes (closer to the physical
+// erase block, typically 64+ KB). 32 KB is friendlier to the FAT block
+// allocator and to wear-leveling than 2 KB.
 static const size_t  SECTOR_SIZE    = 512;
-static const size_t  WRITE_BUF_SIZE = SECTOR_SIZE * 4;    // 2048 bytes
-static char          szWriteBuf[WRITE_BUF_SIZE];
+static const size_t  WRITE_BUF_SIZE = SECTOR_SIZE * 64;   // 32 KB
+static char*         szWriteBuf     = nullptr;            // PSRAM-allocated
 static size_t        uBufUsed       = 0;
+
+// Lazy PSRAM allocation: called once from LogSensorCommitTask on first
+// entry, before any access to szWriteBuf. PSRAM-resident so internal
+// SRAM stays free for WiFi/lwIP. The 1 MB ring is allocated the same
+// way; if PSRAM is somehow unavailable the writer task warns and idles
+// (the box still functions for non-logging purposes).
+static bool EnsureWriteBufferAllocated()
+{
+    if (szWriteBuf != nullptr) return true;
+    szWriteBuf = static_cast<char*>(
+        heap_caps_malloc(WRITE_BUF_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    return szWriteBuf != nullptr;
+}
+// Flush triggers: whichever fires first wins.
+//
+//   - SIZE: flush when staging has accumulated ~1/4 of WRITE_BUF_SIZE
+//     (8 KB of 32 KB). Keeps each SD write large enough to be efficient
+//     (16 sectors) but small enough that the 1 MB ring drains promptly.
+//     A larger threshold (e.g. 24 KB) lets the ring fill to 99% because
+//     the writer falls behind by ~150 ms between flushes at 416 Hz.
+//   - AGE: flush when this many ms have passed since the last write,
+//     so low log rates (50 Hz) don't leave rows sitting in SRAM forever.
+// Per-rate behavior with size=8KB and age=100ms:
+//   50 Hz  (20 KB/s):  age gate dominates -> 2 KB writes, 10/sec
+//   208 Hz (83 KB/s):  age gate dominates -> 8 KB writes, 10/sec
+//   416 Hz (166 KB/s): size gate dominates -> 8 KB writes, 20/sec
+// All three converge to SD-friendly write sizes without overflowing
+// the 1 MB ring, and the unsynced tail stays under 100 ms.
+static const size_t   WRITE_FLUSH_THRESHOLD_BYTES = 8192;   // 16 sectors
+static const uint32_t WRITE_BUF_MAX_AGE_MS        = 100;
+static uint32_t       uLastWriteMs                = 0;
 
 // Carryover slot: when xRingbufferReceive returns more bytes than fit
 // in the staging buffer right now, we can't "un-receive" them (the ring
@@ -177,7 +227,10 @@ static bool ConsumeWriteAndMaybeWarn(size_t uRequested, size_t uActual)
 // the residual as best-effort loss (file is about to close anyway).
 static void FlushStagingBufferLocked()
     {
-    if (uBufUsed > 0 && m_hLogFile.isOpen())
+    // szWriteBuf is PSRAM-allocated lazily on first writer-task entry;
+    // a Close() before the task ran (very early shutdown) would land
+    // here with szWriteBuf=null and uBufUsed=0 — guard both.
+    if (szWriteBuf != nullptr && uBufUsed > 0 && m_hLogFile.isOpen())
         {
         const size_t uRequested = uBufUsed;
         const size_t uActual    = m_hLogFile.write(szWriteBuf, uRequested);
@@ -206,6 +259,25 @@ void LogSensorCommitTask(void *pvParams)
     static TickType_t     xLastSidecarTime = xTaskGetTickCount();
     static uint64_t       uWriteStart, uWriteEnd, uWriteDur;
     static uint64_t       uSyncStart,  uSyncEnd,  uSyncDur;
+
+    // Allocate the 32 KB staging buffer in PSRAM on first entry. Keeping
+    // it out of internal SRAM avoids fragmenting the heap region WiFi /
+    // lwIP allocate their EAPOL + DHCP buffers from.
+    if (!EnsureWriteBufferAllocated())
+    {
+        g_Log.println(MsgLog::EnDisk, MsgLog::EnError,
+                      "LogSensor: PSRAM alloc for staging buffer failed; task idle");
+        // Close the log file so producer-side LogSensor::Write() sees
+        // m_hLogFile not open and falls into the rate-limited "Log file
+        // is not open; discarding queued log data" warning path. Without
+        // this, producers keep queuing into the ring buffer forever and
+        // the failure is silent until ring drops start.
+        if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(1000))) {
+            if (m_hLogFile.isOpen()) m_hLogFile.close();
+            xSemaphoreGive(xWriteMutex);
+        }
+        while (true) vTaskDelay(pdMS_TO_TICKS(5000));
+    }
 
     while (true)
     {
@@ -420,11 +492,20 @@ void LogSensorCommitTask(void *pvParams)
         bool bDidSync = false;
         if (uBufUsed > 0 && m_hLogFile.isOpen())
         {
+            // Gate writes on either "enough bytes accumulated" OR "time
+            // elapsed since last write" — whichever fires first. The size
+            // gate keeps writes large enough to be SD-efficient; the age
+            // gate keeps the 1 MB ring from filling between writes at
+            // high log rates and keeps unsynced tail short at low rates.
+            const uint32_t uNowMs    = millis();
+            const bool     bSizeReady = uBufUsed >= WRITE_FLUSH_THRESHOLD_BYTES;
+            const bool     bAgeReady  = (uNowMs - uLastWriteMs) >= WRITE_BUF_MAX_AGE_MS;
+
             // Write full sectors. Any remainder stays in the buffer for
             // the next batch, keeping writes 512-byte-aligned.
             size_t uAligned   = (uBufUsed / SECTOR_SIZE) * SECTOR_SIZE;
 
-            if (uAligned > 0)
+            if (uAligned > 0 && (bSizeReady || bAgeReady))
                 {
                 uWriteStart = micros();
                 size_t uActual;
@@ -440,6 +521,7 @@ void LogSensorCommitTask(void *pvParams)
                 uWriteEnd   = micros();
                 uWriteDur   = uWriteEnd - uWriteStart;
                 uWriteMax   = uWriteDur > uWriteMax ? uWriteDur : uWriteMax;
+                uLastWriteMs = uNowMs;
 
                 // ConsumeAlignedWrite leaves the unwritten head (if any)
                 // at the front of szWriteBuf and shifts the post-flush
@@ -549,10 +631,16 @@ void LogSensorCommitTask(void *pvParams)
             {
             const size_t uHeapK  = esp_get_free_heap_size() / 1024;
             const size_t uPsramK = ESP.getFreePsram()        / 1024;
+            // Read (no reset) the all-time IMU lateness so bursty
+            // spikes that the per-window counter loses are visible.
+            // A multi-ms stall that lands between PERF heartbeats was
+            // getting wiped by the next emit; this counter preserves
+            // it across windows.
+            const uint32_t uImuMaxAT = __atomic_load_n(&g_uImuMaxLateUsAllTime, __ATOMIC_RELAXED);
             g_Log.printf(MsgLog::EnDisk, MsgLog::EnWarning,
                 "PERF write_max=%lluus sync_max=%lluus ring=%lu%%/%uK "
                 "drops=%lu dbg_drops=%lu short=%lu "
-                "imu_late=%lu imu_lateMaxUs=%lu "
+                "imu_late=%lu imu_lateMaxUs=%lu imu_lateMaxUsAT=%lu "
                 "overflow=%lu overflow_bytes=%lu paused_drops=%lu "
                 "heap=%uK psram=%uK%s\n",
                 (unsigned long long)uPerfWriteMaxUs,
@@ -564,6 +652,7 @@ void LogSensorCommitTask(void *pvParams)
                 (unsigned long)uPerfShortWrites,
                 (unsigned long)uPerfImuLate,
                 (unsigned long)uPerfImuMaxLateUs,
+                (unsigned long)uImuMaxAT,
                 (unsigned long)uPerfOverflowCnt,
                 (unsigned long)uPerfOverflowB,
                 (unsigned long)uPerfPausedDrops,
@@ -843,7 +932,12 @@ void LogSensor::Close()
     // carryover row + 1-511 bytes of residual would overflow WRITE_BUF_SIZE
     // and the bounds check would silently drop the carryover.
     FlushStagingBufferLocked();
-    if (uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
+    // szWriteBuf is null until the writer task ran EnsureWriteBufferAllocated();
+    // uCarryoverLen is also 0 in that case (only set by the drain loop), so
+    // this branch is unreachable from a fresh-Open()+Close() with no rows.
+    // The explicit null guard is defense-in-depth against a future producer
+    // path that could populate carryover without going through the drain.
+    if (szWriteBuf != nullptr && uCarryoverLen > 0 && uBufUsed + uCarryoverLen <= WRITE_BUF_SIZE)
         {
         memcpy(szWriteBuf + uBufUsed, szCarryoverBuf, uCarryoverLen);
         uBufUsed += uCarryoverLen;

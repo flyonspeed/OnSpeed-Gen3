@@ -110,7 +110,12 @@ EXTERN_INIT(TaskHandle_t             xTaskBoomRead,      NULL)
 // in setup() and used by LogSensorCommitTask's PERF tick to compute the
 // percent-full gauge (vRingbufferGetInfo exposes free bytes but not the
 // configured capacity).  Single source of truth for both sites.
-constexpr size_t kLoggingRingBufferBytes = 262144;
+// PSRAM-backed; cost is trivial (free PSRAM ~8 MB on V4P). Sized for
+// the worst case we support today: 416 Hz IMU + VN-300 binary at
+// ~400 B per row = ~166 KB/s. At that rate a 200 ms SD wear-leveling
+// pause needs ~33 KB of buffering; 1 MB gives ~6 sec of headroom. At
+// 50/208 Hz the additional capacity is essentially free.
+constexpr size_t kLoggingRingBufferBytes = 1048576;
 constexpr size_t kDebugRingBufferBytes   = 16384;
 
 EXTERN RingbufHandle_t          xLoggingRingBuffer;

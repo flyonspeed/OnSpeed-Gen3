@@ -152,11 +152,13 @@ void SensorReadTask(void *pvParams)
 
         g_Sensors.Read();
 
-        // 50 Hz log write. The 208 Hz path mirrors this in ImuReadTask.
+        // 50 Hz log write. The IMU-rate path mirrors this in ImuReadTask.
         // Both writes live in the task loops (not in driver primitives)
         // so the bring-up sensor reads in setup() — which run before the
         // logging ring buffer is allocated — cannot enter Write().
-        if (g_Config.iLogRate != 208)
+        // Use `< 208` (not `!= 208`) so any future higher IMU rate
+        // still takes the IMU-rate write path rather than this one.
+        if (g_Config.iLogRate < 208)
             g_LogSensor.Write();
     }
 
@@ -175,6 +177,11 @@ void SensorReadTask(void *pvParams)
 // fires and how badly. Read by LogSensor's PERF tick via __atomic_*.
 volatile uint32_t g_uImuLateResets = 0;     // count of schedule-resets in window
 volatile uint32_t g_uImuMaxLateUs  = 0;     // worst lateness observed in window
+// All-time worst lateness (never reset by PERF emits). Catches bursty
+// multi-ms stalls that the per-window counter loses when the PERF
+// heartbeat fires mid-event. Read-only after boot from a pilot's
+// perspective; only `perf reset` (issue #N) zeroes it.
+volatile uint32_t g_uImuMaxLateUsAllTime = 0;
 
 // FreeRTOS task for reading IMU + updating AHRS at kImuSampleRateHz
 
@@ -231,6 +238,17 @@ void ImuReadTask(void *pvParams)
                                                 false, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
                 {}
 
+            // All-time worst — never reset by the per-window PERF emit.
+            // A multi-ms stall that lands between heartbeats was getting
+            // wiped by the next emit, so single-event spikes (like the
+            // 613ms blocked-on-xAhrsMutex case in the 416Hz stress) were
+            // invisible. This counter preserves them.
+            uint32_t uPrevAT = __atomic_load_n(&g_uImuMaxLateUsAllTime, __ATOMIC_RELAXED);
+            while (uLate > uPrevAT &&
+                   !__atomic_compare_exchange_n(&g_uImuMaxLateUsAllTime, &uPrevAT, uLate,
+                                                false, __ATOMIC_RELAXED, __ATOMIC_RELAXED))
+                {}
+
             // Also count any non-trivial lateness (>100 us = ~2% of
             // the IMU period) so we can see how often Core 1 has
             // sub-millisecond hiccups, not just the >1ms outliers.
@@ -277,12 +295,14 @@ void ImuReadTask(void *pvParams)
         g_AHRS.Process(fDtSeconds);
         xSemaphoreGive(xAhrsMutex);
 
-        // 208 Hz log write. The 50 Hz path mirrors this in
+        // IMU-rate log write. The 50 Hz path mirrors this in
         // SensorReadTask. Both writes live in the task loops (not in
         // driver primitives) so the bring-up sensor reads in setup()
         // — which run before the logging ring buffer is allocated —
         // cannot enter Write().
-        if (g_Config.iLogRate == 208)
+        // Use `>= 208` (not `== 208`) so any future higher IMU rate
+        // continues to take this path.
+        if (g_Config.iLogRate >= 208)
             g_LogSensor.Write();
     }
 }

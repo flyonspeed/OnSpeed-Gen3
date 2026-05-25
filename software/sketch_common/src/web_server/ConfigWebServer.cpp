@@ -1020,7 +1020,30 @@ void HandleConfigSave()
     // reseed below -- by then any reader on Core 1 that grabbed a
     // pointer into the old buffer has long since dropped it.
     std::vector<FOSConfig::SuFlaps> aOldFlaps;
-    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+    // Bounded take — Core 1's ImuReadTask is also a serial taker; an
+    // unbounded portMAX_DELAY here under bursty web load can stack up
+    // mutex waits that stall the IMU schedule. The swap+clamp under
+    // the lock is microseconds, but ImuReadTask's own AHRS.Process()
+    // hold can be ~50ms under load, plus same-mutex contention from
+    // other paths — 500ms is the conservative ceiling. On timeout we
+    // MUST send a 503 to the client and return: by this point in
+    // HandleConfigSave, several g_Config fields above (iAoaSmoothing,
+    // iPressureSmoothing, suDataSrc, sReplayLogFileName, etc.) have
+    // already been mutated in memory but SaveConfigurationToFile()
+    // happens AFTER this block. A bare `return` would leave the
+    // browser hanging AND skip the save, producing in-memory state
+    // that contradicts what's on disk until reboot. The 503 response
+    // tells the pilot to retry; the in-memory state will be overwritten
+    // on the next successful save.
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "HandleConfigSave: xAhrsMutex unavailable; flap config not applied; sending 503");
+        CfgServer.send(503, "text/plain",
+                       "System busy applying config. In-memory config is partially "
+                       "updated but NOT saved to SD. Please retry the save in a few "
+                       "seconds, or reboot to revert to the previous saved config.");
+        return;
+    }
     g_Config.aFlaps.swap(aOldFlaps);          // park old data
     g_Config.aFlaps.swap(aNewFlaps);          // install new data
     if (g_Config.aFlaps.empty())
@@ -1391,7 +1414,15 @@ void HandleConfigSave()
     // toggled an unrelated checkbox like SD logging.  Take xAhrsMutex
     // either way for ConfigAxes() — IMU axis pointers are read by
     // ImuReadTask on Core 1 and must not tear during the reassignment.
-    xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+    //
+    // Bounded take: 500ms (AHRS.Init can take ~50ms; ConfigAxes is fast).
+    // If ImuReadTask is busy, retrying is better than blocking the web
+    // handler indefinitely and starving Core 1 indirectly.
+    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                      "HandleConfigSave: xAhrsMutex unavailable; AHRS reseed skipped");
+        return;
+    }
     g_pIMU->ConfigAxes();
     if (bAhrsInputChanged)
         g_AHRS.Init(kImuSampleRateHz);
@@ -1474,9 +1505,20 @@ void HandleConfigUpload()
             // LoadConfigFromString() calls g_pIMU->ConfigAxes() and
             // g_AHRS.Init() internally, so hold xAhrsMutex to prevent
             // ImuReadTask from calling g_AHRS.Process() concurrently.
-            xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
-            bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
-            xSemaphoreGive(xAhrsMutex);
+            //
+            // Bounded take: XML parse + AHRS reseed can run 100-200ms;
+            // 1 sec is the conservative upper bound. Failure means the
+            // pilot retries the upload, which is fine for a one-shot
+            // config push.
+            bool gotAhrs = (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
+            if (gotAhrs) {
+                bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
+                xSemaphoreGive(xAhrsMutex);
+            } else {
+                g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                              "Upload: xAhrsMutex unavailable; config not applied (retry upload)");
+                bUploadedConfigStringGood = false;
+            }
 
             if (bUploadedConfigStringGood)
                 g_Log.print(MsgLog::EnWebServer, MsgLog::EnDebug, "UPLOAD Good Config String\n");
@@ -1649,7 +1691,15 @@ void HandleSensorConfig()
         g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
 
-        xSemaphoreTake(xAhrsMutex, portMAX_DELAY);
+        // Bounded take — bias-cal handler runs AHRS.Init() + Process()
+        // (~50-100ms total). 500ms is conservative.
+        if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+            g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
+                          "Bias-cal: xAhrsMutex unavailable; calibration skipped");
+            sPage += "<br><br><p>Calibration unavailable (system busy).</p>";
+            CfgServer.send(503, "text/html", sPage);
+            return;
+        }
         g_AHRS.Init(kImuSampleRateHz);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
