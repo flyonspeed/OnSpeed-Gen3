@@ -376,11 +376,11 @@
         <div class="form-divs flex-col-12">
             <label for="id_logRate">Logging Rate</label>
             <select id="id_logRate" name="logRate">
-                <option value="50"{{logRate50Sel}}>50 Hz (pressure rate; IMU still 416 Hz internally)</option>
-                <option value="208"{{logRate208Sel}}>208 Hz (every other IMU sample; IMU still 416 Hz)</option>
-                <option value="416"{{logRate416Sel}}>416 Hz (every IMU sample; experimental — flight test only)</option>
+                <option value="50"{{logRate50Sel}}>50 Hz (pressure rate)</option>
+                <option value="208"{{logRate208Sel}}>208 Hz (IMU rate)</option>
+                <option value="416"{{logRate416Sel}}>416 Hz (experimental — bumps IMU + AHRS to 416 Hz; flight test only)</option>
             </select>
-            <small>The IMU and AHRS always run at the full hardware rate (416 Hz). This selector controls only how often a row lands in the CSV. Lower rates do NOT reduce CPU load; they only reduce SD bandwidth and log file size.</small>
+            <small>50 and 208 keep the IMU at its production 208 Hz rate. 416 is the experimental opt-in that doubles the IMU and AHRS update rate. Switching to or from 416 requires a reboot; the page will prompt.</small>
         </div>
         <div class="form-divs flex-col-6">
             <label for="id_serialOutFormat">Serial out format</label>

@@ -1251,7 +1251,18 @@ void HandleConfigSave()
         int v = CfgServer.arg("logRate").toInt();
         // Accept only known rates; everything else collapses to 50 Hz
         // (pressure-rate, the safe default).
-        g_Config.iLogRate = (v == 416) ? 416 : (v == 208) ? 208 : 50;
+        const int newRate = (v == 416) ? 416 : (v == 208) ? 208 : 50;
+        // Only crossing the 416 boundary requires reboot — that's the
+        // case where the IMU hardware ODR changes (208<->416). The
+        // 50<->208 transition keeps the IMU at 208; the producer task
+        // routing flips live inside SensorReadTask/ImuReadTask on the
+        // next iteration, and the log file rotates via the
+        // LogFileFingerprint snapshot at the end of this handler.
+        const bool bCrossesBoundary416 =
+            (g_Config.iLogRate == 416) != (newRate == 416);
+        if (bCrossesBoundary416)
+            rebootRequired = true;
+        g_Config.iLogRate = newRate;
     }
 
     // Aircraft parameters
@@ -1431,7 +1442,7 @@ void HandleConfigSave()
     }
     g_pIMU->ConfigAxes();
     if (bAhrsInputChanged)
-        g_AHRS.Init(kImuSampleRateHz);
+        g_AHRS.Init(g_imuSampleRateHz);
     xSemaphoreGive(xAhrsMutex);
 
     } // end HandleConfigSave()
@@ -1706,7 +1717,7 @@ void HandleSensorConfig()
             CfgServer.send(503, "text/html", sPage);
             return;
         }
-        g_AHRS.Init(kImuSampleRateHz);
+        g_AHRS.Init(g_imuSampleRateHz);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
 

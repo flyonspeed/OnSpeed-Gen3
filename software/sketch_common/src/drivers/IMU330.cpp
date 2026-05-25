@@ -73,15 +73,24 @@ void IMU330::Init()
   SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL9_XL), 0b11100010);
   delay(50);
 
+  // ODR bits selected from g_imuSampleRateHz (latched at boot in setup()
+  // from g_Config.iLogRate; see HardwareMap.h for the policy).
+  //   208 Hz: ODR_XL[3:0] = 0101, ODR_G[3:0] = 0101
+  //   416 Hz: ODR_XL[3:0] = 0110, ODR_G[3:0] = 0110
+  // Range / LPF / full-scale bits unchanged across rates.
+  const uint8_t uCtrl1Xl = (g_imuSampleRateHz == kImuSampleRateExperimental)
+                              ? 0b01101100   // 416 Hz, +/-8G, LPF2 disabled
+                              : 0b01011100;  // 208 Hz, +/-8G, LPF2 disabled
+  const uint8_t uCtrl2G  = (g_imuSampleRateHz == kImuSampleRateExperimental)
+                              ? 0b01100000   // 416 Hz, 250 dps
+                              : 0b01010000;  // 208 Hz, 250 dps
+
   // enable accelerometer
-  // ODR_XL[3:0] = 0110 = 416 Hz (next LSM6 step above the prior
-  // 0101 = 208 Hz). Range and LPF bits unchanged.
-  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL1_XL), 0b01101100); // 416hz ODR, +/-8G, LPF2 disabled
+  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL1_XL), uCtrl1Xl);
   delay(50);
 
   // enable gyroscope
-  // ODR_G[3:0] = 0110 = 416 Hz, full-scale unchanged.
-  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL2_G), 0b01100000); // 416 hz, 250dps
+  SensorSPI->WriteRegByte(uChipSel, IMU_WRITE_ADDR(CTRL2_G), uCtrl2G);
   delay(50);
 
   // disable gyroscope hi-pass filter

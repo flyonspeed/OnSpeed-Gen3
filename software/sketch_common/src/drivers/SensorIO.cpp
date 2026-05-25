@@ -183,16 +183,22 @@ volatile uint32_t g_uImuMaxLateUs  = 0;     // worst lateness observed in window
 // perspective; only `perf reset` (issue #N) zeroes it.
 volatile uint32_t g_uImuMaxLateUsAllTime = 0;
 
-// FreeRTOS task for reading IMU + updating AHRS at kImuSampleRateHz
+// FreeRTOS task for reading IMU + updating AHRS at g_imuSampleRateHz
 
 void ImuReadTask(void *pvParams)
 {
     (void)pvParams;
 
+    // Snapshot the boot-latched IMU rate into a local so the schedule
+    // math is stable for the lifetime of the task. g_imuSampleRateHz is
+    // read-only after setup() but cache the value locally to avoid an
+    // implicit assumption about that ever changing.
+    const int      iSampleRateHz   = g_imuSampleRateHz;
+
     // 1 second = 1,000,000us. Use a fractional accumulator so the average period is exact
     // for rates that don't divide 1,000,000 evenly.
-    const uint32_t uBasePeriodUs   = 1000000UL / kImuSampleRateHz; // 4807us @ 208Hz
-    const uint32_t uRemainderUs    = 1000000UL % kImuSampleRateHz; // 144us  @ 208Hz
+    const uint32_t uBasePeriodUs   = 1000000UL / iSampleRateHz; // 4807us @ 208Hz, 2403us @ 416Hz
+    const uint32_t uRemainderUs    = 1000000UL % iSampleRateHz; // 144us  @ 208Hz, 72us   @ 416Hz
     uint32_t       uRemainderAcc   = 0;
     uint32_t       uNextWakeUs     = micros();
     uint32_t       uLastImuReadUs  = uNextWakeUs;
@@ -203,10 +209,10 @@ void ImuReadTask(void *pvParams)
         // Schedule the next tick.
         uNextWakeUs += uBasePeriodUs;
         uRemainderAcc += uRemainderUs;
-        if (uRemainderAcc >= kImuSampleRateHz)
+        if (uRemainderAcc >= (uint32_t)iSampleRateHz)
         {
             uNextWakeUs += 1;
-            uRemainderAcc -= kImuSampleRateHz;
+            uRemainderAcc -= (uint32_t)iSampleRateHz;
         }
 
         // Wait until it's time (coarse sleep then microsecond trim).
@@ -288,7 +294,7 @@ void ImuReadTask(void *pvParams)
 
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
-        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / kImuSampleRateHz);
+        const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / iSampleRateHz);
 
         // Update AHRS (guard against re-entrant Process() calls).
         xSemaphoreTake(xAhrsMutex, portMAX_DELAY);

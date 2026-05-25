@@ -250,12 +250,24 @@ constexpr int kBaudConsole = 921600;
 // ---------------------------------------------------------------------------
 // Task timing (tied to hardware sampling rates)
 // ---------------------------------------------------------------------------
-// IMU hardware is configured for 416 Hz; AHRS runs at this rate.
+// IMU rate is selected at boot from g_Config.iLogRate (see Globals.h
+// for g_imuSampleRateHz and the setup() mapping):
 //
-// EXPERIMENTAL: 416 Hz doubles the IMU sample rate from the prior
-// production value of 208 Hz. The "416 Hz" option in the Log Rate
-// dropdown is gated behind an "experimental — flight test only" label
-// because:
+//   iLogRate == 416  →  IMU at 416 Hz   (experimental opt-in)
+//   iLogRate == 208  →  IMU at 208 Hz   (today's production behavior)
+//   iLogRate == 50   →  IMU at 208 Hz   (50 Hz CSV cadence on a 208 Hz IMU,
+//                                        same as production today)
+//
+// TRANSITIONAL POLICY. Until 416 Hz is validated in flight, picking it
+// from the dropdown is the only way to bump the IMU above 208 Hz; the
+// 50/208 selections preserve bit-identical production behavior. Once
+// 416 validates we expect to flip IMU to always-416 and let iLogRate
+// become a pure log-cadence selector. That flip needs #645 (LogProducerTask
+// reading atomic AHRS/sensor snapshots) to land first so the
+// "IMU 416 + log 208" combination has a clean producer path.
+//
+// EXPERIMENTAL — 416 Hz caveats (why it's gated behind a flight-test
+// label even after the dropdown is in place):
 //   - AHRS gains (Madgwick β, EKFQ process noise) are tuned for the
 //     208 Hz dt. At 416 Hz the dt halves; filter behavior may differ
 //     slightly from the validated baseline until follow-up retune
@@ -274,7 +286,8 @@ constexpr int kBaudConsole = 921600;
 // 416 Hz is the next ODR step on the LSM6-class IMU (CTRL1_XL[3:0]=0110
 // and CTRL2_G[3:0]=0110; see IMU330.cpp). 832 Hz is the step above
 // that, also viable but not yet bench-validated.
-constexpr int kImuSampleRateHz = 416;
+constexpr int kImuSampleRateDefault       = 208;
+constexpr int kImuSampleRateExperimental  = 416;
 
 // Pressure sensors (pitot, AOA, static) are polled at 50 Hz.
 constexpr int kPressureSampleRateHz = 50;

@@ -183,6 +183,17 @@ EXTERN onspeed::audio::VnoChimeDetector g_VnoChimeDetector;
 EXTERN_INIT(bool g_bFlashFS, false)     // One of the on-board flash file systems (e.g. LittleFS) ready
 EXTERN_INIT(bool g_bPause,   false)
 
+// IMU hardware sample rate, set once at boot from g_Config.iLogRate
+// (see setup() in OnSpeed-Gen3-ESP32.ino). Read-only after boot —
+// changing it live would require re-initializing the IMU ODR registers
+// AND retuning every AHRS dt, neither of which we do mid-flight.
+// Switching between 208 and 416 requires a reboot; the web config save
+// surfaces the rebootRequired prompt when iLogRate crosses the 416
+// boundary. See HardwareMap.h for the transitional policy this lives
+// inside, and #645 for the architectural endgame that makes IMU rate
+// fully independent of log rate.
+EXTERN_INIT(int g_imuSampleRateHz, kImuSampleRateDefault)
+
 //// I GOTTA FIND A BETTER HOME FOR THESE ONE OF THESE DAYS
 // Data mark
 EXTERN_INIT(volatile int g_iDataMark, 0)
