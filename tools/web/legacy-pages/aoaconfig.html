@@ -378,7 +378,9 @@
             <select id="id_logRate" name="logRate">
                 <option value="50"{{logRate50Sel}}>50 Hz (pressure rate)</option>
                 <option value="208"{{logRate208Sel}}>208 Hz (IMU rate)</option>
+                <option value="416"{{logRate416Sel}}>416 Hz (experimental — bumps IMU + AHRS to 416 Hz; flight test only)</option>
             </select>
+            <small>50 and 208 keep the IMU at its production 208 Hz rate. 416 is the experimental opt-in that doubles the IMU and AHRS update rate. Switching to or from 416 requires a reboot; the page will prompt.</small>
         </div>
         <div class="form-divs flex-col-6">
             <label for="id_serialOutFormat">Serial out format</label>

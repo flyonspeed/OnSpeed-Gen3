@@ -194,7 +194,7 @@ bool OpenReplayLog(String sLogFile)
 
     // Construct a fresh engine now that the header is known. The header
     // tells us whether flapsRawADC is available; the log rate is read from
-    // g_Config.iLogRate (50 or 208 Hz). Destroying and recreating the engine
+    // g_Config.iLogRate (50, 208, or 416 Hz). Destroying and recreating the engine
     // each file gives a clean AOA EMA start — the same as if the replay
     // started from a cold state. Behavior is identical to the pre-extraction
     // task code because the engine's step() mirrors ReadLogLine() exactly.

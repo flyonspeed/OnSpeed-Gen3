@@ -14,7 +14,26 @@ void _softRestart()
         g_LogSensor.Close();
         xSemaphoreGive(xWriteMutex);
     }
-    Serial.end();  //clears the serial monitor if used
+
+    // NOTE: Serial.end() was historically called here ("clears the
+    // serial monitor if used"), which made sense when `Serial` was a
+    // UART. On the V4P/V4B (ARDUINO_USB_MODE=1, ARDUINO_USB_CDC_ON_BOOT=0)
+    // `Serial` is HWCDC over the native USB-OTG peripheral.
+    //
+    // HWCDC::end() (Arduino-ESP32 cores/esp32/HWCDC.cpp) calls
+    // `vSemaphoreDelete(tx_lock)` synchronously without waiting for any
+    // task currently inside HWCDC::write() to release that mutex. Any
+    // task mid-write reaches its trailing `xSemaphoreGive(tx_lock)` on
+    // a deleted handle and wedges in the FreeRTOS queue internals — no
+    // panic, no reset, no further serial output. Only a power cycle
+    // recovers the chip. The probability of catching a writer
+    // mid-HWCDC::write scales with serial throughput, so this freeze
+    // is most reproducible at 416 Hz where the writer task emits its
+    // PERF heartbeat ~2x more often than at 208 Hz.
+    //
+    // esp_restart() resets the USB peripheral as part of the full-chip
+    // reset, so the explicit teardown is not needed; the host monitor
+    // reconnects after re-enumeration.
     delay(100);
     esp_restart();
 }

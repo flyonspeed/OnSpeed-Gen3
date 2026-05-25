@@ -23,6 +23,19 @@ using onspeed::accelRoll;
 // in sync; see the static_assert in RateAdjustedAccelEma.h.
 static constexpr float kAccSmoothing = onspeed::ahrs::kAccSmoothing;
 
+// Bootstrap sample rate used by the AHRS constructor to seed AhrsConfig
+// at static-init time. NEVER reaches an AHRS output: setup() calls
+// g_AHRS.Init(g_imuSampleRateHz) before any task that consumes AHRS
+// state is spawned, and Init() calls core_.Reconfigure(MakeCfg_()) which
+// replaces the seeded rate with the real boot rate. The value here only
+// has to be positive and finite so imuDeltaTime_ = 1/rate is well-defined
+// during the ~tens of microseconds between static init and setup().
+// 208 Hz is chosen to keep the seed bit-identical to pre-runtime-rate
+// behavior but any positive rate would be correct. Issue #649 tracks
+// removing this bootstrap-then-replace dance entirely by dropping the
+// dead constructor arg.
+static constexpr int kAhrsBootstrapRateHz = 208;
+
 // ----------------------------------------------------------------------------
 
 namespace {
@@ -117,6 +130,8 @@ void AHRS::PublishCoreState_()
 
 // ----------------------------------------------------------------------------
 
+// See kAhrsBootstrapRateHz above for why the constructor uses a fixed
+// bootstrap rate instead of g_imuSampleRateHz.
 AHRS::AHRS(int gyroSmoothing)
     : AccelFwdFilter(kAccSmoothing)
     , AccelLatFilter(kAccSmoothing)
@@ -126,7 +141,7 @@ AHRS::AHRS(int gyroSmoothing)
           /* rollBiasDeg  */          0.0f,
           /* algorithm    */          onspeed::ahrs::Algorithm::Madgwick,
           /* gyroSmoothingWindow */   gyroSmoothing,
-          /* imuSampleRateHz     */   kImuSampleRateHz,
+          /* imuSampleRateHz     */   kAhrsBootstrapRateHz,
           /* pressureSampleRateHz */  static_cast<float>(kPressureSampleRateHz),
       })
     , iGyroSmoothing_(gyroSmoothing)
@@ -146,7 +161,7 @@ AHRS::AHRS(int gyroSmoothing)
     gRoll          = 0.0f;
     gPitch         = 0.0f;
     gYaw           = 0.0f;
-    fImuSampleRate = kImuSampleRateHz;
+    fImuSampleRate = kAhrsBootstrapRateHz;
     fImuDeltaTime  = 1.0f / fImuSampleRate;
     fTAS           = 0.0f;
     gOnsetRate     = 0.0f;

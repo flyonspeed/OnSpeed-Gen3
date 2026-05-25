@@ -69,7 +69,7 @@ static void ApplyPostParseSideEffects(FOSConfig& cfg)
     if (g_pIMU != nullptr)
         {
         g_pIMU->ConfigAxes();
-        g_AHRS.Init(kImuSampleRateHz);
+        g_AHRS.Init(g_imuSampleRateHz);
         }
 }
 

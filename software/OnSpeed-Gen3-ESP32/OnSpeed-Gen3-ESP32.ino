@@ -166,6 +166,16 @@ void setup()
     // ------------------
     g_Config.LoadConfig();
 
+    // Latch the IMU hardware rate from the just-loaded config. Read-only
+    // for the rest of boot; consumers (IMU330::Init ODR bits, AHRS dt,
+    // ImuReadTask period, AHRS reseed callsites) read g_imuSampleRateHz
+    // and stay consistent with the ODR the IMU is actually running at.
+    // See HardwareMap.h for the transitional policy mapping iLogRate
+    // values to IMU rates.
+    g_imuSampleRateHz = (g_Config.iLogRate == kImuSampleRateExperimental)
+                            ? kImuSampleRateExperimental
+                            : kImuSampleRateDefault;
+
     // Init the various serial interfaces
     // ----------------------------------
 
@@ -316,7 +326,7 @@ void setup()
     g_Sensors.Init();
 
     // Init AHRS after sensors so Kalman starts with real pressure altitude.
-    g_AHRS.Init(kImuSampleRateHz);
+    g_AHRS.Init(g_imuSampleRateHz);
 
     // Init audio system
     g_AudioPlay.Init();

@@ -816,8 +816,9 @@ void HandleConfig()
 
     sBody.replace("{{sdLoggingEnabledSel}}",  sel(g_Config.bSdLogging));
     sBody.replace("{{sdLoggingDisabledSel}}", sel(!g_Config.bSdLogging));
-    sBody.replace("{{logRate50Sel}}",  sel(g_Config.iLogRate != 208));
+    sBody.replace("{{logRate50Sel}}",  sel(g_Config.iLogRate == 50));
     sBody.replace("{{logRate208Sel}}", sel(g_Config.iLogRate == 208));
+    sBody.replace("{{logRate416Sel}}", sel(g_Config.iLogRate == 416));
 
     sBody.replace("{{serialOutG3xSel}}",
                   sel(g_Config.sSerialOutFormat == "G3X"));
@@ -1246,7 +1247,23 @@ void HandleConfigSave()
     }
 
     // Logging rate
-    if (CfgServer.hasArg("logRate")) { int v = CfgServer.arg("logRate").toInt(); g_Config.iLogRate = (v == 208) ? 208 : 50; }
+    if (CfgServer.hasArg("logRate")) {
+        int v = CfgServer.arg("logRate").toInt();
+        // Accept only known rates; everything else collapses to 50 Hz
+        // (pressure-rate, the safe default).
+        const int newRate = (v == 416) ? 416 : (v == 208) ? 208 : 50;
+        // Only crossing the 416 boundary requires reboot — that's the
+        // case where the IMU hardware ODR changes (208<->416). The
+        // 50<->208 transition keeps the IMU at 208; the producer task
+        // routing flips live inside SensorReadTask/ImuReadTask on the
+        // next iteration, and the log file rotates via the
+        // LogFileFingerprint snapshot at the end of this handler.
+        const bool bCrossesBoundary416 =
+            (g_Config.iLogRate == 416) != (newRate == 416);
+        if (bCrossesBoundary416)
+            rebootRequired = true;
+        g_Config.iLogRate = newRate;
+    }
 
     // Aircraft parameters
     if (CfgServer.hasArg("acGrossWeight"))  g_Config.iAcGrossWeight  =CfgServer.arg("acGrossWeight").toInt();
@@ -1348,7 +1365,16 @@ void HandleConfigSave()
             (fpBefore.bReadEfisData != fpAfter.bReadEfisData) ||
             (fpBefore.sEfisType     != fpAfter.sEfisType)     ||
             (fpBefore.iLogRate      != fpAfter.iLogRate);
+        // Skip the rotation entirely when this save requires a reboot.
+        // The boot path will open a fresh log naturally with the new
+        // iLogRate-derived IMU rate. Without this gate the in-memory
+        // iLogRate flips immediately but the IMU hardware ODR doesn't
+        // change until reboot, so the rotated file's header would claim
+        // the new rate while rows arrived at the old one — mismatched
+        // cadence vs declared rate within a single file confuses every
+        // downstream parser.
         if (fpBefore.bSdLogging && fpAfter.bSdLogging && bSchemaChanged &&
+            !rebootRequired &&
             g_Config.suDataSrc.enSrc == SuDataSource::EnSensors)
             {
             if (xSemaphoreTake(xWriteMutex, pdMS_TO_TICKS(5000)))
@@ -1367,6 +1393,12 @@ void HandleConfigSave()
                     "active log file now has inconsistent header. Manually "
                     "rotate by toggling sdLogging off and on, or reboot.");
                 }
+            }
+        else if (bSchemaChanged && rebootRequired)
+            {
+            g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                "Schema/cadence change pending reboot; skipping log rotation "
+                "(new file opens after restart).");
             }
 
         // Save configuration. SaveConfigurationToFile retries up to
@@ -1425,7 +1457,7 @@ void HandleConfigSave()
     }
     g_pIMU->ConfigAxes();
     if (bAhrsInputChanged)
-        g_AHRS.Init(kImuSampleRateHz);
+        g_AHRS.Init(g_imuSampleRateHz);
     xSemaphoreGive(xAhrsMutex);
 
     } // end HandleConfigSave()
@@ -1700,7 +1732,7 @@ void HandleSensorConfig()
             CfgServer.send(503, "text/html", sPage);
             return;
         }
-        g_AHRS.Init(kImuSampleRateHz);
+        g_AHRS.Init(g_imuSampleRateHz);
         g_AHRS.Process();
         xSemaphoreGive(xAhrsMutex);
 
