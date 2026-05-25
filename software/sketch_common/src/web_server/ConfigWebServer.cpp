@@ -80,6 +80,15 @@ String      pageFooter="</body></html>";
 
 // Variables used for upload
 bool        bUploadedConfigStringGood;
+// Set true by HandleConfigUpload when the uploaded XML changes iLogRate
+// across the 416 boundary (either to 416 or from 416). Read by
+// HandleFinalUpload to surface the same Reboot-Required banner that
+// HandleConfigSave shows for the dropdown-form path. The dropdown gates
+// on rebootRequired; the upload path needs its own signal because it
+// runs LoadConfigFromString → ApplyPostParseSideEffects → g_AHRS.Init
+// without ever touching the per-field POST handlers that set
+// rebootRequired in HandleConfigSave.
+bool        bUploadCrossedBoundary416 = false;
 SemaphoreHandle_t uploadMutex;
 
 // GLOBALS
@@ -1542,6 +1551,15 @@ void HandleConfigUpload()
             // 1 sec is the conservative upper bound. Failure means the
             // pilot retries the upload, which is fine for a one-shot
             // config push.
+            // Snapshot iLogRate's 416-ness before the load so we can
+            // detect a boundary crossing on the upload path. The
+            // HandleConfigSave (dropdown) path has its own equivalent
+            // gate; the upload path needs this independently because
+            // LoadConfigFromString mutates g_Config.iLogRate directly
+            // and never runs through the per-field rebootRequired
+            // setters in HandleConfigSave.
+            const bool bWasOn416 = (g_Config.iLogRate == 416);
+
             bool gotAhrs = (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
             if (gotAhrs) {
                 bUploadedConfigStringGood = g_Config.LoadConfigFromString(sUploadedConfigString);
@@ -1550,6 +1568,19 @@ void HandleConfigUpload()
                 g_Log.println(MsgLog::EnWebServer, MsgLog::EnError,
                               "Upload: xAhrsMutex unavailable; config not applied (retry upload)");
                 bUploadedConfigStringGood = false;
+            }
+
+            // Only flag the crossing if the load succeeded; a failed
+            // load left g_Config untouched, so no reboot is needed.
+            if (bUploadedConfigStringGood) {
+                const bool bIsOn416 = (g_Config.iLogRate == 416);
+                bUploadCrossedBoundary416 = (bWasOn416 != bIsOn416);
+                if (bUploadCrossedBoundary416)
+                    g_Log.println(MsgLog::EnConfig, MsgLog::EnWarning,
+                                  "Upload changed iLogRate across the 416 boundary; "
+                                  "reboot required to apply new IMU hardware rate");
+            } else {
+                bUploadCrossedBoundary416 = false;
             }
 
             if (bUploadedConfigStringGood)
@@ -1578,8 +1609,29 @@ void HandleFinalUpload()
         {
         if (bUploadedConfigStringGood == true)
             {
-            // Display configuration page
-            HandleConfig();
+            // If the upload crossed the 416 boundary, the IMU hardware
+            // rate persisted to SD differs from the running ODR (which
+            // can't change live). Surface the reboot banner BEFORE
+            // re-rendering the config page so the pilot can't miss it.
+            // Same wording and link target as HandleConfigSave's prompt.
+            if (bUploadCrossedBoundary416)
+                {
+                sPage += "<br><br><b>Configuration uploaded.</b> The uploaded "
+                         "configuration changes the logging rate across the 416 Hz "
+                         "boundary. The IMU hardware rate will take effect on the "
+                         "next reboot.";
+                sPage += R"#(<br><br><a href="reboot?confirm=yes" class="button">Reboot Now</a>)#";
+                sPage += pageFooter;
+                CfgServer.send(200, "text/html", sPage);
+                // Clear the flag so a subsequent (non-crossing) upload
+                // doesn't re-surface this banner.
+                bUploadCrossedBoundary416 = false;
+                }
+            else
+                {
+                // Display configuration page
+                HandleConfig();
+                }
             }
 
         else
