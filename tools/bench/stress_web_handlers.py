@@ -294,14 +294,29 @@ def log(msg, color=None):
 
 
 def http_get(url, timeout=10, retry_503=True, max_retries=4):
-    """GET with automatic retry on 503. Returns (status, body_len, ms, retry_count)."""
+    """GET with automatic retry on 503. Returns (status, body_len, ms, retry_count).
+
+    Advertises `Accept-Encoding: gzip` so the firmware exercises its
+    compression path the same way a real browser would. Body length is
+    reported as the *decompressed* size so endpoint stats stay comparable
+    across firmware versions with and without gzip enabled.
+    """
+    import gzip
+    import io
     retries = 0
     t0 = time.time()
     while True:
         try:
-            req = urllib.request.Request(url)
+            req = urllib.request.Request(url, headers={'Accept-Encoding': 'gzip'})
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                body = resp.read()
+                raw = resp.read()
+                # If the server compressed, decompress so body_len reflects
+                # the logical (post-decompression) size. urllib does NOT
+                # auto-decompress in Python 3.
+                if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
+                    body = gzip.decompress(raw)
+                else:
+                    body = raw
                 return (resp.status, len(body), int((time.time() - t0) * 1000), retries)
         except urllib.error.HTTPError as e:
             if e.code == 503 and retry_503 and retries < max_retries:
@@ -336,10 +351,17 @@ def http_post_form(url, fields, timeout=15):
 def find_static_js_path(host):
     """Scrape the /aoaconfig HTML for the current static JS asset URL.
     Returns a path like /static/app-3a7f81b2.js, or None if not found."""
+    import gzip
     try:
-        with urllib.request.urlopen(f"http://{host}/aoaconfig", timeout=10) as resp:
+        req = urllib.request.Request(
+            f"http://{host}/aoaconfig",
+            headers={'Accept-Encoding': 'gzip'})
+        with urllib.request.urlopen(req, timeout=10) as resp:
             if resp.status != 200: return None
-            body = resp.read().decode('utf-8', errors='replace')
+            raw = resp.read()
+            if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
+                raw = gzip.decompress(raw)
+            body = raw.decode('utf-8', errors='replace')
     except Exception: return None
     import re
     m = re.search(r'"(/static/app-[a-f0-9]+\.js)"', body)
@@ -411,9 +433,16 @@ def snapshot_form_fields(host):
 
     Returns None on failure — caller should skip the save worker."""
     import re
+    import gzip
     try:
-        with urllib.request.urlopen(f"http://{host}/aoaconfig", timeout=15) as resp:
-            html = resp.read().decode('utf-8', errors='replace')
+        req = urllib.request.Request(
+            f"http://{host}/aoaconfig",
+            headers={'Accept-Encoding': 'gzip'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
+                raw = gzip.decompress(raw)
+            html = raw.decode('utf-8', errors='replace')
     except Exception:
         return None
     fields = {}

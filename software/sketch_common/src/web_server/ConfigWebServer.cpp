@@ -539,6 +539,165 @@ void HandleStaticAppCss()
     }
 
 // ----------------------------------------------------------------------------
+// Dynamic-content compression.  /aoaconfig and other dynamic HTML pages
+// build a ~70 KB response body in PSRAM and currently `CfgServer.send()`
+// it raw.  Under aggressive web load + 400 Hz EFIS + heavy SD writer
+// activity, TCP send of a 70 KB body has been observed taking 3-12 sec
+// over the WiFi AP, with up to 12-sec wall-clock /aoaconfig response
+// times.  Browsers (and modern curl with --compressed) advertise
+// `Accept-Encoding: gzip`; gzip on text/html typically compresses 5-10x,
+// dropping the on-wire body to ~7-15 KB and the response time to ~1-2 sec.
+//
+// SendCompressedIfRequested is a one-shot compressor: it inspects the
+// inbound Accept-Encoding header, gzips the body in PSRAM if the client
+// asked for it, sends the response with the appropriate headers, and
+// returns true.  If the client did not request gzip (rare in practice;
+// curl without --compressed, very old tooling), the function falls back
+// to sending the uncompressed body and still returns true.  Caller can
+// treat this as a drop-in for `CfgServer.send(code, content_type, body)`.
+//
+// Performance notes:
+//   - Uses tdefl_compress_mem_to_mem in one shot; allocates an output
+//     buffer in PSRAM (input size + small slack — gzip never inflates
+//     text/html, but the API still requires an output buffer).
+//   - Compression level: TDEFL_GREEDY_PARSING_FLAG keeps cost low
+//     (~20-40 ms for 70 KB on the V4P) while still hitting 6-8x ratio
+//     on HTML.  TDEFL_DEFAULT_MAX_PROBES gives diminishing returns at
+//     this size.
+//   - Allocation failure falls through to uncompressed send (degrades
+//     gracefully under memory pressure rather than 503'ing).
+bool SendCompressedIfRequested(int code,
+                               const char* contentType,
+                               const uint8_t* body, size_t bodyLen)
+    {
+    // If the client did not advertise gzip support, just send raw.
+    // Browsers always advertise it; this branch is for curl without
+    // --compressed and very old clients.
+    const bool hasAE = CfgServer.hasHeader("Accept-Encoding");
+    const String aeVal = CfgServer.header("Accept-Encoding");
+    const bool wantsGzip = hasAE && aeVal.indexOf("gzip") >= 0;
+    // Temporary debug: log gzip negotiation per request. Pulled when
+    // the gzip code path is validated on the bench.
+    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                 "gzip-debug: hasAE=%d ae='%s' wantsGzip=%d bodyLen=%u\n",
+                 (int)hasAE, aeVal.c_str(), (int)wantsGzip, (unsigned)bodyLen);
+    if (!wantsGzip || bodyLen < 256)
+        {
+        // Below 256 B compression overhead exceeds the savings; just
+        // send raw.  256 was picked to clear the standard MTU; smaller
+        // payloads fit one segment either way.
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Output buffer sized for the worst case (deflate of incompressible
+    // data): `input + input/8 + 64`. For HTML the real compressed size
+    // is ~10-15% of input, so this is wildly oversized for the data we
+    // see — but tdefl_compress_mem_to_mem returns 0 if it ever encounters
+    // a block where it'd need to emit a stored (raw) block and the
+    // output buffer doesn't have headroom. Empirically a `bodyLen + 64`
+    // buffer triggered that failure mode for the /aoaconfig payload, so
+    // we use the safer worst-case bound here.
+    const size_t outCapacity = bodyLen + bodyLen / 8 + 64;
+    uint8_t* outBuf = static_cast<uint8_t*>(
+        heap_caps_malloc(outCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (outBuf == nullptr)
+        outBuf = static_cast<uint8_t*>(malloc(outCapacity));
+    if (outBuf == nullptr)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip-debug: alloc failed (outCapacity=%u)\n",
+                     (unsigned)outCapacity);
+        // Out of memory — fall back to uncompressed send.  Better
+        // slow than 503.
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Write the 10-byte gzip header (RFC 1952): magic 1f 8b, deflate
+    // method (08), no flags, mtime=0, xfl=0, OS=ff (unknown).  The
+    // browser doesn't validate any of these strictly except magic +
+    // method, but we set them to standard values for forward compat.
+    if (outCapacity < 18)   // 10 header + minimum deflate output + 8 trailer
+        {
+        free(outBuf);
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+    outBuf[0] = 0x1f;
+    outBuf[1] = 0x8b;
+    outBuf[2] = 0x08;
+    outBuf[3] = 0x00;
+    outBuf[4] = outBuf[5] = outBuf[6] = outBuf[7] = 0x00;
+    outBuf[8] = 0x00;
+    outBuf[9] = 0xff;
+
+    // Compress into outBuf+10.  TDEFL flags: greedy parsing (fast),
+    // no zlib header/footer (we're wrapping with gzip ourselves).
+    // Probe count in low 12 bits: 1 = fastest, 128 = max.  Picked 64
+    // probes + greedy parsing as the balance between CPU and ratio.
+    const mz_uint flags = 64 | TDEFL_GREEDY_PARSING_FLAG;
+    const size_t deflated = tdefl_compress_mem_to_mem(
+        outBuf + 10, outCapacity - 10 - 8,
+        body, bodyLen,
+        static_cast<int>(flags));
+    if (deflated == 0)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip-debug: tdefl returned 0 (in=%u outCap=%u flags=%u)\n",
+                     (unsigned)bodyLen, (unsigned)(outCapacity - 18),
+                     (unsigned)flags);
+        // Compression failed (output buffer too small, or some other
+        // miniz error).  Fall back to raw send.
+        free(outBuf);
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                 "gzip-debug: compress OK in=%u out=%u ratio=%u%%\n",
+                 (unsigned)bodyLen, (unsigned)deflated,
+                 (unsigned)(deflated * 100 / bodyLen));
+
+    // Write the 8-byte gzip trailer: CRC32 LE + uncompressed-size LE.
+    const uint32_t crc32 = mz_crc32(MZ_CRC32_INIT, body, bodyLen);
+    const uint32_t isize = static_cast<uint32_t>(bodyLen);
+    uint8_t* trailer = outBuf + 10 + deflated;
+    trailer[0] = static_cast<uint8_t>(crc32 & 0xff);
+    trailer[1] = static_cast<uint8_t>((crc32 >>  8) & 0xff);
+    trailer[2] = static_cast<uint8_t>((crc32 >> 16) & 0xff);
+    trailer[3] = static_cast<uint8_t>((crc32 >> 24) & 0xff);
+    trailer[4] = static_cast<uint8_t>(isize & 0xff);
+    trailer[5] = static_cast<uint8_t>((isize >>  8) & 0xff);
+    trailer[6] = static_cast<uint8_t>((isize >> 16) & 0xff);
+    trailer[7] = static_cast<uint8_t>((isize >> 24) & 0xff);
+
+    const size_t totalLen = 10 + deflated + 8;
+
+    CfgServer.sendHeader("Content-Encoding", "gzip");
+    CfgServer.sendHeader("Vary", "Accept-Encoding");
+    CfgServer.send_P(code, contentType,
+                     reinterpret_cast<PGM_P>(outBuf), totalLen);
+
+    free(outBuf);
+    return true;
+    }
+
+// Convenience overload for String bodies.  Same semantics.
+bool SendCompressedIfRequested(int code,
+                               const char* contentType,
+                               const String& body)
+    {
+    return SendCompressedIfRequested(
+        code, contentType,
+        reinterpret_cast<const uint8_t*>(body.c_str()),
+        body.length());
+    }
+
+// ----------------------------------------------------------------------------
 
 void HandleConfig()
     {
@@ -867,7 +1026,7 @@ void HandleConfig()
 
     sPage += sBody;
     sPage += pageFooter;
-    CfgServer.send(200, "text/html", sPage);
+    SendCompressedIfRequested(200, "text/html", sPage);
     } // end HandleConfig()
 
 

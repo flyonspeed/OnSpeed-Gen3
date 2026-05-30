@@ -52,6 +52,13 @@ extern void _softRestart();
 // logic here; they're internal-linkage in the legacy file but trivial
 // to mirror because they consist of only the lookups we need.
 
+// Forward-decl of the gzip helper defined in ConfigWebServer.cpp.  Lives
+// at file scope here (NOT inside `namespace onspeed::api { namespace {}`)
+// so the linker resolves it to the file-scope symbol in the other TU
+// instead of a phantom inside this TU's anonymous namespace.
+bool SendCompressedIfRequested(int code, const char* contentType,
+                               const String& body);
+
 namespace onspeed::api {
 
 namespace {
@@ -62,7 +69,11 @@ namespace {
 
 void SendJson(int code, const String& body) {
     CfgServer.sendHeader("Cache-Control", "no-store");
-    CfgServer.send(code, "application/json", body);
+    // Forward-declared at file scope (outside the anonymous namespace
+    // wrapping `SendJson`), so the linker resolves to the symbol defined
+    // in ConfigWebServer.cpp rather than a phantom one in this TU's
+    // anonymous namespace.
+    ::SendCompressedIfRequested(code, "application/json", body);
 }
 
 void SendOk() {
