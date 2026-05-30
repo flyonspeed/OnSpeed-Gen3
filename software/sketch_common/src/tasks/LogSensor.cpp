@@ -1145,12 +1145,20 @@ void LogSensor::Write()
 
     if (g_Config.bReadBoom)
         {
-        int boomAge        = (int)((unsigned long)millis() - g_BoomSerial.uTimestamp);
-        row.boomStatic     = g_BoomSerial.Static;
-        row.boomDynamic    = g_BoomSerial.Dynamic;
-        row.boomAlpha      = g_BoomSerial.Alpha;
-        row.boomBeta       = g_BoomSerial.Beta;
-        row.boomIasKt      = g_BoomSerial.IAS;
+        // Atomic snapshot — Static / Dynamic / Alpha / Beta / IAS all
+        // come from the SAME decoded frame.  Prevents the prior torn-
+        // read pattern where field-by-field assignment could mix
+        // values from two adjacent frames if BoomRead preempted us
+        // mid-block.  uTimestamp is a single aligned 32-bit word so
+        // its read is atomic without the mutex.
+        BoomSerialIO::SuBoomData boom;
+        g_BoomSerial.Snapshot(boom);
+        const int boomAge  = (int)((unsigned long)millis() - g_BoomSerial.uTimestamp);
+        row.boomStatic     = boom.Static;
+        row.boomDynamic    = boom.Dynamic;
+        row.boomAlpha      = boom.Alpha;
+        row.boomBeta       = boom.Beta;
+        row.boomIasKt      = boom.IAS;
         row.boomAgeMs      = boomAge;
         }
 
