@@ -407,6 +407,93 @@ void test_vn300_time_status_date_not_ok(void)
 // EfisFrame::fieldsPresent bit assertions — VN-300 populates only the
 // attitude triple on the EfisFrame; the full IMU/GPS dataset and per-sample
 // timestamps are on Vn300Data via TakeVn300Data().
+// ----------------------------------------------------------------------------
+// Two consecutive distinct frames produce two coherent Vn300Data outputs.
+// Each frame's lat/lon/pitch/roll/yaw must reflect ITS values, not a mix
+// with the prior frame.  Guards against any future regression where the
+// parser leaks state between frames (the bench atomic-publish detector
+// caught this empirically; this test makes it CI-detectable).
+//
+// Note: this is a single-threaded parser test, so it doesn't exercise the
+// mutex side of the atomic-publish fix.  But it pins down the structural
+// invariant on the parser side: when Decode() runs, every field in
+// Vn300Data comes from THIS frame, none from the previous frame.  A
+// publisher that read partial fields between Decode() calls would still
+// see torn structs at the EfisSerialPort level — that's the cross-task
+// concurrency bug the mutex in EfisSerialPort guards against.
+// ----------------------------------------------------------------------------
+void test_vn300_back_to_back_frames_coherent(void)
+{
+    Vn300Parser parser;
+
+    // Frame 1: distinctive values
+    uint8_t buf1[kFrameSize];
+    buildVn300Packet(buf1, 3.5f, 10.0f, 270.0f);
+    // Override Lat/Lon to verifiable distinct values
+    writeDouble(buf1, 38, 40.001000);   // Lat for frame 1
+    writeDouble(buf1, 46, -105.001000); // Lon for frame 1
+    writeU64(buf1, 10, 2'500'000ULL);   // TimeStartup = frame 1
+    // Re-CRC after the field overrides
+    {
+        uint16_t crc = 0;
+        for (size_t i = 1; i < kFrameSize - 2; ++i) {
+            crc = static_cast<uint16_t>((crc >> 8) | (crc << 8));
+            crc ^= buf1[i];
+            crc ^= static_cast<uint16_t>(
+                static_cast<uint8_t>(crc & 0xFF) >> 4);
+            crc ^= static_cast<uint16_t>((crc << 8) << 4);
+            crc ^= static_cast<uint16_t>(((crc & 0xFF) << 4) << 1);
+        }
+        buf1[kFrameSize - 2] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+        buf1[kFrameSize - 1] = static_cast<uint8_t>(crc & 0xFF);
+    }
+
+    feedAll(parser, buf1, kFrameSize);
+    auto d1 = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(d1.has_value());
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 40.001000, d1->gnssLat);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -105.001000, d1->gnssLon);
+    TEST_ASSERT_EQUAL_UINT64(2'500'000ULL, d1->timeStartupNs);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 3.5f, d1->pitch);
+
+    // Frame 2: different values entirely
+    uint8_t buf2[kFrameSize];
+    buildVn300Packet(buf2, -2.0f, -5.5f, 45.0f);
+    writeDouble(buf2, 38, 41.222000);
+    writeDouble(buf2, 46, -106.333000);
+    writeU64(buf2, 10, 5'000'000ULL);
+    {
+        uint16_t crc = 0;
+        for (size_t i = 1; i < kFrameSize - 2; ++i) {
+            crc = static_cast<uint16_t>((crc >> 8) | (crc << 8));
+            crc ^= buf2[i];
+            crc ^= static_cast<uint16_t>(
+                static_cast<uint8_t>(crc & 0xFF) >> 4);
+            crc ^= static_cast<uint16_t>((crc << 8) << 4);
+            crc ^= static_cast<uint16_t>(((crc & 0xFF) << 4) << 1);
+        }
+        buf2[kFrameSize - 2] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+        buf2[kFrameSize - 1] = static_cast<uint8_t>(crc & 0xFF);
+    }
+
+    feedAll(parser, buf2, kFrameSize);
+    auto d2 = parser.TakeVn300Data();
+    TEST_ASSERT_TRUE(d2.has_value());
+
+    // Every field in d2 must be from frame 2 — none can leak from frame 1.
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 41.222000, d2->gnssLat);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, -106.333000, d2->gnssLon);
+    TEST_ASSERT_EQUAL_UINT64(5'000'000ULL, d2->timeStartupNs);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -2.0f, d2->pitch);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -5.5f, d2->roll);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 45.0f, d2->yaw);
+
+    // The decoded `data` from frame 2 must NOT carry any frame-1 leftovers.
+    TEST_ASSERT_NOT_EQUAL(40.001000,  d2->gnssLat);   // didn't keep frame-1 lat
+    TEST_ASSERT_NOT_EQUAL(-105.001000, d2->gnssLon);   // didn't keep frame-1 lon
+    TEST_ASSERT_NOT_EQUAL(2'500'000ULL, d2->timeStartupNs);   // didn't keep frame-1 time
+}
+
 void test_vn300_presence_bits_attitude_only(void)
 {
     uint8_t buf[kFrameSize];
@@ -450,6 +537,7 @@ int main(int, char**)
     RUN_TEST(test_vn300_time_gps_ns_round_trip);
     RUN_TEST(test_vn300_time_status_round_trip);
     RUN_TEST(test_vn300_time_status_date_not_ok);
+    RUN_TEST(test_vn300_back_to_back_frames_coherent);
     RUN_TEST(test_vn300_presence_bits_attitude_only);
     return UNITY_END();
 }
