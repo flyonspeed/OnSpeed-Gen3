@@ -46,10 +46,10 @@ KS_YAW_MOD = 36_000
 KS_PITCH_MUL = 7
 KS_ROLL_MUL = 13
 KS_PR_MOD = 6_000
-KS_LATLON_MOD = 1_000_000
+KS_LATLON_MOD = 100_000
 KS_LATLON_BASE_LAT = 40.0
 KS_LATLON_BASE_LON = -105.0
-KS_LATLON_STEP = 1e-7
+KS_LATLON_STEP = 1e-6
 
 # Tolerances for float quantization noise.  Yaw at 0.01° step quantizes
 # to ~1.2e-5 relative for values up to 360; we allow ±1 unit of the

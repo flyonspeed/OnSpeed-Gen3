@@ -96,11 +96,18 @@ float EpochPitchDeg(std::uint64_t N) {
 float EpochRollDeg(std::uint64_t N) {
     return static_cast<float>(((N * 13ULL) % 6000ULL)) / 100.0f - 30.0f;
 }
+// Lat/Lon encodings.  Step size 1e-6 (not 1e-7) because the OnSpeed CSV
+// serializer prints these as %.6f.  At 1e-7, multiple consecutive frames
+// rounded to the same printed value — the analyzer couldn't distinguish
+// them, producing false-positive tear reports.  With 1e-6 step, every
+// N % 100_000 produces a distinct CSV value within the 6-decimal aperture.
+// Range: N % 100_000 × 1e-6 = 0..0.099999, modular-wraps every 100K frames
+// (250 sec at 400 Hz) — far longer than any single bench run.
 double EpochGnssLat(std::uint64_t N) {
-    return 40.0 + static_cast<double>(N % 1'000'000ULL) * 1e-7;
+    return 40.0 + static_cast<double>(N % 100'000ULL) * 1e-6;
 }
 double EpochGnssLon(std::uint64_t N) {
-    return -105.0 - static_cast<double>(N % 1'000'000ULL) * 1e-7;
+    return -105.0 - static_cast<double>(N % 100'000ULL) * 1e-6;
 }
 
 void Stamp(std::uint8_t* buf,
