@@ -280,10 +280,15 @@ static void AssertRoundTrip(const LogRow& original)
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnGnssVelNedNorth,  parsed.vnGnssVelNedNorth);
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnGnssVelNedEast,   parsed.vnGnssVelNedEast);
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnGnssVelNedDown,   parsed.vnGnssVelNedDown);
-        // Use float tolerance (cast to float) since Unity double precision
-        // is not enabled in the native test config.
-        TEST_ASSERT_FLOAT_WITHIN(1e-5f, (float)original.vnGnssLat, (float)parsed.vnGnssLat);
-        TEST_ASSERT_FLOAT_WITHIN(1e-5f, (float)original.vnGnssLon, (float)parsed.vnGnssLon);
+        // GnssLat/Lon are doubles in SuVN300Data and on the VN-300 wire.
+        // %.6f gives ~11 cm resolution at equator — well within VN-300's
+        // GNSS uncertainty (~1-5 m).  Tolerance ~5e-7° (≈6 cm) is the
+        // strictest the %.6f round-trip can support.  The bug we're
+        // catching: a (float) cast in LogCsv quantized lat=40° to ~40 cm
+        // bins, breaking the round-trip past the 5th decimal place.
+        // Enabled via -DUNITY_INCLUDE_DOUBLE in platformio.ini env:native.
+        TEST_ASSERT_DOUBLE_WITHIN(5e-7, original.vnGnssLat, parsed.vnGnssLat);
+        TEST_ASSERT_DOUBLE_WITHIN(5e-7, original.vnGnssLon, parsed.vnGnssLon);
         TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.vnEstAltFt, parsed.vnEstAltFt);
         TEST_ASSERT_EQUAL_INT(original.vnGpsFix,   parsed.vnGpsFix);
         TEST_ASSERT_EQUAL_INT(original.vnDataAgeMs, parsed.vnDataAgeMs);
@@ -471,6 +476,54 @@ void test_roundtrip_with_vn300(void)
 {
     LogRow original = MakeTestRow(false, true, true);
     AssertRoundTrip(original);
+}
+
+// ----------------------------------------------------------------------------
+// Issue: bench detector found false-positive "tears" on vnGnssLat/Lon
+// because LogCsv was casting them through float before %.6f emit.  At
+// lat=40°, float32 has ~18 mantissa bits for the fractional part, ≈
+// 3.8e-6 degrees ≈ 40 cm bins.  Multiple distinct double inputs
+// quantized to the same CSV value.  Fix: keep them double through the
+// formatter (AppendDoubleFixed / CommaDouble in LogCsv.cpp).
+//
+// This test would have caught that regression had it been in place.
+// It emits a sweep of unique double lat values that should each
+// round-trip distinctly through %.6f, then verifies that decoding the
+// CSV yields back the exact same value (within %.6f tolerance, NOT
+// within float32 quantization tolerance).
+void test_vn300_lat_lon_full_double_precision_through_csv(void)
+{
+    // Sweep N from 0 to 99 — encodes lat = 40.000000, 40.000001, ...
+    // 40.000099 at 1e-6 step.  A (float) cast at lat=40 would smear
+    // multiple of these into the same printed value (because float32's
+    // ULP near 40.0 is ~5e-6).  With proper double precision they
+    // each stay distinct.
+    for (int N = 0; N < 100; ++N) {
+        LogRow original = MakeTestRow(false, true, true);
+        original.vnGnssLat = 40.0  + static_cast<double>(N) * 1e-6;
+        original.vnGnssLon = -105.0 - static_cast<double>(N) * 1e-6;
+
+        memset(s_rowBuf,  0, sizeof(s_rowBuf));
+        memset(s_rowBuf2, 0, sizeof(s_rowBuf2));
+        memset(s_hdrBuf,  0, sizeof(s_hdrBuf));
+
+        size_t hdrLen = csv::WriteHeader(original, s_hdrBuf, sizeof(s_hdrBuf));
+        TEST_ASSERT_GREATER_THAN(0u, hdrLen);
+
+        size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+        TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+        LogRow parsed;
+        TEST_ASSERT_TRUE(ParseRowViaIndex(
+            std::string_view(s_hdrBuf, hdrLen),
+            std::string_view(s_rowBuf, fmtLen), parsed));
+
+        // The strictest tolerance %.6f can support is 5e-7° (half the
+        // 1e-6° precision step).  A regression to (float) would
+        // introduce ~4e-6° errors at lat=40 — 8x over tolerance.
+        TEST_ASSERT_DOUBLE_WITHIN(5e-7, original.vnGnssLat, parsed.vnGnssLat);
+        TEST_ASSERT_DOUBLE_WITHIN(5e-7, original.vnGnssLon, parsed.vnGnssLon);
+    }
 }
 
 void test_roundtrip_boom_and_efis(void)
@@ -1182,6 +1235,7 @@ int main(int, char**)
     RUN_TEST(test_roundtrip_with_boom);
     RUN_TEST(test_roundtrip_with_efis);
     RUN_TEST(test_roundtrip_with_vn300);
+    RUN_TEST(test_vn300_lat_lon_full_double_precision_through_csv);
     RUN_TEST(test_roundtrip_boom_and_efis);
     RUN_TEST(test_roundtrip_with_flaps_raw_adc);
     RUN_TEST(test_roundtrip_flaps_raw_adc_extreme_values);
