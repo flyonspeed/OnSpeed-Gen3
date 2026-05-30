@@ -330,6 +330,13 @@ def http_get(url, timeout=10, retry_503=True, max_retries=4):
             return (e.code, 0, int((time.time() - t0) * 1000), retries)
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
             return (0, 0, int((time.time() - t0) * 1000), retries)
+        except Exception as e:
+            # Catch-all for http.client.IncompleteRead / RemoteDisconnected /
+            # any other HTTPException that isn't in the catch list above.
+            # Without this, a single IncompleteRead kills the calling worker
+            # thread (Thread-N crashes, future requests never fire) which
+            # was masquerading as "stress test stalled" in earlier runs.
+            return (0, 0, int((time.time() - t0) * 1000), retries)
 
 
 def http_post_form(url, fields, timeout=15):
