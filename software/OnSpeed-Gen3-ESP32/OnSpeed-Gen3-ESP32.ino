@@ -471,19 +471,21 @@ void setup()
         0                   // Core ID (0)
     );
 
-    // WebServer on Core 0, priority 4 (was 1).  Raised above EfisRead/
-    // BoomRead (pri 3) so an in-flight HTTP request handler isn't
-    // preempted by 400 Hz EFIS or 50 Hz boom byte-pump activity.
-    // WiFi/lwIP runs at pri ~22 (kernel-owned), so this still can't
-    // starve the actual TCP stack — it only ensures handler work
-    // (template render, gzip compress) proceeds without interruption
-    // once started.
+    // WebServer on Core 0, priority 1 (matches master).
+    // The cc7d7ac1 "raise to 4" change was intended to keep handler work
+    // (template render, gzip compress) running without preemption.  But
+    // diagnostic data from log_096 shows WebServer at pri 4 holding Core 0
+    // for 10 sec inside a stalled client.write starves the DataServer
+    // (pri 2) WS broadcast loop, which leads to WS disconnects and a
+    // contention spiral.  Returning to pri 1 lets all the lower-priority
+    // tasks (BoomRead pri 3, EfisRead pri 3, DataServer pri 2) preempt
+    // WebServer freely; lwIP/WiFi at pri 22 still preempt everything.
     xTaskCreatePinnedToCore(
         WebServerTask,      // Function to call
         "WebServer",        // Name of task
         10000,              // Stack size
         NULL,               // Parameter
-        4,                  // Priority (was 1)
+        1,                  // Priority (matches master)
         NULL,               // Task handle
         0                   // Core ID (0)
     );

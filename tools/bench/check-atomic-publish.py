@@ -96,6 +96,91 @@ def within(a: int, b: int, tol: int, mod: int) -> bool:
     return d <= tol or d >= mod - tol
 
 
+def check_row(row_idx: int, row: dict) -> tuple[bool, list[TearReport]]:
+    """Check one CSV row.  Returns (had_stim_data, tears_for_this_row).
+
+    Pulled out of main() so unit tests can drive it against synthetic
+    rows without going through a CSV file.
+    """
+    try:
+        ts = int(row["vnTimeStartupNs"])
+    except (KeyError, ValueError):
+        return (False, [])
+    if ts == 0:
+        return (False, [])  # pre-stim row; firehose hadn't started yet
+
+    N = ts // KS_NS_PER_FRAME
+    tears: list[TearReport] = []
+
+    # Yaw
+    try:
+        yaw = float(row["vnYaw"])
+        N_from_yaw = decode_yaw_to_N(yaw)
+        if not within(N_from_yaw, N % KS_YAW_MOD, KS_YAW_TOL_UNITS, KS_YAW_MOD):
+            tears.append(TearReport(row_idx, N, "vnYaw", N_from_yaw))
+    except (KeyError, ValueError):
+        pass
+
+    # Pitch
+    try:
+        pitch = float(row["vnPitch"])
+        N_from_pitch = decode_pitch_to_N_residue(pitch)
+        expected = (N * KS_PITCH_MUL) % KS_PR_MOD
+        if not within(N_from_pitch, expected, KS_PR_TOL_UNITS, KS_PR_MOD):
+            tears.append(TearReport(row_idx, N, "vnPitch", N_from_pitch))
+    except (KeyError, ValueError):
+        pass
+
+    # Roll
+    try:
+        roll = float(row["vnRoll"])
+        N_from_roll = decode_roll_to_N_residue(roll)
+        expected = (N * KS_ROLL_MUL) % KS_PR_MOD
+        if not within(N_from_roll, expected, KS_PR_TOL_UNITS, KS_PR_MOD):
+            tears.append(TearReport(row_idx, N, "vnRoll", N_from_roll))
+    except (KeyError, ValueError):
+        pass
+
+    # Lat / Lon — these are the doubles, the most likely to tear
+    # because 8-byte writes are TWO store instructions on Xtensa LX7.
+    try:
+        lat = float(row["vnGnssLat"])
+        N_from_lat = decode_lat_to_N(lat)
+        if not within(N_from_lat, N % KS_LATLON_MOD,
+                      KS_LATLON_TOL_UNITS, KS_LATLON_MOD):
+            tears.append(TearReport(row_idx, N, "vnGnssLat", N_from_lat))
+    except (KeyError, ValueError):
+        pass
+
+    try:
+        lon = float(row["vnGnssLon"])
+        N_from_lon = decode_lon_to_N(lon)
+        if not within(N_from_lon, N % KS_LATLON_MOD,
+                      KS_LATLON_TOL_UNITS, KS_LATLON_MOD):
+            tears.append(TearReport(row_idx, N, "vnGnssLon", N_from_lon))
+    except (KeyError, ValueError):
+        pass
+
+    return (True, tears)
+
+
+def encode_row_for_N(N: int) -> dict:
+    """Build a synthetic CSV row that should match canonical N.
+
+    Mirror of the C++ stim's epoch-encode formulas (tools/bench/efis-stim/
+    main.cpp).  A "clean" row (all fields from the same N) should produce
+    zero tears.  Tests use this to construct both clean and torn fixtures.
+    """
+    return {
+        "vnTimeStartupNs": str(N * KS_NS_PER_FRAME),
+        "vnYaw":           f"{(N % 36000) / 100.0:.2f}",
+        "vnPitch":         f"{((N * 7) % 6000) / 100.0 - 30.0:.2f}",
+        "vnRoll":          f"{((N * 13) % 6000) / 100.0 - 30.0:.2f}",
+        "vnGnssLat":       f"{KS_LATLON_BASE_LAT + (N % KS_LATLON_MOD) * KS_LATLON_STEP:.6f}",
+        "vnGnssLon":       f"{KS_LATLON_BASE_LON - (N % KS_LATLON_MOD) * KS_LATLON_STEP:.6f}",
+    }
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         sys.stderr.write("usage: check-atomic-publish.py <log.csv>\n")
@@ -115,65 +200,10 @@ def main() -> int:
 
         for row_idx, row in enumerate(reader):
             rows_checked += 1
-
-            try:
-                ts = int(row["vnTimeStartupNs"])
-            except (KeyError, ValueError):
-                continue
-            if ts == 0:
-                continue  # pre-stim row; firehose hadn't started yet
-            rows_with_data += 1
-
-            N = ts // KS_NS_PER_FRAME
-
-            # Yaw
-            try:
-                yaw = float(row["vnYaw"])
-                N_from_yaw = decode_yaw_to_N(yaw)
-                if not within(N_from_yaw, N % KS_YAW_MOD, KS_YAW_TOL_UNITS, KS_YAW_MOD):
-                    tears.append(TearReport(row_idx, N, "vnYaw", N_from_yaw))
-            except (KeyError, ValueError):
-                pass
-
-            # Pitch
-            try:
-                pitch = float(row["vnPitch"])
-                N_from_pitch = decode_pitch_to_N_residue(pitch)
-                expected = (N * KS_PITCH_MUL) % KS_PR_MOD
-                if not within(N_from_pitch, expected, KS_PR_TOL_UNITS, KS_PR_MOD):
-                    tears.append(TearReport(row_idx, N, "vnPitch", N_from_pitch))
-            except (KeyError, ValueError):
-                pass
-
-            # Roll
-            try:
-                roll = float(row["vnRoll"])
-                N_from_roll = decode_roll_to_N_residue(roll)
-                expected = (N * KS_ROLL_MUL) % KS_PR_MOD
-                if not within(N_from_roll, expected, KS_PR_TOL_UNITS, KS_PR_MOD):
-                    tears.append(TearReport(row_idx, N, "vnRoll", N_from_roll))
-            except (KeyError, ValueError):
-                pass
-
-            # Lat / Lon — these are the doubles, the most likely to tear
-            # because 8-byte writes are TWO store instructions on Xtensa LX7.
-            try:
-                lat = float(row["vnGnssLat"])
-                N_from_lat = decode_lat_to_N(lat)
-                if not within(N_from_lat, N % KS_LATLON_MOD,
-                              KS_LATLON_TOL_UNITS, KS_LATLON_MOD):
-                    tears.append(TearReport(row_idx, N, "vnGnssLat", N_from_lat))
-            except (KeyError, ValueError):
-                pass
-
-            try:
-                lon = float(row["vnGnssLon"])
-                N_from_lon = decode_lon_to_N(lon)
-                if not within(N_from_lon, N % KS_LATLON_MOD,
-                              KS_LATLON_TOL_UNITS, KS_LATLON_MOD):
-                    tears.append(TearReport(row_idx, N, "vnGnssLon", N_from_lon))
-            except (KeyError, ValueError):
-                pass
+            had_data, row_tears = check_row(row_idx, row)
+            if had_data:
+                rows_with_data += 1
+            tears.extend(row_tears)
 
     print(f"Rows scanned: {rows_checked}")
     print(f"Rows with stim data (vnTimeStartupNs != 0): {rows_with_data}")

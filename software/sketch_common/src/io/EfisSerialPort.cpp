@@ -222,25 +222,23 @@ void EfisSerialPort::FeedBytes(const uint8_t* buf, size_t n)
 
         if (gotFrame && gotVn300)
         {
-            // VN-300 case: BOTH publishes run.  applyFrame writes
-            // suEfis_published_ (Pitch/Roll/Heading + the VN-300 mirror
-            // into suVN300_published_).  applyVn300Data writes the rest
-            // of suVN300_published_ (TimeStartupNs, Lat/Lon, position
-            // uncertainty, wind, etc.).  Each takes the mutex separately;
-            // a Core-1 reader running between them could see Pitch/Roll
-            // from the new frame combined with Lat/Lon from the previous
-            // applyVn300Data.  Acceptable: within a single frame the
-            // Pitch/Roll *and* Lat/Lon arrive on the same parser cycle,
-            // so the "previous" Lat/Lon is at most one 2.5-ms frame
-            // stale — well under the AHRS / display latency budget.
-            // The full-frame coherency property still holds for any
-            // single Snapshot{Efis,Vn300}() reader.
+            // VN-300 dual-hit: call applyVn300Data only.  It writes
+            // BOTH suVN300_published_ (the full VN frame: Yaw/Pitch/Roll
+            // + Lat/Lon + tNs + everything else) AND mirrors
+            // Pitch/Roll/Heading into suEfis_published_, all under a
+            // single mutex hold.  One atomic publish.
             //
-            // The earlier "skip applyFrame" optimization dropped
-            // suEfis_published_.Pitch/Roll/Heading entirely for VN-300,
-            // which no current caller relied on but is a trap for any
-            // future caller of SnapshotEfis() that wants attitude.
-            applyFrame(frame);
+            // The earlier "call BOTH applyFrame + applyVn300Data" shape
+            // ran with two separate mutex takes.  A reader on Core 0
+            // (LogSensor) running between them saw frame-N Pitch/Roll
+            // (from applyFrame's mirror) combined with frame-(N-1)
+            // Lat/Lon/tNs (still in suVN300 from the previous
+            // applyVn300Data).  log_098 measured this at 1.6% of stim
+            // rows (6118 / 385094) — small, but real, and visible to
+            // anyone running the offline atomic-publish analyzer.
+            //
+            // For non-VN-300 frames this branch isn't taken (gotVn300
+            // is false unless enType == EnVN300).
             applyVn300Data(vnData);
             uTimestamp = millis();
         }
@@ -404,9 +402,19 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
 
     // Single atomic publish: memcpy under mutex.  Hold time is
     // sizeof(SuVN300Data) ≈ 150 bytes worth of PSRAM-to-PSRAM copy,
-    // sub-microsecond.
+    // sub-microsecond.  ALSO mirror attitude into suEfis_published_
+    // under the same mutex hold so any SnapshotEfis() reader sees
+    // VN-300 attitude consistent with whatever SnapshotVn300() would
+    // return for the same frame.  Done inside the mutex hold (not as
+    // a separate take/give pair) so the dual-struct update is atomic
+    // from any reader's view — closes the cross-struct race that
+    // showed up in log_098 (1.6% of stim rows had Pitch/Roll from
+    // frame N + Lat/Lon from frame N-1).
     if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
         suVN300_published_ = staging;
+        suEfis_published_.Pitch   = data.pitch;
+        suEfis_published_.Roll    = data.roll;
+        suEfis_published_.Heading = static_cast<int>(data.yaw);
         xSemaphoreGive(xEfisDataMutex_);
     }
 }
