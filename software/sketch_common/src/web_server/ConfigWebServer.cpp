@@ -717,8 +717,60 @@ bool SendCompressedIfRequested(int code,
 
     CfgServer.sendHeader("Content-Encoding", "gzip");
     CfgServer.sendHeader("Vary", "Accept-Encoding");
-    CfgServer.send_P(code, contentType,
-                     reinterpret_cast<PGM_P>(outBuf), totalLen);
+
+    // Send in chunks with explicit per-chunk drain verification.
+    // Background: WebServer::send_P() pipes the full body into a single
+    // NetworkClient::write() which under load can return short (partial
+    // bytes written, no caller error indicator).  WebServer never
+    // checks the return, so a short write produces an IncompleteRead
+    // on the client.
+    //
+    // By calling sendContent() in chunks ourselves, we can (1) detect
+    // a short write, (2) let WiFi/lwIP drain between chunks so the TCP
+    // send buffer doesn't stay maxed out at 5744 bytes, and (3) detect
+    // a client disconnect mid-stream and bail without claiming success.
+    //
+    // Chunk size 1408 ≈ one TCP MSS (1436 minus a bit of slack).  Sending
+    // exactly one segment per call ensures the lwIP backpressure becomes
+    // visible to us at the natural fragmentation boundary.
+    constexpr size_t kChunkSize = 1408;
+    CfgServer.setContentLength(totalLen);
+    CfgServer.send(code, contentType, "");
+
+    NetworkClient client = CfgServer.client();
+    size_t sent = 0;
+    bool clientGone = false;
+    while (sent < totalLen) {
+        const size_t want = (totalLen - sent > kChunkSize)
+                                ? kChunkSize : (totalLen - sent);
+        const size_t wrote = client.write(outBuf + sent, want);
+        if (wrote == 0) {
+            // Short write OR disconnect — both look the same here.
+            // NetworkClient::write already retried up to 10x internally;
+            // if it returned 0 the connection is effectively dead.
+            // Log it and bail rather than continue spinning.
+            g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                         "gzip-send: short write at offset %u of %u (client gone)\n",
+                         (unsigned)sent, (unsigned)totalLen);
+            clientGone = true;
+            break;
+        }
+        sent += wrote;
+        if (!client.connected()) {
+            // Sent some bytes, but connection now closed — peer hung up.
+            if (sent < totalLen) {
+                g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                             "gzip-send: client disconnected after %u of %u\n",
+                             (unsigned)sent, (unsigned)totalLen);
+            }
+            clientGone = true;
+            break;
+        }
+        // Yield so lwIP / WiFi can drain.  delay(0) on Arduino-ESP32
+        // calls vTaskDelay(0) which forces a reschedule.
+        delay(0);
+    }
+    (void)clientGone;   // We logged it above; nothing more to do here.
 
     free(pComp);
     free(outBuf);
