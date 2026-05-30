@@ -17,10 +17,14 @@ EfisSerialPort::EfisSerialPort()
     , lastReceivedEfisTime(0)
     , parser_(onspeed::efis::EfisType::None)
 {
-    // Create the data-publish mutex once at construction.  Priority
-    // inheritance is automatic on ESP-IDF FreeRTOS — a higher-priority
-    // taker temporarily boosts the holder so we don't priority-invert.
-    xEfisDataMutex_ = xSemaphoreCreateMutex();
+    // NOTE: do NOT create the FreeRTOS mutex here.  This constructor
+    // runs during static initialization, BEFORE setup() and BEFORE the
+    // FreeRTOS scheduler is started.  xSemaphoreCreateMutex() returns
+    // NULL in that context.  Mutex creation is deferred to
+    // AttachUart() which runs from setup().  Until then, applyFrame /
+    // applyVn300Data / SnapshotEfis / SnapshotVn300 all hit the
+    // "mutex is null → fall through to unsynchronized access" path —
+    // which is fine because no other task is running yet either.
 
     // Initialize the published structs to "no data" baselines.  These
     // values are what consumers see before the first frame decodes; they
@@ -141,6 +145,14 @@ onspeed::efis::EfisType EfisSerialPort::toCoreType(EnEfisType t)
 
 void EfisSerialPort::AttachUart(IdfUartStream* pStream, EnEfisType enEfisType)
 {
+    // Lazy mutex creation.  Static-init constructed g_EfisSerial before
+    // FreeRTOS was up; this is the first opportunity to make the mutex.
+    // Idempotent — re-attaching (e.g. via runtime type-change reboot)
+    // reuses the existing handle.
+    if (xEfisDataMutex_ == nullptr) {
+        xEfisDataMutex_ = xSemaphoreCreateMutex();
+    }
+
     enType       = enEfisType;
     pStream_     = pStream;
     pendingType_ = kNoPendingType;
@@ -189,15 +201,40 @@ void EfisSerialPort::FeedBytes(const uint8_t* buf, size_t n)
     {
         parser_.FeedByte(buf[i]);
 
-        if (parser_.TryTakeFrame(frame))
+        // Coalesce the two "frame complete" callbacks for VN-300 into a
+        // single mutex-protected publish.  Otherwise applyFrame would
+        // give the mutex, applyVn300Data would re-take it, and a reader
+        // running on Core 1 (AHRS, DisplaySerial) could observe partial
+        // state — Yaw/Pitch/Roll from applyFrame but TimeStartupNs /
+        // Lat / Lon from the PRIOR applyVn300Data.  The torn-read
+        // detector caught this pattern empirically (see
+        // tools/bench/check-atomic-publish.py).
+        const bool gotFrame = parser_.TryTakeFrame(frame);
+        const bool gotVn300 = (enType == EnVN300) && parser_.TryTakeVn300Data(vnData);
+
+        if (gotFrame && gotVn300)
+        {
+            // VN-300 case: applyFrame's VN-300 mirror block is redundant
+            // with applyVn300Data (which writes the same Pitch/Roll/Yaw
+            // values from the same parser-decode local).  Skip the
+            // mirror by short-circuiting applyFrame — just publish via
+            // applyVn300Data which atomically writes the full struct.
+            // For non-VN-300 frames this branch isn't taken (gotVn300
+            // is false unless enType == EnVN300).
+            applyVn300Data(vnData);
+            uTimestamp = millis();
+        }
+        else if (gotFrame)
         {
             applyFrame(frame);
             uTimestamp = millis();
         }
-
-        if (enType == EnVN300 && parser_.TryTakeVn300Data(vnData))
+        else if (gotVn300)
         {
+            // Shouldn't happen — parser sets both flags together —
+            // but be defensive.
             applyVn300Data(vnData);
+            uTimestamp = millis();
         }
     }
 
