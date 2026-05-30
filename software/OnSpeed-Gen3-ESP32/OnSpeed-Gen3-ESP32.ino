@@ -31,15 +31,13 @@ Do a text search for comments starting with "////"
 #include "src/tasks/EfisRead.h"
 #include "src/tasks/BoomRead.h"
 
-#ifndef ONSPEED_SYNTH_SENSORS
-// In real-hardware builds, EfisRead.cpp owns the IdfUartStream that
-// replaces Serial2 for the EFIS UART.  Forward-declare its accessors
-// so setup() can install the driver and wire its Stream pointer into
-// g_EfisSerial before EfisReadTask is spawned.
+// EfisRead.cpp owns the IdfUartStream that replaces Serial2 for the
+// EFIS UART.  Forward-declare its accessors so setup() can install the
+// driver and wire its stream pointer into g_EfisSerial before
+// EfisReadTask is spawned.
 bool   EfisReadTaskInit(uint32_t baud);
-class  Stream;
-Stream* GetEfisStream();
-#endif
+class IdfUartStream;
+IdfUartStream* GetEfisStream();
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -192,82 +190,44 @@ void setup()
     // point I may slow the M5 display down to 9600. Then I can use
     // a dedicated software UART for it.
 
+    // EFIS UART moves off Arduino HardwareSerial onto the IDF UART driver
+    // so EfisReadTask can wake on data via the event queue + bulk-read
+    // bytes per wake (see software/sketch_common/src/tasks/EfisRead.cpp).
+    // Serial2 is NOT touched here; uart_driver_install in EfisReadTaskInit
+    // takes exclusive ownership of UART_NUM_2.  If install fails (hardware
+    // fault), the box boots with no EFIS — better to log it than fall back
+    // to a HardwareSerial path we'd have to maintain a second time.
+    //
+    // VN-300 needs 921600 baud (138 B × 400 Hz = 55.2 kB/s on the wire,
+    // way over the 115200 ceiling). All other EFIS types use 115200.
+    const uint32_t kEfisBaud =
+        (g_EfisSerial.enType == EfisSerialPort::EnVN300) ? 921600 : 115200;
+    if (EfisReadTaskInit(kEfisBaud)) {
+        g_EfisSerial.AttachUart(GetEfisStream(), g_EfisSerial.enType);
+    } else {
+        g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
+                      "EfisReadTaskInit failed; EFIS disabled");
+        g_EfisSerial.enType = EfisSerialPort::EnNone;
+    }
+
 #ifdef ONSPEED_SYNTH_SENSORS
-    // perf-synth build: feed EFIS + boom from synthetic Streams that
-    // emit pre-built valid frames at the protocol's native rate. Real
-    // Serial2 is NOT initialised — no physical UART contention. Serial1
-    // is still brought up so g_DisplaySerial's TX path works; nothing is
-    // attached to receive (perf-testing skill specifies "no M5" by
-    // default). Compile-time choice of EFIS protocol via
-    // ONSPEED_SYNTH_EFIS_SKYVIEW; default is VN-300 (the heaviest path,
-    // the reason this build exists).
-  #if defined(ONSPEED_SYNTH_EFIS_SKYVIEW)
-    static SyntheticStream s_synthEfisStream(
-        onspeed::test_frames::SkyviewFrames(),
-        onspeed::test_frames::kSkyviewFrameCount,
-        onspeed::test_frames::kSkyviewPeriodUs,
-        "SynthEfisSky");
-    constexpr auto kSynthEfisType = EfisSerialPort::EnDynonSkyview;
-    constexpr const char* kSynthEfisName = "skyview";
-  #else
-    // VN-300 synth cadence in microseconds.
-    // Default = onspeed::test_frames::kVn300PeriodUs (20000 us = 50 Hz,
-    // the native VN-300 rate). Override at build time with
-    // -DONSPEED_SYNTH_VN300_PERIOD_US=N for rate-sweep PERF captures:
-    //   20000 →  50 Hz (native)
-    //   10000 → 100 Hz
-    //    5000 → 200 Hz   (#638 target)
-    //    2500 → 400 Hz
-    //    2000 → 500 Hz
-  #ifndef ONSPEED_SYNTH_VN300_PERIOD_US
-  #define ONSPEED_SYNTH_VN300_PERIOD_US onspeed::test_frames::kVn300PeriodUs
-  #endif
-    static SyntheticStream s_synthEfisStream(
-        onspeed::test_frames::Vn300Frame(),
-        ONSPEED_SYNTH_VN300_PERIOD_US,
-        "SynthEfisVn");
-    constexpr auto kSynthEfisType = EfisSerialPort::EnVN300;
-    constexpr const char* kSynthEfisName = "vn300";
-  #endif
+    // Boom-side synth is kept for the perf-synth env (no real boom probe
+    // attached on the bench).  EFIS-side synth is gone — we use the
+    // tools/bench/uart_efis_stim.py rig over a real USB-TTL dongle for
+    // realistic EFIS bytes now.  See `synth status` console command.
     static SyntheticStream s_synthBoomStream(
         onspeed::test_frames::BoomFrame(),
         onspeed::test_frames::kBoomPeriodUs,
         "SynthBoom");
-    g_EfisSerial.InitWithStream(kSynthEfisType, &s_synthEfisStream);
     g_BoomSerial.Init(&s_synthBoomStream);
-    g_Config.bReadEfisData = true;
-    g_Config.bReadBoom     = true;
+    g_Config.bReadBoom = true;
     {
         uint32_t SerialConfig = SerialConfig::SERIAL_8N1;
         Serial1.begin(115200, SerialConfig, kBoomRx, kDisplayTx, false);
     }
-    g_Log.printf("synth: EFIS=%s boom=boom perf-synth build active\n",
-                 kSynthEfisName);
-    // Expose synth streams to the console-command module for `synth status`.
-    g_pSynthEfisStream = &s_synthEfisStream;
+    g_Log.printf("synth: boom synth active; EFIS uses real UART (perf-synth build)\n");
     g_pSynthBoomStream = &s_synthBoomStream;
 #else
-    // Real-hardware build.  EFIS UART moves off Arduino HardwareSerial
-    // onto the IDF UART driver so EfisReadTask can wake on data via the
-    // event queue (see software/sketch_common/src/tasks/EfisRead.cpp).
-    // Serial2 is NOT touched here; uart_driver_install in EfisReadTaskInit
-    // takes exclusive ownership of UART_NUM_2.  If install fails (which
-    // would be a hardware bug), fall back to the legacy Serial2.begin
-    // path so the box still boots into a usable state.
-    // VN-300 needs 921600 baud (138 B × 400 Hz = 55.2 kB/s on the wire,
-    // way over the 115200 ceiling). All other EFIS types use 115200.
-    // This must agree with EfisSerialPort::Init's baud selection in the
-    // Serial2 fallback path below, which uses the same condition.
-    const uint32_t kEfisBaud =
-        (g_EfisSerial.enType == EfisSerialPort::EnVN300) ? 921600 : 115200;
-    if (EfisReadTaskInit(kEfisBaud)) {
-        g_EfisSerial.InitWithStream(g_EfisSerial.enType, GetEfisStream());
-    } else {
-        g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
-                      "EfisReadTaskInit failed; falling back to Serial2");
-        g_EfisSerial.Init(g_EfisSerial.enType, &Serial2);
-    }
-
     // Serial1 is shared between boom (RX) and the M5 display (TX) —
     // both still go through Arduino HardwareSerial since the IDF driver
     // can't share a UART.  Boom moves to its own task (BoomReadTask)
@@ -468,16 +428,9 @@ void setup()
     xTaskCreatePinnedToCore(BoomReadTask,         "Boom Read",      4000,  NULL, 3, &xTaskBoomRead,      0);
 
 #ifdef ONSPEED_SYNTH_SENSORS
-    // Bind synth streams to their consumer tasks, then arm the cadence
-    // timers. Order matters: SetConsumerTask must precede Start so the
-    // first timer-fired xTaskNotifyGive finds a non-null target.
-    if (g_pSynthEfisStream != nullptr) {
-        g_pSynthEfisStream->SetConsumerTask(xTaskEfisRead);
-        if (!g_pSynthEfisStream->Start()) {
-            g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
-                          "synth: EFIS cadence timer failed to start");
-        }
-    }
+    // Bind the synth boom stream to its consumer task and arm the
+    // cadence timer.  EFIS-side synth was removed once tools/bench/
+    // uart_efis_stim.py made real-UART injection possible.
     if (g_pSynthBoomStream != nullptr) {
         g_pSynthBoomStream->SetConsumerTask(xTaskBoomRead);
         if (!g_pSynthBoomStream->Start()) {
@@ -500,7 +453,14 @@ void setup()
     // Live data server
     DataServerInit();
 
-    // Create a task for the websocket server on Core 0
+    // DataServer (WebSocket broadcast) on Core 0.  Keep it here:
+    //   - lwIP/tcpip_thread is pinned to Core 0 by ESP-IDF; cross-core
+    //     `client.write()` would add IPC latency every broadcast cycle.
+    //   - When the TCP send buffer fills, the write blocks in
+    //     lwip_select — on Core 1 that would risk starving IMU/Audio.
+    //   - The "WS dies under load" symptom is *not* about which core
+    //     DataServer lives on, it's about Core 0 contention from
+    //     EfisRead + WebServer + WiFi. Address that on Core 0 itself.
     xTaskCreatePinnedToCore(
         DataServerTask,     // Function to call
         "DataServer",       // Name of task
@@ -511,13 +471,19 @@ void setup()
         0                   // Core ID (0)
     );
 
-    // Create a task for the Web Server on Core 0 to prevent blocking other tasks
+    // WebServer on Core 0, priority 4 (was 1).  Raised above EfisRead/
+    // BoomRead (pri 3) so an in-flight HTTP request handler isn't
+    // preempted by 400 Hz EFIS or 50 Hz boom byte-pump activity.
+    // WiFi/lwIP runs at pri ~22 (kernel-owned), so this still can't
+    // starve the actual TCP stack — it only ensures handler work
+    // (template render, gzip compress) proceeds without interruption
+    // once started.
     xTaskCreatePinnedToCore(
         WebServerTask,      // Function to call
         "WebServer",        // Name of task
         10000,              // Stack size
         NULL,               // Parameter
-        1,                  // Priority
+        4,                  // Priority (was 1)
         NULL,               // Task handle
         0                   // Core ID (0)
     );

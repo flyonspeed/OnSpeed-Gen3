@@ -161,11 +161,10 @@ EXTERN BoomSerialIO             g_BoomSerial;
 EXTERN DisplaySerial            g_DisplaySerial;
 
 #ifdef ONSPEED_SYNTH_SENSORS
-// Forward decl — full definition in src/test/SyntheticStream.h. The .ino
-// installs these pointers in setup(); ConsoleSerial reads them for the
-// `synth status` command.
+// Boom-side synth pointer exposed to ConsoleSerial for `synth status`.
+// EFIS-side synth was removed once the USB-TTL stim made it possible to
+// inject real EFIS bytes over a real UART.
 class SyntheticStream;
-EXTERN_INIT(SyntheticStream*    g_pSynthEfisStream, nullptr)
 EXTERN_INIT(SyntheticStream*    g_pSynthBoomStream, nullptr)
 #endif
 

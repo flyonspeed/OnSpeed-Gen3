@@ -115,13 +115,7 @@ public:
         float   WindVertical;   // knots, positive = updraft
     };
 
-    // Public data (accessed directly by callers in original code).
-    // Typed as Stream* so the perf-synth build can substitute a
-    // SyntheticStream that produces VN-300 bytes without going through a
-    // real UART. Read() only uses Stream::available()/read(), so widening
-    // here is invisible to production callers — the .ino still passes a
-    // HardwareSerial* into Init(), where it's implicitly converted.
-    Stream*          pSerial;
+    // Public data accessed directly by callers in original code.
     EnEfisType       enType;
     SuEfisData       suEfis;
     SuVN300Data      suVN300;
@@ -129,14 +123,35 @@ public:
     unsigned long    lastReceivedEfisTime;
 
     // Methods
-    void Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial);
 
-    // Synth-build variant: skip the UART begin()/end() dance and just
-    // wire pSerial to the supplied Stream. Used by the perf-synth env to
-    // point the parser at a SyntheticVn300Stream / SyntheticSkyviewStream.
-    // Same parser-state reset as Init().
-    void InitWithStream(EnEfisType enEfisType, Stream* pStream);
+    // Attach the IDF UART stream that EfisReadTask owns + reset parser
+    // state for the given EFIS type. Real-hardware init path. Replaces
+    // the old Stream*-polymorphic Init pair — the byte source is always
+    // the IDF UART driver now, no synth-EFIS abstraction left.
+    void AttachUart(class IdfUartStream* pStream, EnEfisType enEfisType);
 
+    // Pump bytes through the parser, applying any complete frame /
+    // VN-300 data + updating uTimestamp / lastReceivedEfisTime. Pure
+    // computation, no I/O. EfisRead.cpp's wake handler bulk-reads from
+    // the IDF stream then calls this with the resulting buffer; that's
+    // a ~100x reduction in IDF syscalls vs the previous per-byte loop.
+    void FeedBytes(const uint8_t* buf, size_t n);
+
+    // Apply any pending RequestTypeChange call. Idempotent. EfisRead
+    // calls this once per wake before FeedBytes; the type change runs
+    // on the same task as the bytes that follow it, so the parser
+    // reset can't race a concurrent decode.
+    void ApplyPendingTypeChange();
+
+    // Returns true if config has EFIS read enabled. Callers can short-
+    // circuit the read+feed work when disabled.
+    bool IsReadingEnabled() const;
+
+    // Deprecated: the legacy single-call Read() loop. Now a thin
+    // wrapper that calls ApplyPendingTypeChange + bulk-reads from the
+    // attached IDF stream + FeedBytes. EfisReadTask still calls this
+    // for backward compat with the synth-test paths; perf-critical
+    // callers should prefer the bulk-read + FeedBytes split directly.
     void Read();
     bool IsDataFresh(unsigned long maxAgeMs) const
         { return (millis() - uTimestamp) < maxAgeMs; }
@@ -176,12 +191,10 @@ private:
     static constexpr int kNoPendingType = -1;
     volatile int pendingType_ = kNoPendingType;
 
-    // Set by Init() to the HardwareSerial we own (for UART begin/end on
-    // pending-reinit). InitWithStream() leaves this nullptr — synth builds
-    // never call the UART begin path, and pending-reinit becomes a parser-
-    // only reset there (the web UI's EFIS-type change has no UART work to
-    // do when the byte source isn't a real UART).
-    HardwareSerial*  pHwSerial_ = nullptr;
+    // The IDF UART stream owned by EfisReadTask. Set once via
+    // AttachUart() at boot. nullptr until then (Read() / FeedBytes()
+    // are no-ops in that state).
+    class IdfUartStream*  pStream_ = nullptr;
 
     // Convert EfisType enum to onspeed core enum
     static onspeed::efis::EfisType toCoreType(EnEfisType t);

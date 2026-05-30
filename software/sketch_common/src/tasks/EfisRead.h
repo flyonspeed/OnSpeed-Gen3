@@ -14,7 +14,4 @@ void EfisReadTask(void *pvParams);
 // Install the IDF UART driver for the EFIS port at the given baud rate.
 // VN-300 needs 921600 (for 138 B × 400 Hz = 55.2 kB/s); all other EFIS
 // types use 115200. Caller chooses based on g_EfisSerial.enType.
-// Only declared/used in real-hardware builds (#ifndef ONSPEED_SYNTH_SENSORS).
-#ifndef ONSPEED_SYNTH_SENSORS
 bool EfisReadTaskInit(uint32_t baud);
-#endif

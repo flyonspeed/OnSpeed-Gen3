@@ -1,6 +1,7 @@
 
 #include "src/Globals.h"
 #include "src/io/EfisSerialPort.h"
+#include "src/io/IdfUartStream.h"
 
 #include <aero/WindTriangle.h>
 
@@ -11,8 +12,7 @@
 // ---------------------------------------------------------------------------
 
 EfisSerialPort::EfisSerialPort()
-    : pSerial(nullptr)
-    , enType(EnNone)
+    : enType(EnNone)
     , uTimestamp(0)
     , lastReceivedEfisTime(0)
     , parser_(onspeed::efis::EfisType::None)
@@ -100,95 +100,45 @@ onspeed::efis::EfisType EfisSerialPort::toCoreType(EnEfisType t)
 
 // ---------------------------------------------------------------------------
 
-void EfisSerialPort::Init(EnEfisType enEfisType, HardwareSerial* pEfisSerial)
+void EfisSerialPort::AttachUart(IdfUartStream* pStream, EnEfisType enEfisType)
 {
-    uint32_t hwSerialConfig = SerialConfig::SERIAL_8N1;
-
-    enType     = enEfisType;
-    pSerial    = pEfisSerial;
-    pHwSerial_ = pEfisSerial;
-
-    // Consume any pending request so a deferred Init triggered by a
-    // prior RequestTypeChange is satisfied by this explicit Init.
-    // Without this, the boot path's setup() Init followed by the
-    // first loopTask Read() would fire Init twice (boot path calls
-    // RequestTypeChange via LoadConfig → ApplyPostParseSideEffects,
-    // then setup() calls Init directly).  Harmless but wasteful.
-    pendingType_ = kNoPendingType;
-
-    parser_.ChangeType(toCoreType(enType));
-
-    pEfisSerial->end();
-
-    if (enType != EnNone)
-    {
-        // VN-300 runs at 921600 baud to fit the 138-byte frame at 400 Hz
-        // (55.2 kB/s, 60% utilization). Other EFIS types stay at 115200
-        // (the de-facto avionics serial standard for Dynon/Garmin/MGL).
-        const uint32_t baud = (enType == EnVN300) ? 921600 : 115200;
-        pEfisSerial->begin(baud, hwSerialConfig, kEfisRx, kEfisTx, false);
-    }
-}
-
-void EfisSerialPort::InitWithStream(EnEfisType enEfisType, Stream* pStream)
-{
-    enType     = enEfisType;
-    pSerial    = pStream;
-    pHwSerial_ = nullptr;        // signal "no UART to reinit"
+    enType       = enEfisType;
+    pStream_     = pStream;
     pendingType_ = kNoPendingType;
     parser_.ChangeType(toCoreType(enType));
-    // No UART begin/end — the supplied Stream is responsible for its own
-    // byte source.  Used by perf-synth builds with a SyntheticStream.
+    // The IDF UART driver is installed by the caller (EfisReadTaskInit
+    // in tasks/EfisRead.cpp); no UART begin/end here.
 }
 
-// ---------------------------------------------------------------------------
-
-void EfisSerialPort::Read()
+void EfisSerialPort::ApplyPendingTypeChange()
 {
-    // Apply any pending type change here, on the same task as the rest of
-    // Read(), so the UART teardown / parser-state reset can't race a
-    // concurrent read on another task. Web-handler / console paths request
-    // the change via RequestTypeChange(); loopTask picks it up between
-    // iterations. The flag-not-sentinel check is the only condition for
-    // running Init — comparing the pending value against enType would be
-    // self-defeating because RequestTypeChange already wrote enType
-    // synchronously (so the schema-rotation log-header path reads the new
-    // value), so the two are always equal by the time we get here.
-    //
-    // Consume window: if a RequestTypeChange call on another task lands
-    // between the local read of pendingType_ and the clear two lines
-    // below, the second request's pending value is overwritten by the
-    // clear and the parser-reset for it is silently dropped. In
-    // practice, two distinct EFIS-type changes seconds apart from each
-    // other are vanishingly unlikely (config saves are user-initiated,
-    // not automated), so accept the window rather than reach for an
-    // atomic exchange.
+    // Same task-affinity contract as before: only EfisReadTask calls
+    // this, so the parser reset can't race the byte pump.  Consume
+    // window vs RequestTypeChange (cross-task write) is acceptable —
+    // see RequestTypeChange comment.
     const int pending = pendingType_;
     if (pending != kNoPendingType) {
         pendingType_ = kNoPendingType;
-        if (pHwSerial_ != nullptr) {
-            // Real UART — re-init via the HardwareSerial path so begin()/end()
-            // tear down and reconfigure the UART for the new protocol.
-            Init(static_cast<EnEfisType>(pending), pHwSerial_);
-        } else {
-            // Synth or stream-only build — there's nothing to UART-reinit;
-            // just reset the parser state to match the new type so the
-            // bytes feed through the right state machine. The synth
-            // Stream itself doesn't care about EFIS type changes (a
-            // perf-synth binary is configured for one fixed protocol at
-            // compile time), so a runtime-config-driven type change is
-            // effectively cosmetic here.
-            enType = static_cast<EnEfisType>(pending);
-            parser_.ChangeType(toCoreType(enType));
-        }
+        enType = static_cast<EnEfisType>(pending);
+        parser_.ChangeType(toCoreType(enType));
+        // We do NOT re-init the UART here — the baud rate change for
+        // VN-300 vs other EFIS types is set at AttachUart time (boot).
+        // Live EFIS-type changes via web UI now require reboot to
+        // change baud.  Previously this code path called
+        // HardwareSerial::end()/begin() to reconfigure; with the IDF
+        // UART driver that's a more invasive sequence and not worth
+        // supporting hot.  See issue tracker for explicit reboot UX.
     }
+}
 
-    if (!g_Config.bReadEfisData)
-        return;
+bool EfisSerialPort::IsReadingEnabled() const
+{
+    return g_Config.bReadEfisData;
+}
 
-    static constexpr int kPacketSize = 512;
-    int packetCount = 0;
-    bool anyByteSeen = false;
+void EfisSerialPort::FeedBytes(const uint8_t* buf, size_t n)
+{
+    if (n == 0) return;
 
     // Stack-allocated scratch frames — populated copy-free via
     // TryTakeFrame() / TryTakeVn300Data(). Avoids the prior
@@ -196,13 +146,9 @@ void EfisSerialPort::Read()
     onspeed::EfisFrame      frame;
     onspeed::efis::Vn300Data vnData;
 
-    while (pSerial->available() && packetCount < kPacketSize)
+    for (size_t i = 0; i < n; ++i)
     {
-        const uint8_t b = static_cast<uint8_t>(pSerial->read());
-        packetCount++;
-        anyByteSeen = true;
-
-        parser_.FeedByte(b);
+        parser_.FeedByte(buf[i]);
 
         if (parser_.TryTakeFrame(frame))
         {
@@ -216,11 +162,26 @@ void EfisSerialPort::Read()
         }
     }
 
-    // Update lastReceivedEfisTime ONCE per Read() rather than per byte —
-    // the value is only used for the "EFIS link alive" timeout check at
-    // ~Hz cadence; per-byte millis() calls add up at 400+ Hz packet rates.
-    if (anyByteSeen)
-        lastReceivedEfisTime = millis();
+    // Update once per drain (not per byte) — the field's only consumer
+    // is the EFIS-link-alive timeout at ~Hz cadence.
+    lastReceivedEfisTime = millis();
+}
+
+void EfisSerialPort::Read()
+{
+    ApplyPendingTypeChange();
+    if (!IsReadingEnabled() || pStream_ == nullptr)
+        return;
+
+    // Bulk-drain whatever's in the IDF software RX buffer.  Single
+    // uart_read_bytes(N=size) syscall instead of N call pairs of
+    // available()+read().  At 400 Hz × 138 B = 55 kB/s this is the
+    // difference between ~110K syscalls/sec and ~800 syscalls/sec.
+    // Buffer sized at 2x the IDF SW buffer (2048 B) for safety — in
+    // practice we'll never see >2KB queued at any UART_DATA event.
+    uint8_t scratch[2048];
+    const size_t got = pStream_->readBulk(scratch, sizeof(scratch));
+    FeedBytes(scratch, got);
 }
 
 // ---------------------------------------------------------------------------

@@ -71,22 +71,30 @@
 #include <freertos/queue.h>
 #include <driver/uart.h>
 
-#ifndef ONSPEED_SYNTH_SENSORS
-// Real-hardware build: the EFIS UART stream is owned here.  setup() in
-// the .ino calls EfisReadTaskInit() to install the IDF driver before
-// the task is spawned, then xTaskCreatePinnedToCore(EfisReadTask, ...).
+// The EFIS UART stream lives here.  setup() in the .ino calls
+// EfisReadTaskInit() to install the IDF driver before the task is
+// spawned, then xTaskCreatePinnedToCore(EfisReadTask, ...).
 //
-// We keep the IdfUartStream as a file-static so its lifetime spans the
-// whole program (the IDF driver it owns must outlive every task that
-// uses it). EfisSerialPort::pSerial points at this stream.
+// Kept as a file-static so its lifetime spans the whole program (the
+// IDF driver it owns must outlive every task that uses it).  Both the
+// real-hardware build and the perf-synth build use the same UART path
+// now that synth EFIS was removed.
 static IdfUartStream s_efisUartStream;
 
 bool EfisReadTaskInit(uint32_t baud) {
+    // SW RX buffer: 8 KB.  At 921600 baud this gives ~89 ms of slack
+    // before UART_BUFFER_FULL fires — enough headroom that even a
+    // worst-case 280 ms SD-write stall on Core 0 won't lose bytes
+    // (note: 280 ms > 89 ms, so we'd still drop, but only in pathological
+    // cases; in normal stress we have plenty of margin).  2 KB was the
+    // pre-bulk-read minimum needed to keep up at 921600; with the bulk
+    // FeedBytes path the typical buffer occupancy is <138 B.  Cost: ~6 KB
+    // extra DRAM at boot.
     const bool ok = s_efisUartStream.Begin(
         UART_NUM_2, kEfisRx, kEfisTx,
         baud,
-        /*rxBufferSize=*/2048,
-        /*queueLength=*/16);
+        /*rxBufferSize=*/8192,
+        /*queueLength=*/32);
     if (!ok) {
         g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
                       "EfisReadTaskInit: uart_driver_install failed");
@@ -94,8 +102,7 @@ bool EfisReadTaskInit(uint32_t baud) {
     return ok;
 }
 
-Stream* GetEfisStream() { return &s_efisUartStream; }
-#endif
+IdfUartStream* GetEfisStream() { return &s_efisUartStream; }
 
 namespace {
 
@@ -115,59 +122,19 @@ void EfisReadTask(void *pvParams)
 {
     (void)pvParams;
 
-#ifdef ONSPEED_SYNTH_SENSORS
-    // Synth path: SyntheticStream's esp_timer calls
-    // xTaskNotifyGive(this task) every periodUs.  We block on
-    // ulTaskNotifyTake, mirroring the real-hardware IDF event-queue
-    // wake-on-data shape below.  Loops/s on the PERF report reads
-    // as the actual frame rate.
-    //
-    // The 1-second timeout is a watchdog against SyntheticStream's
-    // esp_timer failing to start (resource exhaustion at boot, etc.).
-    // On a healthy box the next emit notify always arrives within
-    // periodUs (<= 20 ms at every supported rate) and the wait
-    // short-circuits.  Without the timeout, a Start() failure would
-    // leave this task blocked forever consuming no CPU but also
-    // serving no data.
-    constexpr TickType_t kSynthWatchdog = pdMS_TO_TICKS(1000);
-    for (;;) {
-        ulTaskNotifyTake(pdTRUE, kSynthWatchdog);
-
-        onspeed::util::perf::PerfLoop perfGuard(
-            onspeed::util::perf::TaskId::EfisRead,
-            uxTaskGetStackHighWaterMark(nullptr));
-        {
-            onspeed::util::perf::PerfScope scope(
-                onspeed::util::perf::ScopeId::EfisRead);
-            g_EfisSerial.Read();
-        }
-    }
-#else
-    // Real-hardware path.  Two sub-modes:
-    //   1. IDF driver installed (normal): block on its event queue,
-    //      wake-on-data.
-    //   2. IDF install failed (.ino's setup() fell back to Serial2.begin):
-    //      no queue exists, so poll g_EfisSerial.pSerial at 1 ms tick
-    //      same shape as BoomRead.  Keeps the box usable on driver
-    //      failure rather than going silent.
+    // Real UART path only.  Synth EFIS was removed once tools/bench/
+    // uart_efis_stim.py made it possible to inject realistic VN-300
+    // bytes over a real USB-TTL dongle into the IDF UART path — the
+    // synth abstraction was hiding the per-byte syscall cost we
+    // actually need to measure and optimize.  If IDF driver install
+    // failed at boot (no event queue), this task suicides; the box
+    // boots without EFIS rather than running a Serial2 fallback path.
     QueueHandle_t queue = s_efisUartStream.GetEventQueue();
     if (queue == nullptr) {
-        g_Log.println(MsgLog::EnEfis, MsgLog::EnWarning,
-                      "EfisReadTask: no IDF queue; falling back to 1 ms polling");
-        constexpr TickType_t kPollPeriod = pdMS_TO_TICKS(1);
-        TickType_t xLastWake = xTaskGetTickCount();
-        for (;;) {
-            vTaskDelayUntil(&xLastWake, kPollPeriod);
-            onspeed::util::perf::PerfLoop perfGuard(
-                onspeed::util::perf::TaskId::EfisRead,
-                uxTaskGetStackHighWaterMark(nullptr));
-            onspeed::util::perf::PerfScope scope(
-                onspeed::util::perf::ScopeId::EfisRead);
-            g_EfisSerial.Read();
-        }
-        return;  // unreachable; explicit so adding a `break` above can't
-                 // silently fall through to the queue-based path that
-                 // would then dereference a null queue.
+        g_Log.println(MsgLog::EnEfis, MsgLog::EnError,
+                      "EfisReadTask: no IDF queue; EFIS disabled, task exiting");
+        vTaskDelete(nullptr);
+        return;
     }
 
     // Bring-up diagnostics: emit a one-line VN-300 parser-state dump every
@@ -286,5 +253,4 @@ void EfisReadTask(void *pvParams)
             }
         }
     }
-#endif
 }

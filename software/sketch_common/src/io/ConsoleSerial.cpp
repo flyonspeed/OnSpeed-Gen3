@@ -657,13 +657,6 @@ void ConsoleSerialIO::Read()
             else if (strncasecmp(szCmdToken, "SYNTH", 5) == 0)
                 {
 #ifdef ONSPEED_SYNTH_SENSORS
-                if (g_pSynthEfisStream != nullptr) {
-                    g_Log.printf("synth efis: frames=%u bytes=%llu missed=%u pending=%u\n",
-                                 g_pSynthEfisStream->FramesEmitted(),
-                                 (unsigned long long)g_pSynthEfisStream->BytesEmitted(),
-                                 g_pSynthEfisStream->MissedEmits(),
-                                 g_pSynthEfisStream->PendingEmits());
-                }
                 if (g_pSynthBoomStream != nullptr) {
                     g_Log.printf("synth boom: frames=%u bytes=%llu missed=%u pending=%u\n",
                                  g_pSynthBoomStream->FramesEmitted(),
@@ -671,6 +664,7 @@ void ConsoleSerialIO::Read()
                                  g_pSynthBoomStream->MissedEmits(),
                                  g_pSynthBoomStream->PendingEmits());
                 }
+                g_Log.println("synth efis: removed; use tools/bench/uart_efis_stim.py");
 #else
                 g_Log.println("synth: not compiled in (build env: esp32s3-v4p-perf-synth)");
 #endif
