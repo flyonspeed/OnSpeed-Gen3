@@ -159,6 +159,13 @@ def main() -> int:
         help="Open the port, write one frame, close, exit. Smoke test for "
              "wiring and permissions.",
     )
+    parser.add_argument(
+        "--epoch-encode", action="store_true",
+        help="Encode the per-frame counter N=TimeStartupNs/2.5ms into "
+             "Yaw/Pitch/Roll/GnssLat/GnssLon. Used with the offline "
+             "tear-detector to verify atomic-publish discipline in the "
+             "firmware. See tools/bench/check-atomic-publish.py.",
+    )
     args = parser.parse_args()
 
     # ---------------- Resolve port ----------------
@@ -209,8 +216,11 @@ def main() -> int:
     # Spawn the helper with no frame cap and pipe its stdout into us.
     # We pace at 400 Hz by sleeping between bursts; the helper produces
     # frames as fast as we drain it, which is rate-limited by our reads.
+    helper_args = [str(helper)]
+    if args.epoch_encode:
+        helper_args.append("--epoch-encode")
     proc = subprocess.Popen(
-        [str(helper)],
+        helper_args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         bufsize=0,

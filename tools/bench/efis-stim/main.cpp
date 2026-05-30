@@ -62,11 +62,67 @@ void WriteUint64LE(std::uint8_t* buf, std::size_t pos, std::uint64_t v) {
         buf[pos + i] = static_cast<std::uint8_t>((v >> (8 * i)) & 0xFF);
 }
 
+void WriteFloatLE(std::uint8_t* buf, std::size_t pos, float v) {
+    std::memcpy(buf + pos, &v, sizeof(float));   // host is little-endian (x86 / arm64)
+}
+
+void WriteDoubleLE(std::uint8_t* buf, std::size_t pos, double v) {
+    std::memcpy(buf + pos, &v, sizeof(double));
+}
+
+// Epoch-encoded field values.  Each is a different, independently-decodable
+// function of the same per-frame counter N.  Used by --epoch-encode mode to
+// detect torn reads downstream: every CSV row should yield the same N from
+// every field; any disagreement across fields in a single row witnesses a
+// tear in the firmware's atomic-publish discipline.
+//
+// Encoding choices:
+//   - Yaw   ∈ [0,    360) ° at 0.01° step — N % 36000 / 100
+//   - Pitch ∈ [-30, +30) ° at 0.01° step — different scaling of N (via /7)
+//   - Roll  ∈ [-30, +30) ° at 0.01° step — different scaling of N (via *13)
+//   - GnssLat = 40.0 + (N % 1_000_000) * 1e-7 — 8-byte double, tests double
+//     atomicity specifically (two store instructions on Xtensa LX7)
+//   - GnssLon = -105.0 - (N % 1_000_000) * 1e-7 — same idea, different sign
+//
+// TimeStartupNs already encodes N (it advances by kFrameStepNs each frame),
+// so the offline analyzer can use TimeStartupNs/2_500_000 as the canonical N
+// and compare every other field's decoded N to it.
+float EpochYawDeg(std::uint64_t N) {
+    return static_cast<float>((N % 36000ULL)) / 100.0f;  // 0.00 .. 359.99
+}
+float EpochPitchDeg(std::uint64_t N) {
+    return static_cast<float>(((N * 7ULL) % 6000ULL)) / 100.0f - 30.0f;  // -30.00 .. 29.99
+}
+float EpochRollDeg(std::uint64_t N) {
+    return static_cast<float>(((N * 13ULL) % 6000ULL)) / 100.0f - 30.0f;
+}
+double EpochGnssLat(std::uint64_t N) {
+    return 40.0 + static_cast<double>(N % 1'000'000ULL) * 1e-7;
+}
+double EpochGnssLon(std::uint64_t N) {
+    return -105.0 - static_cast<double>(N % 1'000'000ULL) * 1e-7;
+}
+
 void Stamp(std::uint8_t* buf,
-           std::uint64_t timeStartupNs, std::uint64_t timeGpsNs) {
+           std::uint64_t timeStartupNs, std::uint64_t timeGpsNs,
+           bool epochEncode) {
     // Per Vn300.h: TimeStartup at [10..17], TimeGps at [18..25].
     WriteUint64LE(buf, 10, timeStartupNs);
     WriteUint64LE(buf, 18, timeGpsNs);
+
+    if (epochEncode) {
+        // Derive N from TimeStartupNs so the analyzer always has one
+        // canonical source.  kFrameStepNs = 2_500_000 → N = TimeStartupNs
+        // div 2_500_000.  Encode the same N into Yaw/Pitch/Roll (floats)
+        // and GnssLat/GnssLon (doubles) so a torn read across any pair
+        // becomes detectable offline.
+        const std::uint64_t N = timeStartupNs / 2'500'000ULL;
+        WriteDoubleLE(buf,  38, EpochGnssLat(N));    // [38..45]
+        WriteDoubleLE(buf,  46, EpochGnssLon(N));    // [46..53]
+        WriteFloatLE (buf, 100, EpochYawDeg(N));     // [100..103]
+        WriteFloatLE (buf, 104, EpochPitchDeg(N));   // [104..107]
+        WriteFloatLE (buf, 108, EpochRollDeg(N));    // [108..111]
+    }
 
     // CRC covers bytes 1..135 inclusive (i.e. [1, 136)); result lives in
     // [136, 137] big-endian. Header byte 0 (sync 0xFA) is NOT part of the
@@ -92,15 +148,24 @@ bool WriteAll(int fd, const void* data, std::size_t n) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    long frames = -1;  // -1 = forever
+    long frames     = -1;     // -1 = forever
+    bool epochEncode = false; // see EpochYawDeg / EpochPitchDeg etc.
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--frames" && i + 1 < argc) {
             frames = std::atol(argv[++i]);
+        } else if (arg == "--epoch-encode") {
+            epochEncode = true;
         } else {
             std::fprintf(stderr,
-                "usage: %s [--frames N]\n"
-                "  emits VN-300 138-byte frames on stdout (binary)\n",
+                "usage: %s [--frames N] [--epoch-encode]\n"
+                "  emits VN-300 138-byte frames on stdout (binary)\n"
+                "\n"
+                "  --epoch-encode  Encode the per-frame counter N=TimeStartupNs/2.5ms\n"
+                "                  into Yaw/Pitch/Roll/GnssLat/GnssLon. Decodable\n"
+                "                  offline so the analyzer can detect torn reads\n"
+                "                  in CSV rows (any row where the fields disagree\n"
+                "                  on N is a witness of a producer-consumer race).\n",
                 argv[0]);
             return 2;
         }
@@ -136,7 +201,7 @@ int main(int argc, char** argv) {
 
     long emitted = 0;
     while (frames < 0 || emitted < frames) {
-        Stamp(buf, timeStartupNs, timeGpsNs);
+        Stamp(buf, timeStartupNs, timeGpsNs, epochEncode);
         if (!WriteAll(STDOUT_FILENO, buf, kVn300Len)) {
             // Broken pipe is the normal exit path when the Python driver
             // closes stdin on Ctrl-C; treat it as success.
