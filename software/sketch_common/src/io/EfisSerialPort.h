@@ -141,6 +141,13 @@ public:
     bool IsDataFresh(unsigned long maxAgeMs) const
         { return (millis() - uTimestamp) < maxAgeMs; }
 
+    // VN-300 bring-up diagnostics — bytes fed / sync matches / header & CRC
+    // fail counters from the parser. Cheap struct copy. See Vn300.h for
+    // semantics and interpretation guide. Only useful when enType == EnVN300.
+    const onspeed::efis::Vn300Diagnostics& Vn300Diag() const {
+        return parser_.Vn300Diag();
+    }
+
     // Request a type change to be applied on the next Read() call. Safe to
     // call from any task: the cheap part (enType update, so other readers
     // of g_EfisSerial.enType see the new value immediately) runs inline,

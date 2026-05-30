@@ -129,6 +129,43 @@ struct Vn300Data {
 //                     (the new Groups byte for Common+Time+GNSS1+AHRS).
 //   Collecting: accumulates bytes until bufLen_ == kPacketSize.
 //   On completion: validates header + CRC, then decodes.
+// Vn300Diagnostics — running counts of where the parser falls off the wire.
+//
+// Production builds NEVER read these; they're a debug aid for bench bring-up
+// of the EFIS wire (cable polarity, baud match, voltage levels, etc.). When
+// the parser is healthy, decoded == sync2 == bytesFed / 138 (approximately).
+// When something is wrong, the imbalance tells you WHERE it broke:
+//
+//   bytesFed > 0 but sync1 == 0:      no 0xFA in the stream — wrong baud,
+//                                     inverted polarity, or wire dead.
+//   sync1 > 0 but sync2 == 0:         0xFA arrives but 0x1B never follows —
+//                                     framing wrong (likely garbage bytes).
+//   sync2 > 0 but headerFail growing: sync pattern seen by chance, but the
+//                                     group-mask bytes that follow don't
+//                                     match — wire is delivering corrupted
+//                                     data after a chance-match.
+//   sync2 == headerOk but crcFail > 0:header is right, byte values aren't —
+//                                     line noise, or a baud-rate mismatch
+//                                     just close enough to align headers
+//                                     but not payloads.
+//   crcOk > 0:                        frames decoding cleanly. Healthy.
+struct Vn300Diagnostics {
+    uint64_t bytesFed     = 0;   // every FeedByte() call increments this
+    uint32_t sync1        = 0;   // count of times we saw byte == 0xFA
+    uint32_t sync2        = 0;   // count of times we saw 0xFA followed by 0x1B
+    uint32_t headerOk     = 0;   // 10-byte header memcmp matched
+    uint32_t headerFail   = 0;   // collected 138 bytes but header memcmp failed
+    uint32_t crcOk        = 0;   // header AND CRC passed
+    uint32_t crcFail      = 0;   // header matched but CRC failed
+    // First-byte distribution: counts of each value seen as the FIRST byte
+    // following a NON-in-progress state. Tells us what bytes are arriving
+    // when we're "between frames" — if a real VN-300 is on the wire, this
+    // should be dominated by 0xFA (start of next frame). If it's a uniform
+    // distribution, we're reading noise. We sample only 16 buckets across
+    // the 256-value space (b >> 4) so the struct stays small.
+    uint32_t firstByteByNibble[16] = {};
+};
+
 class Vn300Parser {
 public:
     Vn300Parser() = default;
@@ -139,6 +176,10 @@ public:
     std::optional<EfisFrame>  TakeFrame();
     std::optional<Vn300Data>  TakeVn300Data();
     void Reset();
+
+    // Snapshot the running diagnostics. Cheap (struct copy). Caller is
+    // responsible for periodic emission / rate limiting.
+    const Vn300Diagnostics& Diag() const { return diag_; }
 
     static constexpr int kPacketSize = 138;
 
@@ -152,6 +193,8 @@ private:
     Vn300Data  pendingData_;
     bool       pendingFrameReady_ = false;
     bool       pendingDataReady_  = false;
+
+    Vn300Diagnostics diag_;
 
     void Decode();
 };

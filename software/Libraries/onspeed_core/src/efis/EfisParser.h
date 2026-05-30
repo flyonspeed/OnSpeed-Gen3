@@ -89,6 +89,13 @@ public:
 
     EfisType ActiveType() const { return type_; }
 
+    // VN-300-specific bring-up diagnostics. Returns the per-stage counters
+    // (bytes fed, sync matches, header fails, CRC fails, decode successes).
+    // Cheap struct copy; safe to call at any cadence. Only meaningful when
+    // type_ == Vn300; for other types the returned struct is the
+    // zero-initialised default.
+    const Vn300Diagnostics& Vn300Diag() const { return vn300_.Diag(); }
+
 private:
     EfisType           type_;
     DynonSkyviewParser dynonSkyview_;

@@ -106,12 +106,23 @@ static inline uint64_t array2u64(const uint8_t* buffer, int startIndex)
 
 void Vn300Parser::FeedByte(uint8_t b)
 {
+    diag_.bytesFed++;
+    // Track what bytes are arriving when we're NOT mid-frame. If a real
+    // VN-300 is talking, this distribution should be dominated by 0xFA
+    // (start of every frame, ~1 in 138 bytes is 0xFA, rest are payload).
+    // If we're seeing line noise, the distribution will be more uniform.
+    if (!inProgress_)
+        diag_.firstByteByNibble[(b >> 4) & 0xF]++;
+    if (b == 0xFA)
+        diag_.sync1++;
+
     // Sync detection: VectorNav sync byte 0xFA followed by the Groups
     // byte 0x1B (Common+Time+GNSS1+AHRS). For the old 3-group config
     // the Groups byte was 0x19; that frame format is no longer
     // supported (fail-closed via header memcmp below).
     if (b == 0x1B && prevByte_ == 0xFA)
     {
+        diag_.sync2++;
         inProgress_ = true;
         buf_[0]  = 0xFA;
         buf_[1]  = 0x1B;
@@ -139,19 +150,23 @@ void Vn300Parser::FeedByte(uint8_t b)
                       "(sync 1 + Groups 1 + 4 group masks * 2)");
         if (memcmp(buf_, kHeader, sizeof(kHeader)) != 0)
         {
+            diag_.headerFail++;
             inProgress_ = false;
             prevByte_   = b;
             return;
         }
+        diag_.headerOk++;
 
         // Table-driven CRC over bytes 1..(N-1) inclusive; valid packet yields 0.
         const uint16_t crc = vnCrc16(buf_, 1, kPacketSize);
         if (crc != 0)
         {
+            diag_.crcFail++;
             inProgress_ = false;
             prevByte_   = b;
             return;
         }
+        diag_.crcOk++;
 
         Decode();
         inProgress_ = false;

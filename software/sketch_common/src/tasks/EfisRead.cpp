@@ -63,6 +63,7 @@
 #include "src/Globals.h"
 #include "src/io/IdfUartStream.h"
 
+#include <efis/Vn300.h>
 #include <util/Perf.h>
 
 #include <freertos/FreeRTOS.h>
@@ -169,6 +170,15 @@ void EfisReadTask(void *pvParams)
                  // would then dereference a null queue.
     }
 
+    // Bring-up diagnostics: emit a one-line VN-300 parser-state dump every
+    // `kDiagPeriodMs` milliseconds whenever the EFIS type is VN-300. Tells us
+    // whether bytes are arriving at all, whether sync is being found, and
+    // where in the pipeline frames are getting rejected. Cheap (one struct
+    // copy + a few atomics + one printf per period); off-path for production
+    // because the typical period is 5s.
+    constexpr uint32_t kDiagPeriodMs = 5000;
+    unsigned long uLastDiagMs = 0;
+
     uart_event_t event;
     for (;;) {
         // portMAX_DELAY — no timeout; wake on any event.
@@ -232,6 +242,48 @@ void EfisReadTask(void *pvParams)
             default:
                 // Other event types not used by our config; ignore.
                 break;
+        }
+
+        // Periodic diagnostic emit for VN-300 bring-up.
+        // Reads the parser's per-stage counters and the live IDF buffer
+        // depth. Emitted via the EnEfis module at EnDebug, so flipping
+        // `msg debug efis` on the console turns this on and off. The line
+        // shape is intentionally one short token-string so it's easy to
+        // grep, parse, or pipe through awk.
+        if (g_EfisSerial.enType == EfisSerialPort::EnVN300) {
+            const unsigned long uNowMs = millis();
+            if (uNowMs - uLastDiagMs >= kDiagPeriodMs) {
+                uLastDiagMs = uNowMs;
+                const auto& d = g_EfisSerial.Vn300Diag();
+                // Live IDF software RX buffer depth — tells us if the
+                // driver is delivering bytes (or if the wire is silent).
+                size_t bufDepth = 0;
+                uart_get_buffered_data_len(UART_NUM_2, &bufDepth);
+                // Compose the first-byte-by-nibble histogram as a compact
+                // 16-hex-counter string so we can see if 0xFA (nibble 0xF)
+                // dominates (good — frame starts) or if it's uniform (bad
+                // — noise / wrong polarity).
+                char nibStr[16 * 9 + 1] = {};
+                int pos = 0;
+                for (int i = 0; i < 16; ++i) {
+                    pos += snprintf(nibStr + pos, sizeof(nibStr) - pos,
+                                    "%x=%lu%s", i,
+                                    (unsigned long)d.firstByteByNibble[i],
+                                    (i == 15 ? "" : ","));
+                }
+                g_Log.printf(MsgLog::EnEfis, MsgLog::EnDebug,
+                             "VN300 DIAG bytes=%llu sync1=%lu sync2=%lu "
+                             "hdrOk=%lu hdrFail=%lu crcOk=%lu crcFail=%lu "
+                             "idfBuf=%lu nib=[%s]",
+                             (unsigned long long)d.bytesFed,
+                             (unsigned long)d.sync1,
+                             (unsigned long)d.sync2,
+                             (unsigned long)d.headerOk,
+                             (unsigned long)d.headerFail,
+                             (unsigned long)d.crcOk,
+                             (unsigned long)d.crcFail,
+                             (unsigned long)bufDepth, nibStr);
+            }
         }
     }
 #endif
