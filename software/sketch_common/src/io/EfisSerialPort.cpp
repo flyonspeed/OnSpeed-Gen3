@@ -102,20 +102,28 @@ EfisSerialPort::EfisSerialPort()
 
 void EfisSerialPort::SnapshotEfis(SuEfisData& out) const
 {
-    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
+    // Null-check the mutex: it's lazily created in AttachUart(), so any
+    // caller that hits Snapshot before AttachUart (unit test, future
+    // bench scaffold) would otherwise hand a NULL handle to
+    // xSemaphoreTake — which dereferences it as a queue pointer and
+    // crashes.  Mirrors BoomSerial::Snapshot's guard.
+    if (xEfisDataMutex_ != nullptr &&
+        xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
         out = suEfis_published_;
         xSemaphoreGive(xEfisDataMutex_);
     } else {
-        // Mutex creation failed at boot, or someone deleted it — degrade
-        // to a torn read rather than block forever.  Should not happen
-        // in production.
+        // Mutex creation failed or pre-AttachUart — degrade to a torn
+        // read rather than block forever.  Should not happen in
+        // production (AttachUart runs in setup() before any task is
+        // spawned).
         out = suEfis_published_;
     }
 }
 
 void EfisSerialPort::SnapshotVn300(SuVN300Data& out) const
 {
-    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
+    if (xEfisDataMutex_ != nullptr &&
+        xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
         out = suVN300_published_;
         xSemaphoreGive(xEfisDataMutex_);
     } else {
@@ -214,13 +222,25 @@ void EfisSerialPort::FeedBytes(const uint8_t* buf, size_t n)
 
         if (gotFrame && gotVn300)
         {
-            // VN-300 case: applyFrame's VN-300 mirror block is redundant
-            // with applyVn300Data (which writes the same Pitch/Roll/Yaw
-            // values from the same parser-decode local).  Skip the
-            // mirror by short-circuiting applyFrame — just publish via
-            // applyVn300Data which atomically writes the full struct.
-            // For non-VN-300 frames this branch isn't taken (gotVn300
-            // is false unless enType == EnVN300).
+            // VN-300 case: BOTH publishes run.  applyFrame writes
+            // suEfis_published_ (Pitch/Roll/Heading + the VN-300 mirror
+            // into suVN300_published_).  applyVn300Data writes the rest
+            // of suVN300_published_ (TimeStartupNs, Lat/Lon, position
+            // uncertainty, wind, etc.).  Each takes the mutex separately;
+            // a Core-1 reader running between them could see Pitch/Roll
+            // from the new frame combined with Lat/Lon from the previous
+            // applyVn300Data.  Acceptable: within a single frame the
+            // Pitch/Roll *and* Lat/Lon arrive on the same parser cycle,
+            // so the "previous" Lat/Lon is at most one 2.5-ms frame
+            // stale — well under the AHRS / display latency budget.
+            // The full-frame coherency property still holds for any
+            // single Snapshot{Efis,Vn300}() reader.
+            //
+            // The earlier "skip applyFrame" optimization dropped
+            // suEfis_published_.Pitch/Roll/Heading entirely for VN-300,
+            // which no current caller relied on but is a trap for any
+            // future caller of SnapshotEfis() that wants attitude.
+            applyFrame(frame);
             applyVn300Data(vnData);
             uTimestamp = millis();
         }

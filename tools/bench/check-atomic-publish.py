@@ -15,8 +15,8 @@ encode the same per-frame counter N (where N = TimeStartupNs / 2.5ms):
     Yaw      = (N % 36000) / 100.0          # degrees, [0, 360)
     Pitch    = ((N * 7)  % 6000) / 100 - 30 # degrees, [-30, +30)
     Roll     = ((N * 13) % 6000) / 100 - 30 # degrees, [-30, +30)
-    GnssLat  = 40.0 + (N % 1_000_000) * 1e-7
-    GnssLon  = -105.0 - (N % 1_000_000) * 1e-7
+    GnssLat  = 40.0 + (N % 100_000) * 1e-6
+    GnssLon  = -105.0 - (N % 100_000) * 1e-6
     TimeStartupNs = N * 2_500_000
 
 A CSV row written under an ATOMIC publish (producer's struct write was
