@@ -17,6 +17,15 @@ EfisSerialPort::EfisSerialPort()
     , lastReceivedEfisTime(0)
     , parser_(onspeed::efis::EfisType::None)
 {
+    // Create the data-publish mutex once at construction.  Priority
+    // inheritance is automatic on ESP-IDF FreeRTOS — a higher-priority
+    // taker temporarily boosts the holder so we don't priority-invert.
+    xEfisDataMutex_ = xSemaphoreCreateMutex();
+
+    // Initialize the published structs to "no data" baselines.  These
+    // values are what consumers see before the first frame decodes; they
+    // match the previous direct-field-init pattern byte-for-byte.
+    SuEfisData& suEfis = suEfis_published_;
     suEfis.DecelRate        = 0.00f;
     suEfis.IAS              = 0.00f;
     suEfis.Pitch            = 0.00f;
@@ -45,6 +54,7 @@ EfisSerialPort::EfisSerialPort()
     suEfis.Heading          = -1;
     suEfis.szTime[0]        = '\0';
 
+    SuVN300Data& suVN300 = suVN300_published_;
     suVN300.AngularRateRoll  = 0.00f;
     suVN300.AngularRatePitch = 0.00f;
     suVN300.AngularRateYaw   = 0.00f;
@@ -78,6 +88,35 @@ EfisSerialPort::EfisSerialPort()
     suVN300.WindVertical   = std::nanf("");
 
     uTimestamp = millis();
+}
+
+// ---------------------------------------------------------------------------
+// Atomic snapshot accessors.  Callers pass a stack-resident destination
+// struct; we memcpy the published state into it under the data mutex.
+// Hold time is bounded by sizeof(struct) — sub-microsecond for both.
+// ---------------------------------------------------------------------------
+
+void EfisSerialPort::SnapshotEfis(SuEfisData& out) const
+{
+    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
+        out = suEfis_published_;
+        xSemaphoreGive(xEfisDataMutex_);
+    } else {
+        // Mutex creation failed at boot, or someone deleted it — degrade
+        // to a torn read rather than block forever.  Should not happen
+        // in production.
+        out = suEfis_published_;
+    }
+}
+
+void EfisSerialPort::SnapshotVn300(SuVN300Data& out) const
+{
+    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
+        out = suVN300_published_;
+        xSemaphoreGive(xEfisDataMutex_);
+    } else {
+        out = suVN300_published_;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,12 +233,18 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     // Each parser sets EfisFrame::fieldsPresent bits for the fields it
     // actually wrote this frame. Branching on the bitmask is honest
     // about intent ("did the parser write this field?") rather than
-    // inferring it from float-NaN tests. On Xtensa LX7 the codegen is
-    // comparable (isfinite emits as an integer mask on the float bit
-    // pattern, not via the FPU); the structural clarity is the real
-    // win. NaN sentinels remain in place as a fallback for any
-    // consumer that still tests std::isfinite() directly.
+    // inferring it from float-NaN tests.
     const uint32_t fp = frame.fieldsPresent;
+
+    // Take the data mutex for the entire field-update sequence.
+    // Single-writer (EfisReadTask) → uncontended path, only readers
+    // wait.  Hold time bounded by ~15 field assignments + a possible
+    // strncpy of <= 16 bytes — well under a microsecond.  We're the
+    // only writer so a brief readers-blocked window is fine.
+    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) != pdTRUE)
+        return;     // mutex broken; skip publish rather than tear
+
+    SuEfisData& suEfis = suEfis_published_;
 
     if (fp & F::Ias)        suEfis.IAS         = frame.iasKt;
     if (fp & F::Pitch)      suEfis.Pitch       = frame.pitchDeg;
@@ -213,70 +258,72 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     if (fp & F::Tas)        suEfis.TAS         = frame.tasKt;
     if (fp & F::OatCelsius) suEfis.OAT         = frame.oatCelsius;
 
-    // Engine fields (Dynon SkyView EMS and Garmin G3X EMS; absent on
-    // non-EMS frames and on protocols that don't carry engine data).
     if (fp & F::Rpm)              suEfis.RPM           = static_cast<int>(frame.rpm);
     if (fp & F::MapInchHg)        suEfis.MAP           = frame.mapInchHg;
     if (fp & F::FuelFlowGph)      suEfis.FuelFlow      = frame.fuelFlowGph;
     if (fp & F::FuelRemainingGal) suEfis.FuelRemaining = frame.fuelRemainingGal;
     if (fp & F::PercentPower)     suEfis.PercentPower  = static_cast<int>(frame.percentPower);
 
-    // Copy time-of-day string ONLY when this frame actually carries one.
-    if (frame.timeOfDayHms[0] != '\0')
-        {
+    if (frame.timeOfDayHms[0] != '\0') {
         strncpy(suEfis.szTime, frame.timeOfDayHms, sizeof(suEfis.szTime) - 1);
         suEfis.szTime[sizeof(suEfis.szTime) - 1] = '\0';
-        }
-
-    // VN-300: mirror valid attitude into suVN300 so other consumers
-    // (display, log, HUD) can read a consistent attitude regardless of
-    // which path populated it.
-    if (frame.source == EfisSource::Vn300)
-    {
-        if (fp & F::Pitch)   suVN300.Pitch = frame.pitchDeg;
-        if (fp & F::Roll)    suVN300.Roll  = frame.rollDeg;
-        if (fp & F::Heading) suVN300.Yaw   = frame.headingDeg;
     }
+
+    // VN-300: mirror valid attitude into suVN300 under the same mutex
+    // so the cross-struct write is also atomic-from-a-reader's-view.
+    if (frame.source == EfisSource::Vn300) {
+        if (fp & F::Pitch)   suVN300_published_.Pitch = frame.pitchDeg;
+        if (fp & F::Roll)    suVN300_published_.Roll  = frame.rollDeg;
+        if (fp & F::Heading) suVN300_published_.Yaw   = frame.headingDeg;
+    }
+
+    xSemaphoreGive(xEfisDataMutex_);
 }
 
 // ---------------------------------------------------------------------------
 
 void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
 {
-    suVN300.AngularRateRoll  = data.angularRateRoll;
-    suVN300.AngularRatePitch = data.angularRatePitch;
-    suVN300.AngularRateYaw   = data.angularRateYaw;
-    suVN300.VelNedNorth      = data.velNedNorth;
-    suVN300.VelNedEast       = data.velNedEast;
-    suVN300.VelNedDown       = data.velNedDown;
-    suVN300.AccelFwd         = data.accelFwd;
-    suVN300.AccelLat         = data.accelLat;
-    suVN300.AccelVert        = data.accelVert;
-    suVN300.Yaw              = data.yaw;
-    suVN300.Pitch            = data.pitch;
-    suVN300.Roll             = data.roll;
-    suVN300.LinAccFwd        = data.linAccFwd;
-    suVN300.LinAccLat        = data.linAccLat;
-    suVN300.LinAccVert       = data.linAccVert;
-    suVN300.YawSigma         = data.yawSigma;
-    suVN300.RollSigma        = data.rollSigma;
-    suVN300.PitchSigma       = data.pitchSigma;
-    suVN300.GnssVelNedNorth  = data.gnssVelNedNorth;
-    suVN300.GnssVelNedEast   = data.gnssVelNedEast;
-    suVN300.GnssVelNedDown   = data.gnssVelNedDown;
-    suVN300.GnssLat          = data.gnssLat;
-    suVN300.GnssLon          = data.gnssLon;
-    suVN300.EstAltMeters     = data.estAltMeters;
-    suVN300.GPSFix           = data.gpsFix;
-    suVN300.TimeStartupNs    = data.timeStartupNs;
-    suVN300.TimeGpsNs        = data.timeGpsNs;
-    suVN300.TimeStatus       = data.timeStatus;
+    // Build a fully-populated staging struct in stack memory.  Readers
+    // see either the entire OLD struct or the entire NEW struct — never
+    // a torn mix.  This is the load-bearing fix for the per-frame
+    // atomicity Lenny called out.  Wind-triangle (which involves a
+    // possibly-expensive ComputeWind call + reads of g_AHRS.fTAS) is
+    // done OUTSIDE the mutex on the staging copy; the mutex only
+    // protects the brief memcpy of the finished struct into published.
+    SuVN300Data staging;
+    staging.AngularRateRoll  = data.angularRateRoll;
+    staging.AngularRatePitch = data.angularRatePitch;
+    staging.AngularRateYaw   = data.angularRateYaw;
+    staging.VelNedNorth      = data.velNedNorth;
+    staging.VelNedEast       = data.velNedEast;
+    staging.VelNedDown       = data.velNedDown;
+    staging.AccelFwd         = data.accelFwd;
+    staging.AccelLat         = data.accelLat;
+    staging.AccelVert        = data.accelVert;
+    staging.Yaw              = data.yaw;
+    staging.Pitch            = data.pitch;
+    staging.Roll             = data.roll;
+    staging.LinAccFwd        = data.linAccFwd;
+    staging.LinAccLat        = data.linAccLat;
+    staging.LinAccVert       = data.linAccVert;
+    staging.YawSigma         = data.yawSigma;
+    staging.RollSigma        = data.rollSigma;
+    staging.PitchSigma       = data.pitchSigma;
+    staging.GnssVelNedNorth  = data.gnssVelNedNorth;
+    staging.GnssVelNedEast   = data.gnssVelNedEast;
+    staging.GnssVelNedDown   = data.gnssVelNedDown;
+    staging.GnssLat          = data.gnssLat;
+    staging.GnssLon          = data.gnssLon;
+    staging.EstAltMeters     = data.estAltMeters;
+    staging.GPSFix           = data.gpsFix;
+    staging.TimeStartupNs    = data.timeStartupNs;
+    staging.TimeGpsNs        = data.timeGpsNs;
+    staging.TimeStatus       = data.timeStatus;
 
     // Wind triangle.  Snapshot TAS without a mutex: aligned 32-bit float
-    // DRAM loads are atomic on Xtensa LX7, so no torn-read is possible for
-    // this single scalar.  Do NOT extend this reasoning to multi-word reads
-    // (struct snapshots, double) — those are not atomic and would need the
-    // xAhrsMutex.  Gate on GPS fix; without it, GnssVelNed is noise.
+    // DRAM loads are atomic on Xtensa LX7, so no torn-read for a scalar.
+    // Gate on GPS fix; without it, GnssVelNed is noise.
     constexpr float kKtPerMps = 1.943844f;
     const float ownshipTasMps = g_AHRS.fTAS;
     if (data.gpsFix > 0) {
@@ -284,17 +331,25 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
             data.gnssVelNedNorth, data.gnssVelNedEast, data.gnssVelNedDown,
             data.yaw, data.pitch, ownshipTasMps);
         if (wind) {
-            suVN300.WindSpd      = wind->windSpeedMps    * kKtPerMps;
-            suVN300.WindDir     = wind->windDirDeg;
-            suVN300.WindVertical = wind->windVerticalMps * kKtPerMps;
+            staging.WindSpd      = wind->windSpeedMps    * kKtPerMps;
+            staging.WindDir      = wind->windDirDeg;
+            staging.WindVertical = wind->windVerticalMps * kKtPerMps;
         } else {
-            suVN300.WindSpd      = std::nanf("");
-            suVN300.WindDir     = std::nanf("");
-            suVN300.WindVertical = std::nanf("");
+            staging.WindSpd      = std::nanf("");
+            staging.WindDir      = std::nanf("");
+            staging.WindVertical = std::nanf("");
         }
     } else {
-        suVN300.WindSpd      = std::nanf("");
-        suVN300.WindDir     = std::nanf("");
-        suVN300.WindVertical = std::nanf("");
+        staging.WindSpd      = std::nanf("");
+        staging.WindDir      = std::nanf("");
+        staging.WindVertical = std::nanf("");
+    }
+
+    // Single atomic publish: memcpy under mutex.  Hold time is
+    // sizeof(SuVN300Data) ≈ 150 bytes worth of PSRAM-to-PSRAM copy,
+    // sub-microsecond.
+    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
+        suVN300_published_ = staging;
+        xSemaphoreGive(xEfisDataMutex_);
     }
 }

@@ -5,6 +5,9 @@
 #include <Stream.h>
 #include <optional>
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
 #include "src/Globals.h"
 #include <efis/EfisParser.h>
 #include <types/EfisFrame.h>
@@ -115,12 +118,23 @@ public:
         float   WindVertical;   // knots, positive = updraft
     };
 
-    // Public data accessed directly by callers in original code.
+    // EFIS type and freshness timestamps stay public.  Single-word
+    // reads/writes are atomic on Xtensa (these are unsigned long /
+    // EnEfisType enum, both 32-bit aligned), so no mutex needed.
     EnEfisType       enType;
-    SuEfisData       suEfis;
-    SuVN300Data      suVN300;
-    unsigned long    uTimestamp;       // millis() at last successful decode
+    unsigned long    uTimestamp;            // millis() at last successful decode
     unsigned long    lastReceivedEfisTime;
+
+    // The decoded data structs (suEfis, suVN300) are now PRIVATE.  Readers
+    // must call SnapshotEfis() / SnapshotVn300() to get a coherent copy.
+    // The previous pattern — direct field reads against a global that the
+    // producer was field-by-field writing — could observe torn structs
+    // where some fields were from frame N and others from frame N+1.
+    //
+    // Producer side: applyVn300Data / applyFrame build a local copy and
+    // memcpy it into the published struct under xEfisDataMutex_.  Mutex
+    // hold time is bounded by sizeof(struct) memcpy + an SD/PSRAM access
+    // — sub-microsecond at typical sizes.
 
     // Methods
 
@@ -136,6 +150,15 @@ public:
     // the IDF stream then calls this with the resulting buffer; that's
     // a ~100x reduction in IDF syscalls vs the previous per-byte loop.
     void FeedBytes(const uint8_t* buf, size_t n);
+
+    // Atomic snapshot of the published EFIS data structs.  Callers
+    // declare a local of the appropriate type, pass it in by reference,
+    // and read every field from the local copy that follows.  These are
+    // the ONLY supported readers of the data — direct member access is
+    // gone.  Both methods take the data mutex briefly (~1 µs hold time
+    // for the memcpy); safe to call from any task on any core.
+    void SnapshotEfis(SuEfisData& out) const;
+    void SnapshotVn300(SuVN300Data& out) const;
 
     // Apply any pending RequestTypeChange call. Idempotent. EfisRead
     // calls this once per wake before FeedBytes; the type change runs
@@ -196,12 +219,32 @@ private:
     // are no-ops in that state).
     class IdfUartStream*  pStream_ = nullptr;
 
+    // Published, mutex-guarded snapshots of the decoded data.  Producer
+    // (applyFrame / applyVn300Data) builds a local copy from the parser
+    // output, takes the mutex, memcpys into the published struct, and
+    // releases.  Readers do the inverse via SnapshotEfis / SnapshotVn300.
+    // Hold time bounded by a small memcpy (~50-150 B) — sub-microsecond.
+    //
+    // The mutex is recursive (created via xSemaphoreCreateMutex which on
+    // ESP-IDF's FreeRTOS port is a non-recursive priority-inheritance
+    // mutex). Priority inheritance matters here: if a low-priority
+    // reader (LogSensorCommitTask, pri 1) holds the mutex when the
+    // higher-priority producer (EfisReadTask, pri 3) tries to take it,
+    // the IDF mutex temporarily boosts the reader's priority so it
+    // releases promptly.
+    SuEfisData            suEfis_published_  = {};
+    SuVN300Data           suVN300_published_ = {};
+    mutable SemaphoreHandle_t xEfisDataMutex_ = nullptr;
+
     // Convert EfisType enum to onspeed core enum
     static onspeed::efis::EfisType toCoreType(EnEfisType t);
 
-    // Populate suEfis from a normalised EfisFrame.
+    // Populate suEfis_published_ from a normalised EfisFrame.  Builds
+    // a local SuEfisData copy field-by-field, then publishes under
+    // xEfisDataMutex_.
     void applyFrame(const onspeed::EfisFrame& frame);
 
-    // Populate suVN300 from Vn300Data.
+    // Populate suVN300_published_ from Vn300Data.  Same publish pattern
+    // as applyFrame.
     void applyVn300Data(const onspeed::efis::Vn300Data& data);
 };
