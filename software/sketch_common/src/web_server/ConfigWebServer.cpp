@@ -578,7 +578,7 @@ bool SendCompressedIfRequested(int code,
     const bool wantsGzip = hasAE && aeVal.indexOf("gzip") >= 0;
     // Temporary debug: log gzip negotiation per request. Pulled when
     // the gzip code path is validated on the bench.
-    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnDebug,
                  "gzip-debug: hasAE=%d ae='%s' wantsGzip=%d bodyLen=%u\n",
                  (int)hasAE, aeVal.c_str(), (int)wantsGzip, (unsigned)bodyLen);
     if (!wantsGzip || bodyLen < 256)
@@ -695,7 +695,7 @@ bool SendCompressedIfRequested(int code,
         return true;
         }
 
-    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnDebug,
                  "gzip-debug: compress OK in=%u out=%u ratio=%u%%\n",
                  (unsigned)bodyLen, (unsigned)totalOut,
                  (unsigned)(totalOut * 100 / bodyLen));
