@@ -96,6 +96,24 @@ public:
         return (got == 1) ? static_cast<int>(b) : -1;
     }
 
+    // Bulk-read up to `maxBytes` into `buf`, non-blocking. Returns the
+    // actual count drained (0..maxBytes). EfisSerialPort::Read() at 400 Hz
+    // VN-300 uses this to amortise the IDF UART syscall cost — single
+    // call per UART_DATA event instead of one syscall pair per byte —
+    // which cuts EfisRead CPU on Core 0 from ~50% to single digits.
+    //
+    // The Stream::readBytes() inherited method does this in a loop of
+    // single-byte reads internally; that's the API we're explicitly
+    // sidestepping. Use this method directly via a cast from Stream* to
+    // IdfUartStream* when you know the underlying type (which the
+    // synth-build branch in EfisSerialPort::Read() does NOT — it uses
+    // single-byte read() against SyntheticStream).
+    size_t readBulk(uint8_t* buf, size_t maxBytes) {
+        if (maxBytes == 0) return 0;
+        const int got = uart_read_bytes(port_, buf, maxBytes, 0);
+        return (got > 0) ? static_cast<size_t>(got) : 0;
+    }
+
     int peek() override {
         // ESP-IDF UART driver doesn't expose a peek primitive; we'd need
         // a one-byte readahead buffer here to support it. Nothing in

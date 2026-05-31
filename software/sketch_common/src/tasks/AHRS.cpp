@@ -80,7 +80,15 @@ onspeed::AhrsInputs AHRS::SnapshotInputs_() const
     in.useEfisOat = g_Config.bCalSourceEfis
                   && g_Config.bReadEfisData
                   && g_EfisSerial.IsDataFresh(2000);
-    in.efisOatCelsius = in.useEfisOat ? g_EfisSerial.suEfis.OAT : 0.0f;
+    // Snapshot for atomic OAT read (struct member, not a single aligned
+    // 32-bit float in the parent struct — must go through the mutex).
+    if (in.useEfisOat) {
+        EfisSerialPort::SuEfisData ef;
+        g_EfisSerial.SnapshotEfis(ef);
+        in.efisOatCelsius = ef.OAT;
+    } else {
+        in.efisOatCelsius = 0.0f;
+    }
     in.useInternalOat = g_Config.bOatSensor;
 
     return in;

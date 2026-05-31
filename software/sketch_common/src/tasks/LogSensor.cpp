@@ -1145,12 +1145,20 @@ void LogSensor::Write()
 
     if (g_Config.bReadBoom)
         {
-        int boomAge        = (int)((unsigned long)millis() - g_BoomSerial.uTimestamp);
-        row.boomStatic     = g_BoomSerial.Static;
-        row.boomDynamic    = g_BoomSerial.Dynamic;
-        row.boomAlpha      = g_BoomSerial.Alpha;
-        row.boomBeta       = g_BoomSerial.Beta;
-        row.boomIasKt      = g_BoomSerial.IAS;
+        // Atomic snapshot — Static / Dynamic / Alpha / Beta / IAS all
+        // come from the SAME decoded frame.  Prevents the prior torn-
+        // read pattern where field-by-field assignment could mix
+        // values from two adjacent frames if BoomRead preempted us
+        // mid-block.  uTimestamp is a single aligned 32-bit word so
+        // its read is atomic without the mutex.
+        BoomSerialIO::SuBoomData boom;
+        g_BoomSerial.Snapshot(boom);
+        const int boomAge  = (int)((unsigned long)millis() - g_BoomSerial.uTimestamp);
+        row.boomStatic     = boom.Static;
+        row.boomDynamic    = boom.Dynamic;
+        row.boomAlpha      = boom.Alpha;
+        row.boomBeta       = boom.Beta;
+        row.boomIasKt      = boom.IAS;
         row.boomAgeMs      = boomAge;
         }
 
@@ -1159,57 +1167,65 @@ void LogSensor::Write()
         int efisAge = (int)((unsigned long)millis() - g_EfisSerial.uTimestamp);
         if (g_EfisSerial.enType == EfisSerialPort::EnVN300)
             {
-            row.vnAngularRateRoll  = g_EfisSerial.suVN300.AngularRateRoll;
-            row.vnAngularRatePitch = g_EfisSerial.suVN300.AngularRatePitch;
-            row.vnAngularRateYaw   = g_EfisSerial.suVN300.AngularRateYaw;
-            row.vnVelNedNorth      = g_EfisSerial.suVN300.VelNedNorth;
-            row.vnVelNedEast       = g_EfisSerial.suVN300.VelNedEast;
-            row.vnVelNedDown       = g_EfisSerial.suVN300.VelNedDown;
-            row.vnAccelFwd         = g_EfisSerial.suVN300.AccelFwd;
-            row.vnAccelLat         = g_EfisSerial.suVN300.AccelLat;
-            row.vnAccelVert        = g_EfisSerial.suVN300.AccelVert;
-            row.vnYawDeg           = g_EfisSerial.suVN300.Yaw;
-            row.vnPitchDeg         = g_EfisSerial.suVN300.Pitch;
-            row.vnRollDeg          = g_EfisSerial.suVN300.Roll;
-            row.vnLinAccFwd        = g_EfisSerial.suVN300.LinAccFwd;
-            row.vnLinAccLat        = g_EfisSerial.suVN300.LinAccLat;
-            row.vnLinAccVert       = g_EfisSerial.suVN300.LinAccVert;
-            row.vnYawSigma         = g_EfisSerial.suVN300.YawSigma;
-            row.vnRollSigma        = g_EfisSerial.suVN300.RollSigma;
-            row.vnPitchSigma       = g_EfisSerial.suVN300.PitchSigma;
-            row.vnGnssVelNedNorth  = g_EfisSerial.suVN300.GnssVelNedNorth;
-            row.vnGnssVelNedEast   = g_EfisSerial.suVN300.GnssVelNedEast;
-            row.vnGnssVelNedDown   = g_EfisSerial.suVN300.GnssVelNedDown;
-            row.vnWindSpd          = g_EfisSerial.suVN300.WindSpd;
-            row.vnWindDir          = g_EfisSerial.suVN300.WindDir;
-            row.vnWindVertical     = g_EfisSerial.suVN300.WindVertical;
-            row.vnGnssLat          = g_EfisSerial.suVN300.GnssLat;
-            row.vnGnssLon          = g_EfisSerial.suVN300.GnssLon;
-            row.vnEstAltFt         = m2ft(static_cast<float>(g_EfisSerial.suVN300.EstAltMeters));
-            row.vnGpsFix           = g_EfisSerial.suVN300.GPSFix;
+            // Snapshot the published VN-300 data atomically.  All field
+            // reads below are from the local copy — no torn-struct risk
+            // even if EfisReadTask preempts us mid-block.
+            EfisSerialPort::SuVN300Data vn;
+            g_EfisSerial.SnapshotVn300(vn);
+            row.vnAngularRateRoll  = vn.AngularRateRoll;
+            row.vnAngularRatePitch = vn.AngularRatePitch;
+            row.vnAngularRateYaw   = vn.AngularRateYaw;
+            row.vnVelNedNorth      = vn.VelNedNorth;
+            row.vnVelNedEast       = vn.VelNedEast;
+            row.vnVelNedDown       = vn.VelNedDown;
+            row.vnAccelFwd         = vn.AccelFwd;
+            row.vnAccelLat         = vn.AccelLat;
+            row.vnAccelVert        = vn.AccelVert;
+            row.vnYawDeg           = vn.Yaw;
+            row.vnPitchDeg         = vn.Pitch;
+            row.vnRollDeg          = vn.Roll;
+            row.vnLinAccFwd        = vn.LinAccFwd;
+            row.vnLinAccLat        = vn.LinAccLat;
+            row.vnLinAccVert       = vn.LinAccVert;
+            row.vnYawSigma         = vn.YawSigma;
+            row.vnRollSigma        = vn.RollSigma;
+            row.vnPitchSigma       = vn.PitchSigma;
+            row.vnGnssVelNedNorth  = vn.GnssVelNedNorth;
+            row.vnGnssVelNedEast   = vn.GnssVelNedEast;
+            row.vnGnssVelNedDown   = vn.GnssVelNedDown;
+            row.vnWindSpd          = vn.WindSpd;
+            row.vnWindDir          = vn.WindDir;
+            row.vnWindVertical     = vn.WindVertical;
+            row.vnGnssLat          = vn.GnssLat;
+            row.vnGnssLon          = vn.GnssLon;
+            row.vnEstAltFt         = m2ft(static_cast<float>(vn.EstAltMeters));
+            row.vnGpsFix           = vn.GPSFix;
             row.vnDataAgeMs        = efisAge;
-            strncpy(row.vnTimeUtc, g_EfisSerial.suVN300.szTimeUTC,
-                    onspeed::kLogRowUtcTimeLen - 1);
-            row.vnTimeUtc[onspeed::kLogRowUtcTimeLen - 1] = '\0';
+            row.vnTimeStartupNs    = vn.TimeStartupNs;
+            row.vnTimeGpsNs        = vn.TimeGpsNs;
+            row.vnTimeStatus       = vn.TimeStatus;
             }
         else
             {
-            row.efisIasKt         = g_EfisSerial.suEfis.IAS;
-            row.efisPitchDeg      = g_EfisSerial.suEfis.Pitch;
-            row.efisRollDeg       = g_EfisSerial.suEfis.Roll;
-            row.efisLateralG      = g_EfisSerial.suEfis.LateralG;
-            row.efisVerticalG     = g_EfisSerial.suEfis.VerticalG;
-            row.efisPercentLift   = g_EfisSerial.suEfis.PercentLift;
-            row.efisPaltFt        = g_EfisSerial.suEfis.Palt;
-            row.efisVsiFpm        = g_EfisSerial.suEfis.VSI;
-            row.efisTasKt         = g_EfisSerial.suEfis.TAS;
-            row.efisOatCelsius    = g_EfisSerial.suEfis.OAT;
-            row.efisFuelRemaining = g_EfisSerial.suEfis.FuelRemaining;
-            row.efisFuelFlow      = g_EfisSerial.suEfis.FuelFlow;
-            row.efisMap           = g_EfisSerial.suEfis.MAP;
-            row.efisRpm           = g_EfisSerial.suEfis.RPM;
-            row.efisPercentPower  = g_EfisSerial.suEfis.PercentPower;
-            row.efisMagHeading    = g_EfisSerial.suEfis.Heading;
+            // Snapshot the published normalised EFIS data atomically.
+            EfisSerialPort::SuEfisData ef;
+            g_EfisSerial.SnapshotEfis(ef);
+            row.efisIasKt         = ef.IAS;
+            row.efisPitchDeg      = ef.Pitch;
+            row.efisRollDeg       = ef.Roll;
+            row.efisLateralG      = ef.LateralG;
+            row.efisVerticalG     = ef.VerticalG;
+            row.efisPercentLift   = ef.PercentLift;
+            row.efisPaltFt        = ef.Palt;
+            row.efisVsiFpm        = ef.VSI;
+            row.efisTasKt         = ef.TAS;
+            row.efisOatCelsius    = ef.OAT;
+            row.efisFuelRemaining = ef.FuelRemaining;
+            row.efisFuelFlow      = ef.FuelFlow;
+            row.efisMap           = ef.MAP;
+            row.efisRpm           = ef.RPM;
+            row.efisPercentPower  = ef.PercentPower;
+            row.efisMagHeading    = ef.Heading;
             row.efisAgeMs         = efisAge;
             row.efisTimestampMs   = (uint32_t)g_EfisSerial.uTimestamp;
             }
@@ -1222,19 +1238,24 @@ void LogSensor::Write()
     row.derivedAoaDeg  = ahrsDerivedAoaDeg;
     row.coeffP         = g_fCoeffP;
 
-    // Sidecar accumulator: feed time-of-day + UTC if available.
+    // Sidecar accumulator: feed time-of-day if available. The VN-300
+    // wire-format change (issue #637) dropped the GNSS1.UTC string in
+    // favor of per-sample ns timestamps (vnTimeGpsNs); the sidecar's
+    // ISO-8601 first-time field can be reconstructed offline from
+    // vnTimeGpsNs when dateOk is set.
     {
         const char* hmsOrNull = nullptr;
-        const char* utcOrNull = nullptr;
+        // Snapshot under mutex into a local buffer that outlives the
+        // m_metaBuilder.OnRow call below.  szTime is a fixed-size char
+        // array embedded in SuEfisData; copying the local out keeps the
+        // pointer valid for the OnRow call.
+        EfisSerialPort::SuEfisData efSnap;
         if (g_Config.bReadEfisData) {
-            if (g_EfisSerial.suEfis.szTime[0] != '\0')
-                hmsOrNull = g_EfisSerial.suEfis.szTime;
-            if (g_EfisSerial.enType == EfisSerialPort::EnVN300 &&
-                g_EfisSerial.suVN300.szTimeUTC[0] != '\0' &&
-                g_EfisSerial.suVN300.GPSFix > 0)
-                utcOrNull = g_EfisSerial.suVN300.szTimeUTC;
+            g_EfisSerial.SnapshotEfis(efSnap);
+            if (efSnap.szTime[0] != '\0')
+                hmsOrNull = efSnap.szTime;
         }
-        m_metaBuilder.OnRow(row, hmsOrNull, utcOrNull);
+        m_metaBuilder.OnRow(row, hmsOrNull, nullptr);
     }
 
     // Send the LogRow struct (not the formatted CSV) to the ring.

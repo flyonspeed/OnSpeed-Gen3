@@ -20,6 +20,27 @@ A future CI version that runs this protocol automatically on a self-hosted runne
   uv run ./stress_web_handlers.py --duration 30 --no-downloads   # no paused_drops expected
   ```
 
+- **`uart_efis_stim.py`** + **`efis-stim/`** — UART EFIS stim rig.  Pumps bit-identical VN-300 binary frames into the V4P's EFIS RX from a USB-TTL dongle at 400 Hz / 921600 baud.  Pairs with the web stress to reproduce the production Core 0 workload (the IDF UART path that synth firmware builds bypass).  The `--epoch-encode` flag encodes a per-frame counter N into Yaw / Pitch / Roll / Lat / Lon / TimeStartupNs so the offline analyzer below can detect torn rows.
+
+  ```bash
+  # First time: build the C++ helper
+  cd efis-stim && make && cd -
+
+  # Then pump frames (auto-detects the dongle if exactly one CP210x/CH34x is plugged in)
+  uv run ./uart_efis_stim.py --rate 400 --baud 921600 --epoch-encode
+  uv run ./uart_efis_stim.py --port /dev/cu.usbserial-XXXX        # explicit port
+  ```
+
+  Wiring (V4P): dongle TX → GPIO 11 (J1 pin 25, post-ADM3202), dongle GND → V4P GND, dongle voltage selector to 3.3 V (NOT 5 V).  V4B: TX → GPIO 9 (DB-15 pin 2).  See the docstring at the top of `uart_efis_stim.py` for the full pin map and what to watch for in the box console.
+
+- **`check-atomic-publish.py`** — offline detector for atomic-publish regressions in EFIS data.  Reads a CSV log produced under `--epoch-encode` stim and reports torn rows (where Pitch/Roll come from frame N but Lat/Lon come from frame N±1).  Recommended as a manual sanity-check after any change touching `EfisSerialPort::applyVn300Data` or `BoomSerial::Read`.
+
+  ```bash
+  python3 ./check-atomic-publish.py /Volumes/Untitled/log_NNN.csv
+  ```
+
+  The companion file `test_check_atomic_publish.py` is a Python-side regression suite for the analyzer itself (catches future regressions of the detection logic, with synthetic clean + torn fixture rows).  Run with `python3 ./test_check_atomic_publish.py`.
+
 ## Related
 
 - `tools/regression/` — host-side regression harness that runs `onspeed_core` algorithms against a recorded flight log. Different layer: this catches algorithm drift across `onspeed_core` extraction PRs, not real-hardware reliability.

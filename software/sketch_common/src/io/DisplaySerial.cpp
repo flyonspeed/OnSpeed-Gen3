@@ -352,12 +352,16 @@ void DisplaySerial::Write()
         // onspeed_core/efis/OatSelect.h for the decision rule and the
         // gates that lock the EFIS branch out when the EFIS feed is
         // disabled or stale.
+        // Atomic snapshot for the OAT field (must go through mutex —
+        // single field but the parent struct is mutex-protected).
+        EfisSerialPort::SuEfisData efOat;
+        g_EfisSerial.SnapshotEfis(efOat);
         const float fOatC = onspeed::efis::SelectDisplayOatC(
             g_Config.bCalSourceEfis,
             g_Config.bReadEfisData,
             g_EfisSerial.IsDataFresh(2000),
             g_Config.bOatSensor,
-            g_EfisSerial.suEfis.OAT,
+            efOat.OAT,
             g_Sensors.OatC);
         // Round to nearest integer so the M5 reads the same whole
         // degrees the LiveView shows (which keeps the fractional part).

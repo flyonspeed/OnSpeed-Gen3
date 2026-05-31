@@ -1,0 +1,4 @@
+# Compiled stim binary (host-built via `make`).  Different per developer
+# OS / arch — should never be committed.
+efis_stim_vn300
+*.o

@@ -21,9 +21,8 @@ void WriteFloatLE(uint8_t* out, std::size_t pos, float v) {
 void WriteDoubleLE(uint8_t* out, std::size_t pos, double v) {
     std::memcpy(out + pos, &v, sizeof(double));
 }
-void WriteUint16LE(uint8_t* out, std::size_t pos, uint16_t v) {
-    out[pos]     = static_cast<uint8_t>(v & 0xFF);
-    out[pos + 1] = static_cast<uint8_t>((v >> 8) & 0xFF);
+void WriteUint64LE(uint8_t* out, std::size_t pos, uint64_t v) {
+    std::memcpy(out + pos, &v, sizeof(uint64_t));
 }
 
 // VN CRC-16, matches Vn300Parser exactly. [begin, end) inclusive/exclusive.
@@ -53,53 +52,59 @@ void WriteHexCrc(uint8_t* buf, std::size_t crcPos, std::size_t sumStart,
 }
 
 // ===========================================================================
-// VN-300 — 127-B binary frame
+// VN-300 — 138-B binary frame (issue #637: per-sample TimeStartup + TimeGps,
+// four active groups: Common + Time + GNSS1 + AHRS).
 // ===========================================================================
-constexpr std::size_t kVn300Len = 127;
+constexpr std::size_t kVn300Len = 138;
 
 void BuildVn300(uint8_t* buf) {
-    static const uint8_t kHeader[8] = {
-        0xFA, 0x19, 0xE0, 0x01, 0x91, 0x00, 0x42, 0x01
+    static const uint8_t kHeader[10] = {
+        0xFA, 0x1B,           // sync + Groups (Common+Time+GNSS1+AHRS)
+        0xE3, 0x01,           // Common mask 0x01E3 (LE)
+        0x00, 0x02,           // Time mask   0x0200 (LE)
+        0x90, 0x00,           // GNSS1 mask  0x0090 (LE)
+        0x42, 0x01            // AHRS mask   0x0142 (LE)
     };
     std::memset(buf, 0, kVn300Len);
-    std::memcpy(buf, kHeader, 8);
+    std::memcpy(buf, kHeader, 10);
+
+    // Per-sample timestamps (Common group leads the payload).
+    WriteUint64LE(buf, 10, 1'234'567'890ULL);          // TimeStartup
+    WriteUint64LE(buf, 18, 1'400'123'456'789'000ULL);  // TimeGps
 
     // Body angles — cruise-ish. See Vn300.cpp::Decode for offsets.
-    WriteFloatLE(buf,  8, 0.0f);          // angular rates
-    WriteFloatLE(buf, 12, 0.0f);
-    WriteFloatLE(buf, 16, 0.0f);
-    WriteDoubleLE(buf, 20,  40.0);        // lat
-    WriteDoubleLE(buf, 28, -105.0);       // lon
-    WriteDoubleLE(buf, 36, 1500.0);       // alt m
-    WriteFloatLE(buf, 44, 50.0f);         // velNed N
-    WriteFloatLE(buf, 48,  5.0f);         // velNed E
-    WriteFloatLE(buf, 52, -1.0f);         // velNed D
-    WriteFloatLE(buf, 56, 0.05f);         // accel fwd
-    WriteFloatLE(buf, 60, 0.00f);         // accel lat
-    WriteFloatLE(buf, 64, 1.00f);         // accel vert
+    WriteFloatLE(buf,  26, 0.0f);         // angular rates
+    WriteFloatLE(buf,  30, 0.0f);
+    WriteFloatLE(buf,  34, 0.0f);
+    WriteDoubleLE(buf, 38,  40.0);        // lat
+    WriteDoubleLE(buf, 46, -105.0);       // lon
+    WriteDoubleLE(buf, 54, 1500.0);       // alt m
+    WriteFloatLE(buf,  62, 50.0f);        // velNed N
+    WriteFloatLE(buf,  66,  5.0f);        // velNed E
+    WriteFloatLE(buf,  70, -1.0f);        // velNed D
+    WriteFloatLE(buf,  74, 0.05f);        // accel fwd
+    WriteFloatLE(buf,  78, 0.00f);        // accel lat
+    WriteFloatLE(buf,  82, 1.00f);        // accel vert
 
-    buf[71] = 12;   // gps hour
-    buf[72] = 0;
-    buf[73] = 0;
-    WriteUint16LE(buf, 74, 0);
-    buf[76] = 3;    // 3D fix
+    buf[86] = 0x07;                       // TimeStatus: all three valid bits
+    buf[87] = 3;                          // GPSFix: 3D
 
-    WriteFloatLE(buf, 77, 50.0f);         // gnssVelNed (mirror INS-velNed)
-    WriteFloatLE(buf, 81,  5.0f);
-    WriteFloatLE(buf, 85, -1.0f);
-    WriteFloatLE(buf, 89, 90.0f);         // yaw
-    WriteFloatLE(buf, 93,  2.5f);         // pitch
-    WriteFloatLE(buf, 97,  0.5f);         // roll
-    WriteFloatLE(buf, 101, 0.0f);         // linAcc
-    WriteFloatLE(buf, 105, 0.0f);
-    WriteFloatLE(buf, 109, 0.0f);
-    WriteFloatLE(buf, 113, 0.5f);         // yaw sigma
-    WriteFloatLE(buf, 117, 0.1f);         // pitch sigma
-    WriteFloatLE(buf, 121, 0.1f);         // roll sigma
+    WriteFloatLE(buf,  88, 50.0f);        // gnssVelNed (mirror INS-velNed)
+    WriteFloatLE(buf,  92,  5.0f);
+    WriteFloatLE(buf,  96, -1.0f);
+    WriteFloatLE(buf, 100, 90.0f);        // yaw
+    WriteFloatLE(buf, 104,  2.5f);        // pitch
+    WriteFloatLE(buf, 108,  0.5f);        // roll
+    WriteFloatLE(buf, 112, 0.0f);         // linAcc
+    WriteFloatLE(buf, 116, 0.0f);
+    WriteFloatLE(buf, 120, 0.0f);
+    WriteFloatLE(buf, 124, 0.5f);         // yaw sigma
+    WriteFloatLE(buf, 128, 0.1f);         // pitch sigma
+    WriteFloatLE(buf, 132, 0.1f);         // roll sigma
 
-    const uint16_t crc = ComputeVnCrc(buf, 1, 125);
-    buf[125] = static_cast<uint8_t>((crc >> 8) & 0xFF);
-    buf[126] = static_cast<uint8_t>(crc & 0xFF);
+    const uint16_t crc = ComputeVnCrc(buf, 1, 136);
+    buf[136] = static_cast<uint8_t>((crc >> 8) & 0xFF);
+    buf[137] = static_cast<uint8_t>(crc & 0xFF);
 }
 
 // ===========================================================================

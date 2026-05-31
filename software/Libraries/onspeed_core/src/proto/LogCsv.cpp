@@ -151,10 +151,85 @@ static inline bool AppendFloatFixed(char* buf, size_t cap, size_t* pLen,
     return true;
 }
 
+// Double-precision variant for fields that come in as `double` (GnssLat,
+// GnssLon, EstAltMeters from VN-300).  Casting through `float` would
+// lose ~7-8 decimal digits — for Lat/Lon coordinates that's about a
+// 1-meter quantization error at equator, with the value snapping to
+// the nearest representable float32 instead of the requested %.6f
+// position.  This overload keeps the input in double through the
+// scaling step so the printed value is accurate to the requested
+// number of decimals.
+static inline bool AppendDoubleFixed(char* buf, size_t cap, size_t* pLen,
+                                     double val, int decimals)
+{
+    if (std::isnan(val)) {
+        const char* s = "nan";
+        while (*s) { if (!AppendChar(buf, cap, pLen, *s++)) return false; }
+        return true;
+    }
+    if (std::isinf(val)) {
+        if (val < 0.0 && !AppendChar(buf, cap, pLen, '-')) return false;
+        const char* s = "inf";
+        while (*s) { if (!AppendChar(buf, cap, pLen, *s++)) return false; }
+        return true;
+    }
+
+    bool negative = val < 0.0;
+    if (negative) val = -val;
+
+    static const uint64_t kPow10[] = {1ULL, 10ULL, 100ULL, 1000ULL, 10000ULL,
+                                      100000ULL, 1000000ULL, 10000000ULL,
+                                      100000000ULL, 1000000000ULL};
+    const uint64_t scale = (decimals >= 0 && decimals <= 9)
+                               ? kPow10[decimals]
+                               : 100ULL;
+
+    const double scaled = val * (double)scale + 0.5;
+    if (scaled >= 9.2e18) {
+        char fmt[8];
+        std::snprintf(fmt, sizeof(fmt), "%%.%df", decimals);
+        char tmp[40];
+        int n = std::snprintf(tmp, sizeof(tmp), fmt, negative ? -val : val);
+        if (n < 0 || *pLen + (size_t)n >= cap) {
+            buf[cap - 1] = '\0';
+            return false;
+        }
+        std::memcpy(buf + *pLen, tmp, (size_t)n);
+        *pLen += (size_t)n;
+        return true;
+    }
+
+    const uint64_t intRounded = (uint64_t)scaled;
+    const uint64_t intPart    = intRounded / scale;
+    const uint64_t fracPart   = intRounded - intPart * scale;
+
+    if (negative) {
+        if (!AppendChar(buf, cap, pLen, '-')) return false;
+    }
+    if (!AppendUInt64(buf, cap, pLen, intPart)) return false;
+    if (decimals <= 0) return true;
+    if (!AppendChar(buf, cap, pLen, '.')) return false;
+    // Zero-pad the fractional part to `decimals` width.  Up to 9 digits
+    // (vs 6 in the float path) because doubles can resolve more.
+    char fbuf[10];
+    int fn = 0;
+    uint64_t f = fracPart;
+    for (int i = 0; i < decimals; ++i) {
+        fbuf[fn++] = static_cast<char>('0' + (f % 10ULL));
+        f /= 10ULL;
+    }
+    if (*pLen + (size_t)fn >= cap) { buf[cap - 1] = '\0'; return false; }
+    while (fn > 0) buf[(*pLen)++] = fbuf[--fn];
+    return true;
+}
+
 // Convenience emit-with-leading-comma variants — the format style FormatRow
 // uses pervasively (",%.2f", ",%i", ...).
 static inline bool CommaFloat(char* b, size_t c, size_t* l, float v, int d) {
     return AppendChar(b, c, l, ',') && AppendFloatFixed(b, c, l, v, d);
+}
+static inline bool CommaDouble(char* b, size_t c, size_t* l, double v, int d) {
+    return AppendChar(b, c, l, ',') && AppendDoubleFixed(b, c, l, v, d);
 }
 static inline bool CommaInt32(char* b, size_t c, size_t* l, int32_t v) {
     return AppendChar(b, c, l, ',') && AppendInt32(b, c, l, v);
@@ -249,7 +324,8 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
                 ",vnYawSigma,vnRollSigma,vnPitchSigma"
                 ",vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown"
                 ",vnWindSpd,vnWindDir,vnWindVertical"
-                ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC");
+                ",vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge"
+                ",vnTimeStartupNs,vnTimeGpsNs,vnTimeStatus");
         } else {
             ok &= Appendf(out, outCapacity, &len,
                 ",efisIAS,efisPitch,efisRoll,efisLateralG,efisVerticalG"
@@ -328,14 +404,6 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     // EFIS columns (optional)
     if (row.efisEnabled) {
         if (row.efisIsVn300) {
-            // The VN-300 row's last column is `vnTimeUtc`, written as `%s`.
-            // A comma in that string would split into the next CSV column
-            // and corrupt every parser downstream (the tokenizer is not
-            // RFC-4180 quote-aware).  Today the producer in onspeed_core
-            // emits `%u:%u:%u`, but a future format change is the latent
-            // risk.  Refuse to emit the row rather than silently corrupt.
-            if (memchr(row.vnTimeUtc, ',', strnlen(row.vnTimeUtc, sizeof(row.vnTimeUtc))) != nullptr)
-                return 0;
             // VN-300 format.  Wind columns emit as empty cells when NaN.
             ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRateRoll,  2);
             ok &= CommaFloat(out, outCapacity, &len, row.vnAngularRatePitch, 2);
@@ -368,16 +436,23 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
             ok &= AppendChar(out, outCapacity, &len, ',');
             if (std::isfinite(row.vnWindVertical))
                 ok &= AppendFloatFixed(out, outCapacity, &len, row.vnWindVertical, 2);
-            // GnssLat/Lon: %.6f doubles. The fast formatter takes float; cast.
-            // (Coordinates fit easily in float32 to ~7 decimal places of precision
-            // at equator, plenty for the %.6f output.)
-            ok &= CommaFloat(out, outCapacity, &len, (float)row.vnGnssLat,  6);
-            ok &= CommaFloat(out, outCapacity, &len, (float)row.vnGnssLon,  6);
-            ok &= CommaFloat(out, outCapacity, &len, row.vnEstAltFt,         2);
+            // GnssLat/Lon are doubles — keep them double through the
+            // formatter.  The previous (float) cast lost ~1m of precision
+            // at equator (float32 has ~7 decimal digits total; at lat=40
+            // that leaves only ~5 digits after the decimal, well short of
+            // %.6f).  CommaDouble preserves the full %.6f resolution.
+            ok &= CommaDouble(out, outCapacity, &len, row.vnGnssLat, 6);
+            ok &= CommaDouble(out, outCapacity, &len, row.vnGnssLon, 6);
+            ok &= CommaFloat (out, outCapacity, &len, row.vnEstAltFt, 2);
             ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnGpsFix);
             ok &= CommaInt32(out, outCapacity, &len, (int32_t)row.vnDataAgeMs);
-            // Time-of-day string: keep Appendf for %s.
-            ok &= Appendf(out, outCapacity, &len, ",%s", row.vnTimeUtc);
+            // Per-sample VN-300 timestamps (issue #637). %llu for the ns u64s
+            // (printf-promoted to unsigned long long) and %u for the u8
+            // TimeStatus byte. None of these can produce a comma.
+            ok &= Appendf(out, outCapacity, &len, ",%llu,%llu,%u",
+                          (unsigned long long)row.vnTimeStartupNs,
+                          (unsigned long long)row.vnTimeGpsNs,
+                          (unsigned)row.vnTimeStatus);
         } else {
             // Standard EFIS (Dynon, Garmin, MGL, etc.)
             ok &= CommaFloat(out, outCapacity, &len, row.efisIasKt,     2);

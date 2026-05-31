@@ -539,6 +539,202 @@ void HandleStaticAppCss()
     }
 
 // ----------------------------------------------------------------------------
+// Dynamic-content compression.  /aoaconfig and other dynamic HTML pages
+// build a ~70 KB response body in PSRAM and currently `CfgServer.send()`
+// it raw.  Under aggressive web load + 400 Hz EFIS + heavy SD writer
+// activity, TCP send of a 70 KB body has been observed taking 3-12 sec
+// over the WiFi AP, with up to 12-sec wall-clock /aoaconfig response
+// times.  Browsers (and modern curl with --compressed) advertise
+// `Accept-Encoding: gzip`; gzip on text/html typically compresses 5-10x,
+// dropping the on-wire body to ~7-15 KB and the response time to ~1-2 sec.
+//
+// SendCompressedIfRequested is a one-shot compressor: it inspects the
+// inbound Accept-Encoding header, gzips the body in PSRAM if the client
+// asked for it, sends the response with the appropriate headers, and
+// returns true.  If the client did not request gzip (rare in practice;
+// curl without --compressed, very old tooling), the function falls back
+// to sending the uncompressed body and still returns true.  Caller can
+// treat this as a drop-in for `CfgServer.send(code, content_type, body)`.
+//
+// Performance notes:
+//   - Uses tdefl_compress_mem_to_mem in one shot; allocates an output
+//     buffer in PSRAM (input size + small slack — gzip never inflates
+//     text/html, but the API still requires an output buffer).
+//   - Compression level: TDEFL_GREEDY_PARSING_FLAG keeps cost low
+//     (~20-40 ms for 70 KB on the V4P) while still hitting 6-8x ratio
+//     on HTML.  TDEFL_DEFAULT_MAX_PROBES gives diminishing returns at
+//     this size.
+//   - Allocation failure falls through to uncompressed send (degrades
+//     gracefully under memory pressure rather than 503'ing).
+bool SendCompressedIfRequested(int code,
+                               const char* contentType,
+                               const uint8_t* body, size_t bodyLen)
+    {
+    // If the client did not advertise gzip support, just send raw.
+    // Browsers always advertise it; this branch is for curl without
+    // --compressed and very old clients.
+    const bool hasAE = CfgServer.hasHeader("Accept-Encoding");
+    const String aeVal = CfgServer.header("Accept-Encoding");
+    const bool wantsGzip = hasAE && aeVal.indexOf("gzip") >= 0;
+    if (!wantsGzip || bodyLen < 256)
+        {
+        // Below 256 B compression overhead exceeds the savings; just
+        // send raw.  256 was picked to clear the standard MTU; smaller
+        // payloads fit one segment either way.
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Allocate a tdefl_compressor (~167 KB) in PSRAM. The one-shot
+    // tdefl_compress_mem_to_mem variant allocates this on the stack
+    // and overflows on the ESP32-S3 ROM build of miniz — so we use the
+    // streaming tdefl_init + tdefl_compress pattern instead. Same
+    // pattern as StreamFileDownloadGzip uses successfully.
+    tdefl_compressor* pComp = static_cast<tdefl_compressor*>(
+        heap_caps_malloc(sizeof(tdefl_compressor),
+                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (pComp == nullptr)
+        pComp = static_cast<tdefl_compressor*>(malloc(sizeof(tdefl_compressor)));
+    if (pComp == nullptr)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip: compressor alloc failed (size=%u), falling back to raw\n",
+                     (unsigned)sizeof(tdefl_compressor));
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Output buffer. Worst-case bound is input + input/8 + 64 (zlib's
+    // deflateBound formula). HTML always compresses well, so the real
+    // output is ~10-15% of input — this buffer is mostly slack.
+    const size_t outCapacity = bodyLen + bodyLen / 8 + 64;
+    uint8_t* outBuf = static_cast<uint8_t*>(
+        heap_caps_malloc(outCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (outBuf == nullptr)
+        outBuf = static_cast<uint8_t*>(malloc(outCapacity));
+    if (outBuf == nullptr)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip: outBuf alloc failed (outCapacity=%u), falling back to raw\n",
+                     (unsigned)outCapacity);
+        free(pComp);
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Write the 10-byte gzip header (RFC 1952): magic 1f 8b, deflate
+    // method (08), no flags, mtime=0, xfl=0, OS=ff (unknown).
+    outBuf[0] = 0x1f;
+    outBuf[1] = 0x8b;
+    outBuf[2] = 0x08;
+    outBuf[3] = 0x00;
+    outBuf[4] = outBuf[5] = outBuf[6] = outBuf[7] = 0x00;
+    outBuf[8] = 0x00;
+    outBuf[9] = 0xff;
+
+    // Init compressor. 1 probe = fastest setting. No zlib header (we
+    // wrap with gzip ourselves). Matches StreamFileDownloadGzip's
+    // proven-working flags exactly.
+    const mz_uint flags = 1;
+    if (tdefl_init(pComp, nullptr, nullptr, static_cast<int>(flags)) != TDEFL_STATUS_OKAY)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip: tdefl_init failed, falling back to raw\n");
+        free(pComp);
+        free(outBuf);
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Stream the body through the compressor in one TDEFL_FINISH call.
+    // outBuf+10 is where the deflate output goes; we keep 8 bytes at
+    // the end for the gzip trailer.
+    size_t inRemaining  = bodyLen;
+    size_t outAvail     = outCapacity - 10 - 8;
+    uint8_t* outPos     = outBuf + 10;
+    size_t totalOut     = 0;
+    bool   compressOk   = false;
+    while (true)
+        {
+        size_t inThis  = inRemaining;
+        size_t outThis = outAvail;
+        const tdefl_status enStatus = tdefl_compress(
+            pComp,
+            inRemaining ? (body + (bodyLen - inRemaining)) : nullptr,
+            &inThis,
+            outPos,
+            &outThis,
+            TDEFL_FINISH);
+        inRemaining -= inThis;
+        outAvail    -= outThis;
+        outPos      += outThis;
+        totalOut    += outThis;
+        if (enStatus == TDEFL_STATUS_DONE) { compressOk = true; break; }
+        if (enStatus < 0) break;   // BAD_PARAM / PUT_BUF_FAILED
+        if (outAvail == 0) break;  // ran out of output space — shouldn't happen with deflateBound sizing
+        }
+    if (!compressOk)
+        {
+        g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
+                     "gzip: tdefl_compress failed in=%u out=%u remain=%u, falling back to raw\n",
+                     (unsigned)bodyLen, (unsigned)totalOut,
+                     (unsigned)inRemaining);
+        free(pComp);
+        free(outBuf);
+        CfgServer.send_P(code, contentType,
+                         reinterpret_cast<PGM_P>(body), bodyLen);
+        return true;
+        }
+
+    // Write the 8-byte gzip trailer: CRC32 LE + uncompressed-size LE.
+    const uint32_t crc32 = mz_crc32(MZ_CRC32_INIT, body, bodyLen);
+    const uint32_t isize = static_cast<uint32_t>(bodyLen);
+    uint8_t* trailer = outBuf + 10 + totalOut;
+    trailer[0] = static_cast<uint8_t>(crc32 & 0xff);
+    trailer[1] = static_cast<uint8_t>((crc32 >>  8) & 0xff);
+    trailer[2] = static_cast<uint8_t>((crc32 >> 16) & 0xff);
+    trailer[3] = static_cast<uint8_t>((crc32 >> 24) & 0xff);
+    trailer[4] = static_cast<uint8_t>(isize & 0xff);
+    trailer[5] = static_cast<uint8_t>((isize >>  8) & 0xff);
+    trailer[6] = static_cast<uint8_t>((isize >> 16) & 0xff);
+    trailer[7] = static_cast<uint8_t>((isize >> 24) & 0xff);
+
+    const size_t totalLen = 10 + totalOut + 8;
+
+    CfgServer.sendHeader("Content-Encoding", "gzip");
+    CfgServer.sendHeader("Vary", "Accept-Encoding");
+
+    // Standard send_P path.  Diagnostic work in log_096/log_098
+    // identified that earlier stress-test failures (10-sec stalls on
+    // big bodies) were a Core 0 starvation effect of WebServer task
+    // priority 4 starving DataServer (priority 2) and other Core 0
+    // tasks.  Returning WebServer to priority 1 (in OnSpeed-Gen3-
+    // ESP32.ino) restored 100% success at full stress concurrency
+    // with /aoaconfig responses under 2 sec.  See PR description.
+    CfgServer.send_P(code, contentType,
+                     reinterpret_cast<PGM_P>(outBuf), totalLen);
+
+    free(pComp);
+    free(outBuf);
+    return true;
+    }
+
+// Convenience overload for String bodies.  Same semantics.
+bool SendCompressedIfRequested(int code,
+                               const char* contentType,
+                               const String& body)
+    {
+    return SendCompressedIfRequested(
+        code, contentType,
+        reinterpret_cast<const uint8_t*>(body.c_str()),
+        body.length());
+    }
+
+// ----------------------------------------------------------------------------
 
 void HandleConfig()
     {
@@ -867,7 +1063,7 @@ void HandleConfig()
 
     sPage += sBody;
     sPage += pageFooter;
-    CfgServer.send(200, "text/html", sPage);
+    SendCompressedIfRequested(200, "text/html", sPage);
     } // end HandleConfig()
 
 

@@ -42,6 +42,8 @@ constexpr const char* kEfisStandardGroup =
 // "old log" reference so the version-tolerant parse path is exercised: a
 // header without vnEstAltFt must still set efisIsVn300 and ParseRowByIndex
 // must leave row.vnEstAltFt at its default.
+// Legacy VN-300 group (no vnEstAltFt — pre-format-version-3 logs).
+// Updated to the per-sample-timestamp columns from PR/issue #637.
 constexpr const char* kVn300GroupNoEstAlt =
     "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
     "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
@@ -50,11 +52,12 @@ constexpr const char* kVn300GroupNoEstAlt =
     "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
     "vnYawSigma,vnRollSigma,vnPitchSigma,"
     "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
-    "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC";
+    "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,"
+    "vnTimeStartupNs,vnTimeGpsNs,vnTimeStatus";
 
-// Current VN-300 group (format version 3+). The vnEstAltFt column is
-// inserted right after vnGnssLon. This is what onspeed_core's WriteHeader
-// emits today; tests that exercise current writer / current reader use it.
+// Current VN-300 group: includes vnEstAltFt and per-sample timestamps.
+// This is what onspeed_core's WriteHeader emits today; tests that
+// exercise current writer / current reader use it.
 constexpr const char* kVn300Group =
     "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
     "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
@@ -63,7 +66,8 @@ constexpr const char* kVn300Group =
     "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
     "vnYawSigma,vnRollSigma,vnPitchSigma,"
     "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
-    "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,vnTimeUTC";
+    "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,"
+    "vnTimeStartupNs,vnTimeGpsNs,vnTimeStatus";
 
 constexpr const char* kDerivedTail =
     "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
@@ -279,16 +283,21 @@ void test_build_index_vn300_without_est_alt_ft_still_enables(void)
     TEST_ASSERT_TRUE(idx.efisIsVn300);
     TEST_ASSERT_EQUAL_INT(-1, idx.idxVnEstAltFt);
 
-    // End-to-end parse path: a v2 row (26 VN-300 fields, no altitude column)
-    // must parse without striding off-by-one, must leave row.vnEstAltFt at
-    // its default (0.0f), and must read row.vnGpsFix from the correct token.
+    // End-to-end parse path: a v2-style row (28 VN-300 fields, no altitude
+    // column) must parse without striding off-by-one, must leave
+    // row.vnEstAltFt at its default (0.0f), and must read row.vnGpsFix from
+    // the correct token. The "v2 era" had only 26 VN-300 fields with a
+    // vnTimeUTC string column; the format updated again in issue #637 to
+    // 28 fields with per-sample u64 timestamps. This test exercises a row
+    // that omits vnEstAltFt but carries the post-#637 timestamp columns.
     static const char kRow[] =
         "20000,110,1.60,210,2.60,1013.40,1500.0,92.0,3.80,5,0,12.0,94.5,"
         "25.5,1.030,0.020,-0.040,4.000,-3.500,-1.000,2.500,-0.800,"
-        // VN-300 group, 26 fields (no vnEstAltFt):
+        // VN-300 group, 28 fields (no vnEstAltFt; with timestamp triplet):
         "0.100,0.200,0.300,50.000,30.000,-1.500,0.050,0.010,1.020,"
         "270.500,1.500,-2.000,0.040,0.005,0.010,0.500,0.300,0.400,"
-        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,12:34:56,"
+        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,"
+        "1234567890,1400123456789000,7,"
         "1.030,1.500,300.0,1500.0,3.85,0.150";
 
     onspeed::LogRow row{};
@@ -325,7 +334,8 @@ void test_parserowbyindex_vn300_est_alt_ft_at_noncanonical_position(void)
         "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
         "vnYawSigma,vnRollSigma,vnPitchSigma,"
         "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
-        "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,vnTimeUTC,"
+        "vnGnssLat,vnGnssLon,vnGPSFix,vnDataAge,"
+        "vnTimeStartupNs,vnTimeGpsNs,vnTimeStatus,"
         "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP,"
         // Re-attached at the very end as the last column.
         "vnEstAltFt";
@@ -334,7 +344,8 @@ void test_parserowbyindex_vn300_est_alt_ft_at_noncanonical_position(void)
         "25.5,1.030,0.020,-0.040,4.000,-3.500,-1.000,2.500,-0.800,"
         "0.100,0.200,0.300,50.000,30.000,-1.500,0.050,0.010,1.020,"
         "270.500,1.500,-2.000,0.040,0.005,0.010,0.500,0.300,0.400,"
-        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,12:34:56,"
+        "50.100,30.100,-1.400,37.123456,-122.456789,3,25,"
+        "1234567890,1400123456789000,7,"
         "1.030,1.500,300.0,1500.0,3.85,0.150,"
         "4521.75";
 
@@ -400,7 +411,7 @@ void test_build_index_vn300_partial_warns_no_enable(void)
 {
     // VN-300 group with one column dropped. Same contract: warn naming
     // the first missing column, leave efisIsVn300 + efisEnabled false.
-    // Drop the tail column (vnTimeUTC).
+    // Drop the tail column (vnTimeStatus).
     static const char* kPartialVn300 =
         "vnAngularRateRoll,vnAngularRatePitch,vnAngularRateYaw,"
         "vnVelNedNorth,vnVelNedEast,vnVelNedDown,"
@@ -409,7 +420,8 @@ void test_build_index_vn300_partial_warns_no_enable(void)
         "vnLinAccFwd,vnLinAccLat,vnLinAccVert,"
         "vnYawSigma,vnRollSigma,vnPitchSigma,"
         "vnGnssVelNedNorth,vnGnssVelNedEast,vnGnssVelNedDown,"
-        "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge";  // missing vnTimeUTC
+        "vnGnssLat,vnGnssLon,vnEstAltFt,vnGPSFix,vnDataAge,"
+        "vnTimeStartupNs,vnTimeGpsNs";  // missing vnTimeStatus
     std::string hdr;
     hdr.append(kCoreHead).append(",").append(kPartialVn300).append(",").append(kDerivedTail);
 
@@ -421,7 +433,7 @@ void test_build_index_vn300_partial_warns_no_enable(void)
     TEST_ASSERT_FALSE(idx.efisEnabled);
     TEST_ASSERT_FALSE(idx.efisIsVn300);
     TEST_ASSERT_EQUAL_INT(1, g_warnCount);
-    TEST_ASSERT_EQUAL_STRING("vnTimeUTC", g_lastWarn);
+    TEST_ASSERT_EQUAL_STRING("vnTimeStatus", g_lastWarn);
 }
 
 void test_parserowbyindex_canonical_roundtrip(void)
@@ -699,7 +711,9 @@ void test_parserowbyindex_vn300_roundtrip(void)
     src.vnEstAltFt         = 4521.75f;
     src.vnGpsFix           = 3;
     src.vnDataAgeMs        = 25;
-    std::strcpy(src.vnTimeUtc, "12:34:56");
+    src.vnTimeStartupNs    = 1'234'567'890ULL;
+    src.vnTimeGpsNs        = 1'400'123'456'789'000ULL;
+    src.vnTimeStatus       = 0x07;
 
     char hdrBuf[onspeed::proto::log_csv::kHeaderMaxBytes];
     char rowBuf[onspeed::proto::log_csv::kRowMaxBytes];
@@ -729,7 +743,9 @@ void test_parserowbyindex_vn300_roundtrip(void)
     TEST_ASSERT_FLOAT_WITHIN(1e-2f, src.vnEstAltFt, dst.vnEstAltFt);
     TEST_ASSERT_EQUAL_INT(src.vnGpsFix,    dst.vnGpsFix);
     TEST_ASSERT_EQUAL_INT(src.vnDataAgeMs, dst.vnDataAgeMs);
-    TEST_ASSERT_EQUAL_STRING(src.vnTimeUtc, dst.vnTimeUtc);
+    TEST_ASSERT_EQUAL_UINT64(src.vnTimeStartupNs, dst.vnTimeStartupNs);
+    TEST_ASSERT_EQUAL_UINT64(src.vnTimeGpsNs,     dst.vnTimeGpsNs);
+    TEST_ASSERT_EQUAL_UINT8 (src.vnTimeStatus,    dst.vnTimeStatus);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, src.imuPitchRateDps, dst.imuPitchRateDps);
 }
 
@@ -819,11 +835,12 @@ void test_build_index_garbage_header_fails(void)
     TEST_ASSERT_NOT_NULL(g_lastWarn);
 }
 
-void test_parserowbyindex_empty_vntimeutc_preserved(void)
+void test_parserowbyindex_vn300_zero_timestamps_preserved(void)
 {
-    // Round-trip a VN-300 row where vnTimeUtc is the empty string. The
-    // canonical writer emits "" for an unset UTC time; the index reader
-    // must preserve the row rather than reject it for an empty token.
+    // Round-trip a VN-300 row where the per-sample timestamps are zero
+    // (e.g. before the VN-300 has reported any time-Common payloads).
+    // The writer emits "0" for each u64; the index reader must preserve
+    // the row.
     onspeed::LogRow src{};
     src.timeStampMs        = 70000;
     src.iasKt              = 75.0f;
@@ -837,7 +854,8 @@ void test_parserowbyindex_empty_vntimeutc_preserved(void)
     src.vnGnssLon          = -122.0;
     src.vnGpsFix           = 3;
     src.vnDataAgeMs        = 10;
-    src.vnTimeUtc[0]       = '\0';   // empty UTC time
+    // vnTimeStartupNs / vnTimeGpsNs / vnTimeStatus are default-initialised
+    // to 0 by LogRow's brace-init above.
 
     char hdrBuf[onspeed::proto::log_csv::kHeaderMaxBytes];
     char rowBuf[onspeed::proto::log_csv::kRowMaxBytes];
@@ -855,7 +873,9 @@ void test_parserowbyindex_empty_vntimeutc_preserved(void)
     dst.efisIsVn300 = idx.efisIsVn300;
     bool ok = ParseRowByIndex(std::string_view(rowBuf, rowLen), idx, dst);
     TEST_ASSERT_TRUE(ok);
-    TEST_ASSERT_EQUAL_STRING("", dst.vnTimeUtc);
+    TEST_ASSERT_EQUAL_UINT64(0ULL, dst.vnTimeStartupNs);
+    TEST_ASSERT_EQUAL_UINT64(0ULL, dst.vnTimeGpsNs);
+    TEST_ASSERT_EQUAL_UINT8 (0,    dst.vnTimeStatus);
 }
 
 void test_parserowbyindex_flaps_raw_adc_present(void)
@@ -977,7 +997,7 @@ int main(int, char**)
     RUN_TEST(test_fixture_canonical_with_efis_only);
     RUN_TEST(test_fixture_canonical_core_only);
     RUN_TEST(test_build_index_garbage_header_fails);
-    RUN_TEST(test_parserowbyindex_empty_vntimeutc_preserved);
+    RUN_TEST(test_parserowbyindex_vn300_zero_timestamps_preserved);
     RUN_TEST(test_parserowbyindex_flaps_raw_adc_present);
     RUN_TEST(test_parserowbyindex_flaps_raw_adc_absent_clears_flag);
     RUN_TEST(test_build_index_over_wide_header_fails);

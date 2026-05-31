@@ -52,6 +52,13 @@ extern void _softRestart();
 // logic here; they're internal-linkage in the legacy file but trivial
 // to mirror because they consist of only the lookups we need.
 
+// Forward-decl of the gzip helper defined in ConfigWebServer.cpp.  Lives
+// at file scope here (NOT inside `namespace onspeed::api { namespace {}`)
+// so the linker resolves it to the file-scope symbol in the other TU
+// instead of a phantom inside this TU's anonymous namespace.
+bool SendCompressedIfRequested(int code, const char* contentType,
+                               const String& body);
+
 namespace onspeed::api {
 
 namespace {
@@ -62,7 +69,11 @@ namespace {
 
 void SendJson(int code, const String& body) {
     CfgServer.sendHeader("Cache-Control", "no-store");
-    CfgServer.send(code, "application/json", body);
+    // Forward-declared at file scope (outside the anonymous namespace
+    // wrapping `SendJson`), so the linker resolves to the symbol defined
+    // in ConfigWebServer.cpp rather than a phantom one in this TU's
+    // anonymous namespace.
+    ::SendCompressedIfRequested(code, "application/json", body);
 }
 
 void SendOk() {
@@ -1177,28 +1188,34 @@ void HandleApiSensorsBiases() {
     // the PAlt field stays blank.
     in.efisSource = ::onspeed::api::EfisBaroSource::None;
     if (g_Config.bReadEfisData &&
-        (millis() - g_EfisSerial.uTimestamp < 2000) &&
-        g_EfisSerial.suEfis.Pitch > -90.0f &&     // not the -100 invalid sentinel
-        g_EfisSerial.suEfis.Roll  > -179.0f)      // not the -180 invalid sentinel
+        (millis() - g_EfisSerial.uTimestamp < 2000))
     {
-        in.efisPitchDeg = g_EfisSerial.suEfis.Pitch;
-        in.efisRollDeg  = g_EfisSerial.suEfis.Roll;
+        // Atomic snapshot — Pitch / Roll / Palt all from same frame.
+        EfisSerialPort::SuEfisData ef;
+        g_EfisSerial.SnapshotEfis(ef);
 
-        const auto enType = g_EfisSerial.enType;
-        const bool bEfisSuppliesBaro =
-            (enType == EfisSerialPort::EnDynonSkyview) ||
-            (enType == EfisSerialPort::EnDynonD10)     ||
-            (enType == EfisSerialPort::EnGarminG5)     ||
-            (enType == EfisSerialPort::EnGarminG3X)    ||
-            (enType == EfisSerialPort::EnMglBinary);
+        if (ef.Pitch > -90.0f &&     // not the -100 invalid sentinel
+            ef.Roll  > -179.0f)      // not the -180 invalid sentinel
+        {
+            in.efisPitchDeg = ef.Pitch;
+            in.efisRollDeg  = ef.Roll;
 
-        if (enType == EfisSerialPort::EnVN300) {
-            in.efisSource = ::onspeed::api::EfisBaroSource::Vn300;
-        } else if (bEfisSuppliesBaro) {
-            in.efisSource = ::onspeed::api::EfisBaroSource::Baro;
-            in.efisPaltFt = static_cast<float>(g_EfisSerial.suEfis.Palt);
+            const auto enType = g_EfisSerial.enType;
+            const bool bEfisSuppliesBaro =
+                (enType == EfisSerialPort::EnDynonSkyview) ||
+                (enType == EfisSerialPort::EnDynonD10)     ||
+                (enType == EfisSerialPort::EnGarminG5)     ||
+                (enType == EfisSerialPort::EnGarminG3X)    ||
+                (enType == EfisSerialPort::EnMglBinary);
+
+            if (enType == EfisSerialPort::EnVN300) {
+                in.efisSource = ::onspeed::api::EfisBaroSource::Vn300;
+            } else if (bEfisSuppliesBaro) {
+                in.efisSource = ::onspeed::api::EfisBaroSource::Baro;
+                in.efisPaltFt = static_cast<float>(ef.Palt);
+            }
+            // else: source remains None (set above)
         }
-        // else: source remains None (set above)
     }
 
     std::string json = ::onspeed::api::SerializeSensorBiases(in);

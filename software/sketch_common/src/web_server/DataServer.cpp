@@ -196,33 +196,39 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         // efis or VN-300 data
         if (g_EfisSerial.enType == EfisSerialPort::EnVN300)
         {
-            // use Vectornav data
-            fWifiPitch = g_EfisSerial.suVN300.Pitch;
-            fWifiRoll  = g_EfisSerial.suVN300.Roll;
+            // Atomic snapshot — Pitch/Roll/VelNedDown all from same frame.
+            EfisSerialPort::SuVN300Data vn;
+            g_EfisSerial.SnapshotVn300(vn);
+
+            fWifiPitch = vn.Pitch;
+            fWifiRoll  = vn.Roll;
 
             if (g_AHRS.fTAS > 0)
             {
                 // TAS is being updated in an interrupt
-                fWifiFlightpath = rad2deg(safeAsin(-g_EfisSerial.suVN300.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
+                fWifiFlightpath = rad2deg(safeAsin(-vn.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
             }
             else
                 fWifiFlightpath = 0;
 
-            fWifiVSI = mps2fpm(-g_EfisSerial.suVN300.VelNedDown); // fpm
+            fWifiVSI = mps2fpm(-vn.VelNedDown); // fpm
             fWifiIAS = g_Sensors.IAS;
         } // end enType = EnVN300
 
         else
         {
-            //use parsed efis data
-            fWifiPitch = g_EfisSerial.suEfis.Pitch;
-            fWifiRoll  = g_EfisSerial.suEfis.Roll;
-            if (g_EfisSerial.suEfis.TAS > 0)
+            // Atomic snapshot — Pitch/Roll/TAS/VSI/IAS all from same frame.
+            EfisSerialPort::SuEfisData ef;
+            g_EfisSerial.SnapshotEfis(ef);
+
+            fWifiPitch = ef.Pitch;
+            fWifiRoll  = ef.Roll;
+            if (ef.TAS > 0)
             {
                 // Use EFIS VSI (matches the EFIS pitch/roll above) instead of
                 // KalmanVSI to avoid mixing data sources in the same JSON payload.
-                const float fEfisVsiMps = fpm2mps(g_EfisSerial.suEfis.VSI);
-                fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(g_EfisSerial.suEfis.TAS)));
+                const float fEfisVsiMps = fpm2mps(ef.VSI);
+                fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(ef.TAS)));
             }
 
             else
@@ -235,7 +241,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
 
             // kalmanVSI is being updated in an interrupt
             fWifiVSI = mps2fpm(g_AHRS.KalmanVSI);
-            fWifiIAS = g_EfisSerial.suEfis.IAS;
+            fWifiIAS = ef.IAS;
         } // end if enType != EnVN300
 
     } // end if cal source is efis
@@ -257,12 +263,16 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // onspeed_core/efis/OatSelect.h for the decision rule and the
     // gates that lock the EFIS branch out when the EFIS feed is
     // disabled or stale.
+    // Snapshot to read OAT atomically (single field, but the snapshot
+    // is cheap; consistent with the pattern used everywhere else).
+    EfisSerialPort::SuEfisData efOat;
+    g_EfisSerial.SnapshotEfis(efOat);
     fWifiOAT = onspeed::efis::SelectDisplayOatC(
         g_Config.bCalSourceEfis,
         g_Config.bReadEfisData,
         g_EfisSerial.IsDataFresh(2000),
         g_Config.bOatSensor,
-        g_EfisSerial.suEfis.OAT,
+        efOat.OAT,
         g_Sensors.OatC);
 
 #else   // Dummy data
