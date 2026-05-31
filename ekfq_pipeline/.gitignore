@@ -1,0 +1,5 @@
+# uv / Python build + cache artifacts
+.venv/
+*.egg-info/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,31 @@
+[project]
+name = "onspeed-ekfq-pipeline"
+version = "0.1.0"
+description = "OnSpeed EKFQ Python reference, Optuna tuner, and the symbolic Jacobian source of truth + oracle."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "pandas",
+    "optuna",
+]
+
+[project.optional-dependencies]
+# Tuner progress bar — optional at runtime.
+tune = ["tqdm"]
+
+[dependency-groups]
+# Dev-only: the symbolic source of truth (sympy), the autodiff oracle's second
+# derivation (jax), and the test runner. These never ship in the firmware build
+# path — they back the ekfq-jacobian-oracle CI job and local `uv run pytest`.
+dev = [
+    "sympy>=1.12",
+    "jax[cpu]>=0.4",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+include = ["onspeed_ekf*"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
