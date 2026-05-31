@@ -3955,7 +3955,15 @@
 </tr>
 <tr>
 <td><code>imu_late</code></td>
-<td>0, or 1 with <code>imu_lateMaxUs&lt;1000</code> (recurring sub-ms pattern is the writer-yield, expected)</td>
+<td>0 (count of &gt;1 ms schedule-resets; sub-ms jitter shows up in <code>imu_lateMaxUs</code> only)</td>
+</tr>
+<tr>
+<td><code>imu_lateMaxUs</code></td>
+<td>typically a few hundred microseconds (per-window peak; well under the IMU period)</td>
+</tr>
+<tr>
+<td><code>imu_lateMaxUsAT</code></td>
+<td>all-time peak since boot; multi-ms here means a real stall happened</td>
 </tr>
 <tr>
 <td><code>overflow</code></td>
@@ -4077,7 +4085,7 @@
 <h2 id="things-that-look-wrong-but-arent">Things that look wrong but aren't<a class="headerlink" href="#things-that-look-wrong-but-arent" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>A single <code>overflow=1</code> per PERF window with 400-430 bytes during high ring.</strong> The NOSPLIT carryover slot is doing its job; each fired window drains exactly one row safely. Not a drop. Only worry about overflow if it's accompanied by non-zero <code>drops</code>.</li>
-<li><strong>A recurring <code>imu_late=1 imu_lateMaxUs=~750us</code>.</strong> This is the writer's <code>vTaskDelay(1)</code> yield producing a sub-millisecond IMU stall. Not a flight-critical lateness. Below the 4.8 ms IMU period by a factor of six.</li>
+<li><strong><code>imu_lateMaxUs=~750us</code> per window with <code>imu_late=0</code>.</strong> This is the writer's <code>vTaskDelay(1)</code> yield producing a sub-millisecond IMU stall. Not a flight-critical lateness; well under the IMU period. The <code>imu_late</code> count stays 0 because that counter only increments on &gt;1 ms schedule-resets — sub-ms jitter shows up via <code>imu_lateMaxUs</code> peak only.</li>
 <li><strong><code>paused_drops</code> rising during a <code>/download</code> operation.</strong> That's the whole point of the counter — visibility into the cost of holding the producer paused while a download runs. The PR #501 change made this counter exist so the cost is no longer silent.</li>
 </ul>
 <h2 id="why-this-matters">Why this matters<a class="headerlink" href="#why-this-matters" title="Permanent link">&para;</a></h2>

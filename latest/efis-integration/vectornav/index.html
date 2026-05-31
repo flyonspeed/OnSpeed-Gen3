@@ -1539,10 +1539,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#higher-output-rates-advanced" class="md-nav__link">
+  <a href="#coupling-between-firmware-and-vn-300" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Higher output rates (advanced)
+        Coupling between firmware and VN-300
       
     </span>
   </a>
@@ -3765,10 +3765,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#higher-output-rates-advanced" class="md-nav__link">
+  <a href="#coupling-between-firmware-and-vn-300" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Higher output rates (advanced)
+        Coupling between firmware and VN-300
       
     </span>
   </a>
@@ -3828,8 +3828,8 @@
 <p>Most normal OnSpeed installations use a Dynon, Garmin, or MGL instead.</p>
 <h2 id="serial-setup">Serial Setup<a class="headerlink" href="#serial-setup" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Baud rate</strong>: 115200</li>
-<li><strong>Protocol</strong>: Binary (127-byte packets with CRC-16)</li>
+<li><strong>Baud rate</strong>: 921600</li>
+<li><strong>Protocol</strong>: Binary (138-byte packets with CRC-16)</li>
 <li><strong>EFIS Type setting</strong>: <code>VN-300</code></li>
 </ul>
 <h2 id="data-available">Data Available<a class="headerlink" href="#data-available" title="Permanent link">&para;</a></h2>
@@ -3864,7 +3864,7 @@
 </tr>
 <tr>
 <td><strong>Time</strong></td>
-<td>UTC time from GPS (millisecond resolution)</td>
+<td>Per-sample TimeStartup (ns since VN-300 boot) and TimeGps (ns since GPS epoch 1980), plus a TimeStatus byte indicating which are valid</td>
 </tr>
 <tr>
 <td><strong>Wind (derived)</strong></td>
@@ -3873,12 +3873,13 @@
 </tbody>
 </table>
 <p>All fields are logged to the SD card with <code>vn</code> prefix (e.g., <code>vnPitch</code>, <code>vnRoll</code>, <code>vnGnssLat</code>).</p>
+<p>The per-sample timestamps land in <code>vnTimeStartupNs</code> (always advancing) and <code>vnTimeGpsNs</code> (only valid once <code>vnTimeStatus &amp; 0x02</code> is set — GPS week resolved). At the 400 Hz output rate each successive row carries a distinct timestamp ~2,500,000 ns (2.5 ms) apart.</p>
 <h2 id="wind-columns">Wind columns<a class="headerlink" href="#wind-columns" title="Permanent link">&para;</a></h2>
 <p><code>vnWindSpd</code> (kt), <code>vnWindDir</code> (degrees), and <code>vnWindVertical</code> (kt, positive = updraft) are derived columns: the firmware solves the wind triangle each time a VN-300 frame arrives, using the GPS ground velocity (<code>vnGnssVelNed*</code>), the VN-300's yaw/pitch, and OnSpeed's own TAS. Cells are empty when there's no valid solution (below ~30 KIAS, no GPS fix, or any NaN input).</p>
 <p>The wind "from" direction is in the <strong>same frame as <code>vnYaw</code></strong>. The analysis workbook treats <code>vnWindDir</code> as <strong>true</strong> north; for that to hold, the VN-300 must be configured with WMM declination via its <code>ReferenceVectorConfiguration</code> register. OnSpeed does not apply declination correction itself — a misconfigured VN-300 will deliver a wind direction off by local declination (10–15° in the western US).</p>
 <p>TAS accuracy depends on a valid OAT source. With no OAT, TAS falls back to IAS and the wind solution will be slightly hot at altitude.</p>
 <h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
-<p>OnSpeed expects the VN-300 to send a <strong>specific binary output packet</strong> at 115200 baud. The parser validates the 8-byte header and rejects packets that don't match — so the unit must be configured to emit exactly the groups and fields below before OnSpeed will see any data.</p>
+<p>OnSpeed expects the VN-300 to send a <strong>specific binary output packet</strong> at 921600 baud. The parser validates the 10-byte header and rejects packets that don't match — so the unit must be configured to emit exactly the groups and fields below before OnSpeed will see any data.</p>
 <h3 id="required-output-packet">Required output packet<a class="headerlink" href="#required-output-packet" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -3894,30 +3895,34 @@
 </tr>
 <tr>
 <td>Baud rate</td>
-<td>115200</td>
+<td>921600</td>
 </tr>
 <tr>
 <td>Async rate</td>
-<td>50 Hz (IMU rate 800 Hz ÷ divisor 16)</td>
+<td>400 Hz (IMU rate 400 Hz ÷ divisor 1)</td>
 </tr>
 <tr>
 <td>Packet size</td>
-<td>127 bytes (header + 117 byte payload + 2 byte CRC)</td>
+<td>138 bytes (10 byte header + 126 byte payload + 2 byte CRC)</td>
 </tr>
 <tr>
 <td>Groups enabled</td>
-<td><strong>Common + GPS + Attitude</strong></td>
+<td><strong>Common + Time + GNSS1 + AHRS</strong></td>
 </tr>
 <tr>
 <td>Common fields</td>
-<td>AngularRate, Position (lat/lon/alt), Velocity (NED), Accel — bitmask <code>0x01E0</code></td>
+<td>TimeStartup, TimeGps, AngularRate, Position (lat/lon/alt), Velocity (NED), Accel — bitmask <code>0x01E3</code></td>
 </tr>
 <tr>
-<td>GPS fields</td>
-<td>UTC, Fix, VelNed — bitmask <code>0x0091</code></td>
+<td>Time fields</td>
+<td>TimeStatus — bitmask <code>0x0200</code></td>
 </tr>
 <tr>
-<td>Attitude fields</td>
+<td>GNSS1 fields</td>
+<td>Fix, VelNed — bitmask <code>0x0090</code></td>
+</tr>
+<tr>
+<td>AHRS fields</td>
 <td>YawPitchRoll, LinearAccelBody, YprU — bitmask <code>0x0142</code></td>
 </tr>
 </tbody>
@@ -3927,42 +3932,56 @@
 <p>The Control Center GUI ships with the VN-300. Connect over USB and:</p>
 <ol>
 <li><strong>Binary Async Output 1</strong> → enable.</li>
-<li><strong>Async Mode</strong>: <code>Serial 1</code>. <strong>Rate Divisor</strong>: <code>16</code>.</li>
-<li>Tick <strong>Common</strong> group, then under Common enable: AngularRate, Position, Velocity, Accel.</li>
-<li>Tick <strong>GPS</strong> group, then enable: UTC, Fix, VelNed.</li>
-<li>Tick <strong>Attitude</strong> group, then enable: YawPitchRoll, LinearAccelBody, YprU.</li>
+<li><strong>Async Mode</strong>: <code>Serial 1</code>. <strong>Rate Divisor</strong>: <code>1</code>.</li>
+<li>Tick <strong>Common</strong> group, then under Common enable: TimeStartup, TimeGps, AngularRate, Position, Velocity, Accel.</li>
+<li>Tick <strong>Time</strong> group, then enable: TimeStatus.</li>
+<li>Tick <strong>GNSS1</strong> group, then enable: Fix, VelNed.</li>
+<li>Tick <strong>AHRS</strong> group, then enable: YawPitchRoll, LinearAccelBody, YprU.</li>
 <li>Hit <strong>Apply</strong>, then <strong>Write Settings to Non-Volatile Memory</strong> so the config survives power cycles.</li>
-<li>Set <strong>Serial 1 Baud Rate</strong> to <code>115200</code> (this is the factory default — leave it unless you've changed it).</li>
-<li>Under <strong>Reference Vector Configuration</strong>, ensure <strong>WMM declination is enabled</strong> and the magnetic reference is current. Without this, <code>vnYaw</code> is magnetic and the wind-direction columns will be off by local declination (10-15° in the western US — see <a href="#wind-columns">Wind columns</a> above).</li>
+<li>Set <strong>Serial 1 Baud Rate</strong> to <code>921600</code>. The 138-byte frame at 400 Hz needs 55.2 kB/s on the wire; 921600 baud runs at ~60% utilization.</li>
+<li>Under <strong>Reference Vector Configuration</strong>, ensure <strong>WMM declination is enabled</strong> and the magnetic reference is current. Without this, <code>vnYaw</code> is magnetic and the wind-direction columns will be off by local declination (10–15° in the western US — see <a href="#wind-columns">Wind columns</a> above).</li>
 </ol>
 <h3 id="configure-by-sending-raw-register-commands">Configure by sending raw register commands<a class="headerlink" href="#configure-by-sending-raw-register-commands" title="Permanent link">&para;</a></h3>
-<p>The same config can be sent over the VN-300's serial port (or USB) as ASCII commands. Each is a single line ending with <code>\r\n</code>. Send these in order, waiting for the <code>$VNRRG,…</code> ACK between each:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$VNWRG,5,115200*68
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>$VNWRG,75,1,16,19,01E0,0091,0142*31
+<p>The same config can be sent over the VN-300's serial port (or USB) as ASCII commands. Each is a single line ending with <code>\r\n</code>. Send these in order, waiting for the ACK between each.</p>
+<p>In VectorNav Control Center's terminal, the <code>*XX</code> placeholder works (VNCC computes the checksum for you):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$VNWRG,75,1,1,1B,01E3,0200,0090,0142*XX
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>$VNWRG,5,921600,1*XX
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>$VNWNV*57
+</code></pre></div>
+<p>In a plain serial terminal (minicom, screen, PuTTY) the checksum must be exact. The precomputed values are:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$VNWRG,75,1,1,1B,01E3,0200,0090,0142*50
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>$VNWRG,5,921600,1*7E
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>$VNWNV*57
 </code></pre></div>
 <p>What each line does:</p>
 <ul>
-<li><strong><code>$VNWRG,5,115200</code></strong> — writes register 5 (Serial Baud Rate, port 1) to 115200 baud. Skip if your unit is already at 115200; sending it at the wrong current baud just times out without harm.</li>
-<li><strong><code>$VNWRG,75,1,16,19,01E0,0091,0142</code></strong> — writes register 75 (Binary Output 1):<ul>
+<li><strong><code>$VNWRG,75,1,1,1B,01E3,0200,0090,0142</code></strong> — writes register 75 (Binary Output 1):<ul>
 <li><code>1</code> = AsyncMode (output on serial port 1)</li>
-<li><code>16</code> = RateDivisor (800 Hz IMU clock / 16 = 50 Hz output rate)</li>
-<li><code>19</code> = OutputGroup bitmask (hex: <code>0x19</code> = Common + GPS + Attitude)</li>
-<li><code>01E0</code> = Common-group field bitmask (LE 16-bit hex)</li>
-<li><code>0091</code> = GPS-group field bitmask</li>
-<li><code>0142</code> = Attitude-group field bitmask</li>
+<li><code>1</code> = RateDivisor (400 Hz IMU clock / 1 = 400 Hz output rate)</li>
+<li><code>1B</code> = OutputGroup bitmask (<code>0x1B</code> = Common + Time + GNSS1 + AHRS)</li>
+<li><code>01E3</code> = Common-group field bitmask (LE 16-bit hex)</li>
+<li><code>0200</code> = Time-group field bitmask</li>
+<li><code>0090</code> = GNSS1-group field bitmask</li>
+<li><code>0142</code> = AHRS-group field bitmask</li>
 </ul>
 </li>
+<li><strong><code>$VNWRG,5,921600,1</code></strong> — writes register 5 (Serial Baud Rate) to 921600 on port 1. <strong>VNCC will lose the connection immediately after this command — reconnect at 921600 to continue.</strong></li>
 <li><strong><code>$VNWNV</code></strong> — persists all current settings to non-volatile memory. Without this, every power cycle reverts to factory defaults.</li>
 </ul>
-<p>The trailing <code>*XX</code> is the NMEA-style XOR checksum of every character between <code>$</code> and <code>*</code>. The values above are precomputed; if you modify any command parameter you have to recompute the checksum or VectorNav will reject the line.</p>
-<h3 id="higher-output-rates-advanced">Higher output rates (advanced)<a class="headerlink" href="#higher-output-rates-advanced" title="Permanent link">&para;</a></h3>
-<p>The VN-300 IMU runs at 800 Hz internally. RateDivisor=16 gives 50 Hz, which is what OnSpeed expects today. Going faster (e.g., divisor=2 → 400 Hz) requires bumping the serial baud well above 115200 — at 115200 the wire saturates near 75 Hz for our 127-byte packet. 921600 baud gives comfortable headroom for 400 Hz output, but <strong>the OnSpeed firmware currently opens the EFIS port at 115200</strong> and would need a matching change before higher rates work. There's no user-facing config knob for this yet.</p>
+<p>The trailing <code>*XX</code> is the NMEA-style XOR checksum of every character between <code>$</code> and <code>*</code>. If you modify any command field, recompute the checksum (e.g. in Python: <code>c=0; [c:=c^b for b in payload.encode()]; print(f'{c:02X}')</code>). VectorNav silently ignores commands with a bad checksum.</p>
+<h3 id="coupling-between-firmware-and-vn-300">Coupling between firmware and VN-300<a class="headerlink" href="#coupling-between-firmware-and-vn-300" title="Permanent link">&para;</a></h3>
+<p>The VN-300 reconfiguration and the OnSpeed firmware version are tightly coupled:</p>
+<ul>
+<li>The <strong>current firmware</strong> (this release) expects the 138-byte / 400 Hz / 921600 format.</li>
+<li><strong>Older firmware</strong> expected a 127-byte / 50 Hz / 115200 format with different field masks (no TimeStartup, no TimeGps, no TimeStatus — and <code>GNSS1.UTC</code> populated in place of those).</li>
+</ul>
+<p>If you flash new firmware without reconfiguring the VN-300 (or vice versa), the OnSpeed VN-300 columns will silently stay empty. The two changes must happen in the same maintenance window. Order: VN-300 first, verify config survives a power cycle, then flash OnSpeed and reconnect.</p>
 <h3 id="then-in-onspeed">Then in OnSpeed<a class="headerlink" href="#then-in-onspeed" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Set <strong>EFIS Type</strong> to <code>VN-300</code> in the OnSpeed web interface.</li>
 <li>Save and reboot.</li>
 <li>Verify the LiveView page shows non-zero <code>vnPitch</code>, <code>vnRoll</code>, <code>vnYaw</code>, and <code>vnGnssLat</code>/<code>vnGnssLon</code> once GPS fixes. If those stay zero, the binary output groups aren't matching — re-check the Control Center field selection against the table above.</li>
+<li>Pull a short SD log and confirm <code>vnTimeStartupNs</code> is monotonically increasing by ~2.5 ms per row. That's the proof that per-sample timestamps are working.</li>
 </ol>
 
 

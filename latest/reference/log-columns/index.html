@@ -4187,9 +4187,19 @@
 <td>Time since last VN-300 packet</td>
 </tr>
 <tr>
-<td><code>vnTimeUTC</code></td>
-<td>HH:MM:SS.mmm</td>
-<td>UTC time from VN-300 GPS (millisecond resolution)</td>
+<td><code>vnTimeStartupNs</code></td>
+<td>ns</td>
+<td>Per-sample timestamp from the VN-300 Common group: nanoseconds since VN-300 boot (TXCO ±20 ppm). Always advancing, no GPS dependency. At 400 Hz output, consecutive rows differ by ~2,500,000 ns.</td>
+</tr>
+<tr>
+<td><code>vnTimeGpsNs</code></td>
+<td>ns</td>
+<td>Per-sample timestamp: nanoseconds since GPS epoch (1980-01-06 UTC, minus accumulated GPS leap seconds — currently 18 s ahead of UTC). Valid only when <code>vnTimeStatus &amp; 0x02</code> (dateOk) is set.</td>
+</tr>
+<tr>
+<td><code>vnTimeStatus</code></td>
+<td>bit flags</td>
+<td>VN-300 TimeStatus byte (UM005 §5.5.10). <code>bit0</code> = timeOk (GpsTow valid), <code>bit1</code> = dateOk (<code>vnTimeGpsNs</code> valid — GPS week resolved), <code>bit2</code> = utcTimeValid.</td>
 </tr>
 </tbody>
 </table>
