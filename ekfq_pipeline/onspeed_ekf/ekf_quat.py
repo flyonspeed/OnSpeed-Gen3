@@ -405,6 +405,7 @@ class EKFQ:
             F[BETA, Q3] = dt * g_over_tas * 2.0 * q2
 
         # ---- Covariance update ----
+        self._F_last = F.copy()  # reference-only: lets the Jacobian oracle compare hand-F
         P_new = F @ self.P @ F.T
 
         c = self.cfg
