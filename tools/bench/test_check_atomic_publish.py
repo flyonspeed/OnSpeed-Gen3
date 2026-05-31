@@ -92,6 +92,31 @@ def test_pitch_one_frame_skew_is_caught() -> None:
     assert_in("vnRoll tear",  "vnRoll",  torn_fields)
 
 
+def test_cross_struct_efis_vn_pitch_skew_is_caught() -> None:
+    """Cross-struct tear: vnPitch from N, efisPitch from N+1 (or vice versa).
+
+    This is the new failure mode the seqcount migration introduced.  In
+    PR #656's mutex pattern, suVN300 and suEfis were updated in one
+    mutex hold, so vnPitch == efisPitch always.  With two seqcount
+    publishes, a reader between them sees frame-N data in one struct
+    and frame-N+1 data in the other.
+
+    Detection: |vnPitch - efisPitch| > 0.04° (half the per-frame step).
+    """
+    N = 1000
+    row = cap.encode_row_for_N(N)
+    # Override efisPitch with N+1's value (simulating "efisPitch came
+    # from the next frame's publish landing between vn and ef reads")
+    next_frame = cap.encode_row_for_N(N + 1)
+    row["efisPitch"] = next_frame["efisPitch"]
+
+    had_data, tears = cap.check_row(0, row)
+    assert_eq("had_data", had_data, True)
+
+    torn_fields = sorted(t.field for t in tears)
+    assert_in("cross.vnPitch tear", "cross.vnPitch-vs-efisPitch", torn_fields)
+
+
 def test_latlon_multi_frame_skew_is_caught() -> None:
     """The mirror case: Lat/Lon say N+5, tNs/Pitch/Roll say N.
 
@@ -157,6 +182,7 @@ def test_invalid_value_does_not_crash() -> None:
 ALL_TESTS = [
     test_clean_row_produces_zero_tears,
     test_pitch_one_frame_skew_is_caught,
+    test_cross_struct_efis_vn_pitch_skew_is_caught,
     test_latlon_multi_frame_skew_is_caught,
     test_pre_stim_row_is_ignored,
     test_missing_columns_do_not_crash,

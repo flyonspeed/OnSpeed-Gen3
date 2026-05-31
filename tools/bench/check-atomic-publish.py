@@ -161,6 +161,47 @@ def check_row(row_idx: int, row: dict) -> tuple[bool, list[TearReport]]:
     except (KeyError, ValueError):
         pass
 
+    # Cross-struct atomicity check.  EfisSerialPort::applyVn300Data
+    # publishes suVN300_pub_ then mirrors Pitch/Roll/Heading into
+    # suEfis_pub_ via a SECOND publish (PR #660: seqcount migration).
+    # In the mutex-based version (PR #656), both updates happened in
+    # one critical section — vnPitch and efisPitch always came from
+    # the same frame.  With two seqcount publishes there's a ~1 µs
+    # window between them where a reader can see frame N's vnPitch
+    # but frame N-1's efisPitch (or vice versa).
+    #
+    # Detection: vnPitch and efisPitch should be byte-equal per frame
+    # (both written from data.pitch).  Adjacent frames differ by the
+    # step size (Pitch = ((N*7)%6000)/100 - 30 → 0.07°/frame step).
+    # If they disagree by more than half the step (0.04°), one of
+    # them came from a different frame.
+    try:
+        vn_pitch = float(row["vnPitch"])
+        ef_pitch = float(row["efisPitch"])
+        if abs(vn_pitch - ef_pitch) > 0.04:
+            tears.append(TearReport(
+                row_idx, N, "cross.vnPitch-vs-efisPitch",
+                int(round((vn_pitch - ef_pitch) * 100))))
+    except (KeyError, ValueError):
+        pass
+
+    try:
+        vn_roll = float(row["vnRoll"])
+        ef_roll = float(row["efisRoll"])
+        if abs(vn_roll - ef_roll) > 0.04:
+            tears.append(TearReport(
+                row_idx, N, "cross.vnRoll-vs-efisRoll",
+                int(round((vn_roll - ef_roll) * 100))))
+    except (KeyError, ValueError):
+        pass
+
+    # Heading: efisMagHeading is stored as int (rounded from data.yaw).
+    # vnYaw is float.  Within-frame: int(round(vnYaw)) == efisMagHeading.
+    # Cross-frame: differ by step (Yaw step is 0.01°/frame, so a single
+    # frame skew would round to the same int 99% of the time — the
+    # cross-struct heading check is weak.  We skip it; the pitch/roll
+    # check above is the load-bearing cross-struct test.
+
     return (True, tears)
 
 
@@ -170,14 +211,23 @@ def encode_row_for_N(N: int) -> dict:
     Mirror of the C++ stim's epoch-encode formulas (tools/bench/efis-stim/
     main.cpp).  A "clean" row (all fields from the same N) should produce
     zero tears.  Tests use this to construct both clean and torn fixtures.
+
+    Note: efisPitch / efisRoll are the suEfis-mirror values that
+    EfisSerialPort::applyVn300Data writes alongside the suVN300 publish.
+    For a clean (untorn) frame they exactly match vnPitch / vnRoll.
     """
+    pitch = ((N * 7) % 6000) / 100.0 - 30.0
+    roll  = ((N * 13) % 6000) / 100.0 - 30.0
     return {
         "vnTimeStartupNs": str(N * KS_NS_PER_FRAME),
         "vnYaw":           f"{(N % 36000) / 100.0:.2f}",
-        "vnPitch":         f"{((N * 7) % 6000) / 100.0 - 30.0:.2f}",
-        "vnRoll":          f"{((N * 13) % 6000) / 100.0 - 30.0:.2f}",
+        "vnPitch":         f"{pitch:.2f}",
+        "vnRoll":          f"{roll:.2f}",
         "vnGnssLat":       f"{KS_LATLON_BASE_LAT + (N % KS_LATLON_MOD) * KS_LATLON_STEP:.6f}",
         "vnGnssLon":       f"{KS_LATLON_BASE_LON - (N % KS_LATLON_MOD) * KS_LATLON_STEP:.6f}",
+        # suEfis-mirror fields (suEfis_pub_ second publish in applyVn300Data)
+        "efisPitch":       f"{pitch:.2f}",
+        "efisRoll":        f"{roll:.2f}",
     }
 
 
