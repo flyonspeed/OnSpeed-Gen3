@@ -1,9 +1,6 @@
 [submodule "software/Libraries/SdFat"]
 	path = software/Libraries/SdFat
 	url = git@github.com:greiman/SdFat.git
-[submodule "software/Libraries/OneWire"]
-	path = software/Libraries/OneWire
-	url = git@github.com:PaulStoffregen/OneWire.git
 [submodule "software/Libraries/OneButton"]
 	path = software/Libraries/OneButton
 	url = git@github.com:mathertel/OneButton.git
