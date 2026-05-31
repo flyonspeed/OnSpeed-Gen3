@@ -22,12 +22,19 @@ What this is:
     wire is exactly what unit tests validate. This driver just sends
     those bytes out a serial port at 400 Hz.
 
-Wiring (V4P):
-    Dongle TX  → V4P GPIO 9 (EFIS RX, DB-15 pin 2)
-    Dongle GND → V4P GND
-    Dongle voltage selector → 3.3 V (NOT 5 V — the ESP32-S3 RX pin is 3.3 V)
-    Dongle RX, 3.3V, CTS/RTS → leave disconnected
-    Any real EFIS already on that line → DISCONNECT first
+Wiring:
+    V4P:  Dongle TX  → V4P GPIO 11 (EFIS RX, J1 pin 25, post-ADM3202)
+    V4B:  Dongle TX  → V4B GPIO 9  (EFIS RX, DB-15 pin 2)
+          Dongle GND → V4P/V4B GND
+          Dongle voltage selector → 3.3 V (NOT 5 V — the ESP32-S3 RX pin is 3.3 V)
+          Dongle RX, 3.3V, CTS/RTS → leave disconnected
+          Any real EFIS already on that line → DISCONNECT first
+
+    The V4P EFIS RX pin sits behind the ADM3202 level shifter — so the
+    dongle TX line is feeding the ESP32 side directly (3.3 V CMOS),
+    bypassing the RS-232 receiver.  This is fine: the stim emits the
+    same byte stream the ADM3202 would deliver after demodulating an
+    RS-232 line, just at TTL level.  See HardwareMap.h for the pin defs.
 
 Quick start:
     cd tools/bench/efis-stim && make

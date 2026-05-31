@@ -21,6 +21,7 @@ The CI follow-up tracked at issue #553 would automate this on a self-hosted runn
 - Before merging any PR that touches SD-writer code, web handlers under `xWriteMutex`, or the IMU/AHRS task chain
 - After flashing a release-candidate firmware, before cutting the actual release
 - When debugging a reported field issue (silent log end, missing samples, ring stuck at 100%, /api/logs returning 503)
+- **For PRs touching EfisSerialPort / EfisRead / VN-300 parser / BoomSerial publishing**: also pair the web stress with the UART EFIS stim — see the "Optional but recommended for VN-300" subsection of Phase 3 below.  This was the missing piece that let PR #656 reproduce Vac's coredump-storm bug on the bench (5 IDLE0 watchdog timeouts in 30 min on the un-fixed firmware, 0 on the fix).
 
 ## When NOT to Use
 
@@ -35,6 +36,7 @@ The CI follow-up tracked at issue #553 would automate this on a self-hosted runn
 - The host laptop on the OnSpeed AP (`OnSpeed` / `angleofattack`)
 - A way to issue serial commands AND read serial output in parallel — typically a background `Monitor` reading the port, and the user driving the web UI on `192.168.0.1`
 - The stress script at `tools/bench/stress_web_handlers.py` (PEP 723 inline metadata; runs via `uv run`)
+- For VN-300 / EFIS-touching PRs: a second USB-TTL dongle on the host laptop (CP210x or CH340 — see `uart_efis_stim.py` docstring) wired to the V4P's EFIS RX pin.  Pair the stress with `tools/bench/uart_efis_stim.py --epoch-encode` running in a second terminal to reproduce the IDF UART production workload; the synth firmware builds bypass that path entirely.
 
 ## Bench Power Caveat
 
@@ -89,7 +91,33 @@ uv run ./stress_web_handlers.py --duration 10 --aggressive      # tight cadence,
 uv run ./stress_web_handlers.py --duration 30 --no-downloads    # no paused_drops expected
 ```
 
-What the script does, concurrently:
+### Optional but recommended for VN-300 / EFIS-touching PRs: pair with the UART EFIS stim
+
+When the PR touches `EfisSerialPort`, `EfisRead`, the VN-300 parser, or anything in the EFIS publish path, **also run `tools/bench/uart_efis_stim.py` in a second terminal** to feed the V4P's EFIS UART RX with bit-identical VN-300 frames at 400 Hz / 921600 baud.  This reproduces the production Core 0 workload — the IDF UART path that synth firmware builds bypass entirely.
+
+```bash
+# In terminal 1 — first build the C++ helper (one-time)
+cd tools/bench/efis-stim && make && cd -
+
+# Then pump frames (auto-detects the dongle if exactly one CP210x/CH34x is plugged in)
+uv run ./uart_efis_stim.py --rate 400 --baud 921600 --epoch-encode
+
+# In terminal 2 — run the web stress as usual
+uv run ./stress_web_handlers.py --duration 60 --aggressive --no-saves --no-downloads
+```
+
+The `--epoch-encode` flag is important: it encodes a per-frame counter into Yaw / Pitch / Roll / Lat / Lon / TimeStartupNs so the offline tear-detector below can find atomic-publish regressions.  See `tools/bench/uart_efis_stim.py` docstring for wiring (V4P pin 25 / GPIO 11 via ADM3202, dongle voltage selector to 3.3 V).
+
+After the run, check for torn rows in the resulting CSV:
+
+```bash
+python3 tools/bench/check-atomic-publish.py /Volumes/Untitled/log_NNN.csv
+# expect: "OK: no tears detected. Atomic publish is working."
+```
+
+A non-zero tear count means the producer (EfisSerialPort or BoomSerial) is publishing data field-by-field instead of atomically — see PR #656 for the canonical fix and the structural pattern (assemble staging struct, memcpy under mutex, single publish).
+
+### What the web-stress script does, concurrently:
 - Opens multiple WebSocket clients to `/` and keeps them subscribed
 - Polls `GET /api/logs` on a fast cadence (the handler returns 503 with `Retry-After: 1` when the SD writer is busy; the test exercises that contention path)
 - Loads main pages (`/`, `/aoaconfig`) periodically
