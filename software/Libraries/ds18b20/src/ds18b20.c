@@ -131,9 +131,16 @@ esp_err_t ds18b20_trigger_temperature_conversion(ds18b20_device_handle_t ds18b20
     // send command: DS18B20_CMD_CONVERT_TEMP
     ESP_RETURN_ON_ERROR(ds18b20_send_command(ds18b20, DS18B20_CMD_CONVERT_TEMP), TAG, "send DS18B20_CMD_CONVERT_TEMP failed");
 
-    // delay proper time for temperature conversion
-    const uint32_t delays_ms[] = {100, 200, 400, 800};
-    vTaskDelay(pdMS_TO_TICKS(delays_ms[ds18b20->resolution]));
+    // OnSpeed divergence from upstream (v0.1.2): the upstream component
+    // blocks here with vTaskDelay(delays_ms[resolution]) — up to 800 ms
+    // for 12-bit — to wait out the conversion. OnSpeed issues this kick
+    // from the 50 Hz sensor task (SensorIO::Read), which also reads the
+    // pitot/AOA pressure sensors; an 800 ms block there would stall IAS
+    // and AOA once per second. The conversion wait is instead owned by
+    // the caller: SensorIO gates the matching ds18b20_get_temperature
+    // read on its own kOatConversionMs (800 ms) timer, so this trigger
+    // returns immediately. Keep this non-blocking if the component is
+    // ever re-vendored from upstream.
 
     return ESP_OK;
 }

@@ -45,6 +45,8 @@ bool Ds18b20::Begin(int bits)
     // Search the bus and bind to the first DS18B20 we find.
     onewire_device_iter_handle_t iter = nullptr;
     if (onewire_new_device_iter(bus_, &iter) != ESP_OK) {
+        onewire_bus_del(bus_);
+        bus_ = nullptr;
         return false;
     }
 
@@ -60,11 +62,25 @@ bool Ds18b20::Begin(int bits)
     onewire_del_device_iter(iter);
 
     if (!bFound) {
+        onewire_bus_del(bus_);
+        bus_ = nullptr;
         dev_ = nullptr;
         return false;
     }
 
-    return ds18b20_set_resolution(dev_, ResolutionFor(bits)) == ESP_OK;
+    // Leave bus_/dev_ valid only on full success. On a resolution-write
+    // failure, tear both down and null them so the dev_ guard in
+    // ReadCelsius/RequestConversion correctly reports "not initialized"
+    // rather than reading from a half-configured device.
+    if (ds18b20_set_resolution(dev_, ResolutionFor(bits)) != ESP_OK) {
+        ds18b20_del_device(dev_);
+        onewire_bus_del(bus_);
+        dev_ = nullptr;
+        bus_ = nullptr;
+        return false;
+    }
+
+    return true;
 }
 
 bool Ds18b20::RequestConversion()
