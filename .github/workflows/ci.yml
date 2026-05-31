@@ -692,6 +692,52 @@ jobs:
       - name: Run onspeed_py wrapper tests
         run: cd tools/onspeed_py && python -m pytest tests/ -v
 
+  ekfq-jacobian-oracle:
+    name: EKFQ Jacobian Oracle (sympy/jax/hand-written)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            ~/.platformio/penv
+          key: ${{ runner.os }}-pio-ekfq-oracle-v1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Build host_main native binary
+        working-directory: tools/regression
+        run: pio run -e native
+
+      - name: Verify generated artifacts are up to date
+        run: |
+          cd ekfq_pipeline && uv run --group dev python -m onspeed_ekf.symbolic
+          cd .. && git diff --exit-code \
+            software/Libraries/onspeed_core/src/ahrs/EKFQ_jacobians.generated.h \
+            ekfq_pipeline/onspeed_ekf/_generated_jacobians.py
+
+      - name: Run Jacobian oracle + C/Python parity suite
+        run: cd ekfq_pipeline && uv run --group dev python -m pytest tests/ -v
+
   core-purity:
     name: onspeed_core Platform Purity
     runs-on: ubuntu-latest
