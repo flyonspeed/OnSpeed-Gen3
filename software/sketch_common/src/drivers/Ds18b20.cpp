@@ -109,8 +109,9 @@ float Ds18b20::BlockingReadCelsius()
     if (!RequestConversion()) {
         return onspeed::sensors::kDs18b20DisconnectedC;
     }
-    // 12-bit conversion takes up to 750 ms. Called only at startup
-    // before the scheduler runs, so blocking here is acceptable.
-    delay(750);
+    // 12-bit conversion takes up to 750 ms (datasheet max). Wait 800 ms
+    // to match the async path's kOatConversionMs margin. Called only at
+    // startup before the scheduler runs, so blocking here is acceptable.
+    delay(800);
     return ReadCelsius();
 }
