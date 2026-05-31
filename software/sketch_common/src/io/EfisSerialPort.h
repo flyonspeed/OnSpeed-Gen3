@@ -158,18 +158,25 @@ public:
     // and read every field from the local copy that follows.  These are
     // the ONLY supported readers of the data — direct member access is
     // gone.  Both methods are wait-free (~150-200 ns); safe to call
-    // from any task on any core including audio / IMU.
+    // from any task on any core EXCEPT deadlined ones.
     //
-    // DEADLINED CALLERS: under pathological scheduling (writer task
-    // preempted mid-publish for many ms by a higher-priority interrupt),
-    // SnapshotEfis()/SnapshotVn300() could spin for the duration of the
-    // preemption.  In our task layout this can't happen — the producer
-    // is EfisReadTask (pri 3) which is preempted only by IDF kernel
-    // tasks and the SPI ISR, both of which complete in microseconds.
-    // If a future change introduces a deadlined reader, switch to the
-    // tryRead-based equivalents (and add them here).
+    // The `Snapshot*` variants spin if the producer is preempted mid-
+    // publish.  Use them for tolerant consumers (web handlers, log
+    // writer, WebSocket broadcaster, anything not on a hard cadence).
     void SnapshotEfis(SuEfisData& out) const;
     void SnapshotVn300(SuVN300Data& out) const;
+
+    // Bounded-retry variants for deadlined consumers (DisplaySerial at
+    // 20 Hz, AHRS at IMU rate, future audio).  Return false if 8
+    // retries didn't get a coherent read; caller must skip the frame
+    // rather than act on potentially-torn data.
+    //
+    // Return semantics:
+    //   true  → `out` is coherent, caller can use it
+    //   false → `out` is untouched/torn, caller must use a fallback
+    //           (typically: leave the field at its prior value)
+    [[nodiscard]] bool TrySnapshotEfis(SuEfisData& out) const;
+    [[nodiscard]] bool TrySnapshotVn300(SuVN300Data& out) const;
 
     // Apply any pending RequestTypeChange call. Idempotent. EfisRead
     // calls this once per wake before FeedBytes; the type change runs

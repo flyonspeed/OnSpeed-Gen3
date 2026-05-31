@@ -58,6 +58,16 @@ void EfisSerialPort::SnapshotVn300(SuVN300Data& out) const
     out = suVN300_pub_.read();
 }
 
+bool EfisSerialPort::TrySnapshotEfis(SuEfisData& out) const
+{
+    return suEfis_pub_.tryRead(out);
+}
+
+bool EfisSerialPort::TrySnapshotVn300(SuVN300Data& out) const
+{
+    return suVN300_pub_.tryRead(out);
+}
+
 // ---------------------------------------------------------------------------
 
 onspeed::efis::EfisType EfisSerialPort::toCoreType(EnEfisType t)
