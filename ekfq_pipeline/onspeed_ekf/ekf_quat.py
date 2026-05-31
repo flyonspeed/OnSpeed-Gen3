@@ -276,12 +276,6 @@ class EKFQ:
         # Bias-corrected gyros
         p_c, q_c, r_c = p - bp, q - bq, r - br
 
-        # Quaternion derivative: q_dot = 0.5 · Ω(ω) · q
-        q0_dot = 0.5 * (-q1 * p_c - q2 * q_c - q3 * r_c)
-        q1_dot = 0.5 * ( q0 * p_c + q2 * r_c - q3 * q_c)
-        q2_dot = 0.5 * ( q0 * q_c - q1 * r_c + q3 * p_c)
-        q3_dot = 0.5 * ( q0 * r_c + q1 * q_c - q2 * p_c)
-
         # Earth-Down inertial acceleration (drives vz). R_be[2,:]·a_body + g − b_az.
         R20 = 2.0 * (q1 * q3 - q0 * q2)
         R21 = 2.0 * (q2 * q3 + q0 * q1)
@@ -318,10 +312,24 @@ class EKFQ:
 
         # ---- Integrate state ----
         new_x = self.x.copy()
-        new_x[Q0] = q0 + dt * q0_dot
-        new_x[Q1] = q1 + dt * q1_dot
-        new_x[Q2] = q2 + dt * q2_dot
-        new_x[Q3] = q3 + dt * q3_dot
+        # Quaternion mean by the exact exponential map: q ← q ⊗ exp(½ω·dt).
+        # Matches the firmware EKFQ.cpp predict(). To first order in ω·dt this is
+        # q + q̇·dt — the same q̇ the F block below is built from — so F stays the
+        # first-order Jacobian of the LINEAR mean by design; the exact map's extra
+        # terms are O((ω·dt)³), which the covariance does not track. The increment
+        # is unit by construction, so _renormalize only sheds float rounding.
+        wx, wy, wz = p_c * dt, q_c * dt, r_c * dt        # rotation vector
+        half_angle = 0.5 * float(np.sqrt(wx * wx + wy * wy + wz * wz))
+        dq_w = float(np.cos(half_angle))
+        if half_angle > 1e-4:
+            s_scale = 0.5 * float(np.sin(half_angle)) / half_angle
+        else:
+            s_scale = 0.5 * (1.0 - half_angle * half_angle / 6.0)  # ½·sinc Taylor
+        dq_x, dq_y, dq_z = s_scale * wx, s_scale * wy, s_scale * wz
+        new_x[Q0] = q0 * dq_w - q1 * dq_x - q2 * dq_y - q3 * dq_z
+        new_x[Q1] = q0 * dq_x + q1 * dq_w + q2 * dq_z - q3 * dq_y
+        new_x[Q2] = q0 * dq_y - q1 * dq_z + q2 * dq_w + q3 * dq_x
+        new_x[Q3] = q0 * dq_z + q1 * dq_y - q2 * dq_x + q3 * dq_w
         # bp, bq, br unchanged
         new_x[Z]    = self.x[Z] - (vz + 0.5 * a_D * dt) * dt
         new_x[VZ]   = vz + a_D * dt
