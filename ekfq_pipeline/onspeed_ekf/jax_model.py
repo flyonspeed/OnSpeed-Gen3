@@ -72,18 +72,17 @@ def _common(x, u):
 
 
 def _beta_dot(x, u, p_c, q_c, r_c, ay, tas, tas_min):
-    """Sideslip rate, tas-gated. Uses jnp.where so grad traces both branches."""
+    """Sideslip rate, tas-gated. Uses jnp.where so grad traces both branches.
+
+    The gravity-into-body-Y term is R_be[2,1] = 2(q2 q3 + q0 q1) — the same
+    polynomial the firmware and symbolic model use. On the unit sphere this
+    equals sin φ · cos θ, but the two forms have different off-manifold
+    gradients, and jax.jacobian perturbs the raw quaternion freely. The
+    polynomial form is what flies, so the derived F matches the firmware.
+    """
     q0, q1, q2, q3 = x[Q0], x[Q1], x[Q2], x[Q3]
-
-    # roll: φ = atan2(2(q0 q1 + q2 q3), 1 − 2(q1² + q2²))
-    roll = jnp.arctan2(2.0 * (q0 * q1 + q2 * q3),
-                       1.0 - 2.0 * (q1 * q1 + q2 * q2))
-
-    sin_th = jnp.clip(2.0 * (q0 * q2 - q3 * q1), -1.0, 1.0)
-    cos_th = jnp.sqrt(jnp.clip(1.0 - sin_th * sin_th, 0.0, 1.0))
-    cos_th = jnp.maximum(cos_th, 1e-6)
-
-    beta_dot_active = (ay + jnp.sin(roll) * cos_th * GRAVITY) / tas - r_c
+    R21 = 2.0 * (q2 * q3 + q0 * q1)
+    beta_dot_active = (ay + R21 * GRAVITY) / tas - r_c
     return jnp.where(tas > tas_min, beta_dot_active, 0.0)
 
 
