@@ -12,6 +12,16 @@
 // polynomial form, so every entry below is polynomial -- the header is
 // core-pure (no <math.h>, no pow()).
 //
+// Two emit forms are provided: named-struct fillers (unrolled, default,
+// fastest -- ekfqFJacobian/ekfqHJacobian return EkfqFJacobian/EkfqHJacobian)
+// and array-indexed fillers (rolled, compact .text --
+// ekfqFJacobianRolled/ekfqHJacobianRolled write float dF[11][11]/H[3][11]).
+// They compute identical values; choose per the size/speed tradeoff. This
+// is the ArduPilot loop-re-rolling lesson made explicit: fully-unrolled
+// per-entry code grows .text at larger state counts, the array form stays
+// compact. EKFQ is small (N=11) so unrolled is the default. Emit mode is
+// controlled by emit_c_header(mode=...) in symbolic.py.
+//
 // NOT YET INCLUDED BY THE FIRMWARE. A follow-up PR slots it into
 // EKFQ.cpp predict()/correct() and deletes the hand expressions.
 
@@ -19,6 +29,10 @@
 #define ONSPEED_CORE_AHRS_EKFQ_JACOBIANS_GENERATED_H
 
 namespace onspeed {
+
+// ============================================================
+// UNROLLED FORM (default, fastest) -- named-struct fillers.
+// ============================================================
 
 // Delta-perturbation entries of the predict Jacobian F = I + delta_F.
 // Quaternion block (a01..a32), quaternion-bias block (qb_*),
@@ -209,6 +223,128 @@ static inline EkfqHJacobian ekfqHJacobian(
     H.az_q3 = x1;
     H.az_bq = tas;
     return H;
+}
+
+// ============================================================
+// ROLLED FORM (compact .text) -- array-indexed fillers.
+// Identical numeric values to the unrolled form above.
+// ============================================================
+
+// Fill the F delta-perturbation entries into a dense 11x11 array. The
+// matrix is zeroed, then only the nonzero (row,col) perturbations of
+// F = I + delta_F are written (identity diagonal stays for the caller to
+// add). Inputs and tas-gate caveat match ekfqFJacobian() above; the (row,
+// col) slots correspond one-to-one to the EkfqFJacobian named fields.
+static inline void ekfqFJacobianRolled(
+        float q0, float q1, float q2, float q3,
+        float bp, float bq, float br,
+        float p, float q, float r,
+        float ax_raw, float ay_raw, float az_raw,
+        float tas, float dt, float dF[11][11]) {
+    for (int i = 0; i < 11; ++i)
+        for (int j = 0; j < 11; ++j)
+            dF[i][j] = 0.0f;
+    const float x0 = (0.5f)*dt;
+    const float x1 = x0*(bp - p);
+    const float x2 = x0*(bq - q);
+    const float x3 = x0*(br - r);
+    const float x4 = -x1;
+    const float x5 = -x3;
+    const float x6 = -x2;
+    const float x7 = q1*x0;
+    const float x8 = q2*x0;
+    const float x9 = q3*x0;
+    const float x10 = -q0*x0;
+    const float x11 = -ax_raw*q2 + ay_raw*q1 + az_raw*q0;
+    const float x12 = 2.0f*dt;
+    const float x13 = ax_raw*q3 + ay_raw*q0 - az_raw*q1;
+    const float x14 = ax_raw*q0 - ay_raw*q3 + az_raw*q2;
+    const float x15 = ax_raw*q1 + ay_raw*q2 + az_raw*q3;
+    const float x16 = -dt;
+    const float x17 = (dt*dt);
+    const float x18 = 19.613299999999999f*dt/tas;
+    dF[0][1] = x1;
+    dF[0][2] = x2;
+    dF[0][3] = x3;
+    dF[1][0] = x4;
+    dF[1][2] = x5;
+    dF[1][3] = x2;
+    dF[2][0] = x6;
+    dF[2][1] = x3;
+    dF[2][3] = x4;
+    dF[3][0] = x5;
+    dF[3][1] = x6;
+    dF[3][2] = x1;
+    dF[0][4] = x7;
+    dF[0][5] = x8;
+    dF[0][6] = x9;
+    dF[1][4] = x10;
+    dF[1][5] = x9;
+    dF[1][6] = -x8;
+    dF[2][4] = -x9;
+    dF[2][5] = x10;
+    dF[2][6] = x7;
+    dF[3][4] = x8;
+    dF[3][5] = -x7;
+    dF[3][6] = x10;
+    dF[8][0] = x11*x12;
+    dF[8][1] = x12*x13;
+    dF[8][2] = -x12*x14;
+    dF[8][3] = x12*x15;
+    dF[8][9] = x16;
+    dF[7][0] = -x11*x17;
+    dF[7][1] = -x13*x17;
+    dF[7][2] = x14*x17;
+    dF[7][3] = -x15*x17;
+    dF[7][8] = x16;
+    dF[7][9] = (0.5f)*x17;
+    dF[10][0] = q1*x18;
+    dF[10][1] = q0*x18;
+    dF[10][2] = q3*x18;
+    dF[10][3] = q2*x18;
+    dF[10][6] = dt;
+}
+
+// Partials of a_D w.r.t. the quaternion into a dense 4-vector
+// dD = {dD_q0, dD_q1, dD_q2, dD_q3}. Same values as ekfqADPartials().
+static inline void ekfqADPartialsRolled(
+        float q0, float q1, float q2, float q3,
+        float ax_raw, float ay_raw, float az_raw, float dD[4]) {
+    dD[0] = 2.0f*(-ax_raw*q2 + ay_raw*q1 + az_raw*q0);
+    dD[1] = 2.0f*(ax_raw*q3 + ay_raw*q0 - az_raw*q1);
+    dD[2] = 2.0f*(-ax_raw*q0 + ay_raw*q3 - az_raw*q2);
+    dD[3] = 2.0f*(ax_raw*q1 + ay_raw*q2 + az_raw*q3);
+}
+
+// Fill the H entries into a dense 3x11 array. The matrix is zeroed, then
+// only the nonzero (row,col) entries are written. The (row,col) slots
+// correspond one-to-one to the EkfqHJacobian named fields.
+static inline void ekfqHJacobianRolled(
+        float q0, float q1, float q2, float q3, float tas,
+        float H[3][11]) {
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 11; ++j)
+            H[i][j] = 0.0f;
+    const float x0 = 19.613299999999999f*q2;
+    const float x1 = -19.613299999999999f*q3;
+    const float x2 = 19.613299999999999f*q0;
+    const float x3 = 19.613299999999999f*q1;
+    const float x4 = -x3;
+    const float x5 = -x2;
+    H[0][0] = x0;
+    H[0][1] = x1;
+    H[0][2] = x2;
+    H[0][3] = x4;
+    H[1][0] = x4;
+    H[1][1] = x5;
+    H[1][2] = x1;
+    H[1][3] = -x0;
+    H[1][6] = -tas;
+    H[2][0] = x5;
+    H[2][1] = x3;
+    H[2][2] = x0;
+    H[2][3] = x1;
+    H[2][5] = tas;
 }
 
 }  // namespace onspeed

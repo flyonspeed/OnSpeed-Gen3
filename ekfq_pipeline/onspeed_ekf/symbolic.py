@@ -393,7 +393,11 @@ def emit_numpy(path: str) -> None:
 
 
 def _c_assignments(field_specs, matrix: sp.Matrix, struct_var: str) -> list[str]:
-    """Produce CSE'd C assignment lines for a list of (name, row, col)."""
+    """Produce CSE'd C assignment lines for a list of (name, row, col).
+
+    Assigns into named struct fields (``<struct_var>.<name>``). This is the
+    UNROLLED emit form.
+    """
     exprs = [matrix[row, col] for (_n, row, col) in field_specs]
     replacements, reduced = sp.cse(exprs, optimizations="basic")
     lines: list[str] = []
@@ -404,33 +408,34 @@ def _c_assignments(field_specs, matrix: sp.Matrix, struct_var: str) -> list[str]
     return lines
 
 
-def emit_c_header(path: str) -> None:
-    """Write the core-pure C header of generated F/H entries to ``path``."""
-    Fm = F_matrix()
-    Hm = H_matrix()
-    dd = _build_dd()
+def _c_array_assignments(field_specs, matrix: sp.Matrix, array_var: str) -> list[str]:
+    """Produce CSE'd C assignment lines targeting 2-D array slots.
 
-    out: list[str] = []
-    out.append(_BANNER_C.rstrip("\n"))
-    out.append("//")
-    out.append("// EKFQ predict Jacobian (F) delta-perturbations and accelerometer")
-    out.append("// measurement Jacobian (H) entries, derived symbolically.")
-    out.append("//")
-    out.append("// F = I + delta_F. Field names match the EKFQ.cpp predict()/correct()")
-    out.append("// locals so a later PR can replace the hand-written expressions with")
-    out.append("// calls to these fillers mechanically. F is the Jacobian of the LINEAR")
-    out.append("// quaternion mean (q + q_dot*dt) by design; the beta row uses the R21")
-    out.append("// polynomial form, so every entry below is polynomial -- the header is")
-    out.append("// core-pure (no <math.h>, no pow()).")
-    out.append("//")
-    out.append("// NOT YET INCLUDED BY THE FIRMWARE. A follow-up PR slots it into")
-    out.append("// EKFQ.cpp predict()/correct() and deletes the hand expressions.")
-    out.append("")
-    out.append("#ifndef ONSPEED_CORE_AHRS_EKFQ_JACOBIANS_GENERATED_H")
-    out.append("#define ONSPEED_CORE_AHRS_EKFQ_JACOBIANS_GENERATED_H")
-    out.append("")
-    out.append("namespace onspeed {")
-    out.append("")
+    Same CSE temporaries and reduced expressions as :func:`_c_assignments`
+    (identical inputs, identical ``sp.cse`` call), but the left-hand side is
+    ``<array_var>[row][col]`` driven by the (row, col) carried in
+    ``field_specs`` rather than a named struct field. This is the ROLLED emit
+    form: an array-indexed layout the compiler can keep tighter than a wide
+    named struct. The numeric values are identical to the unrolled form by
+    construction.
+    """
+    exprs = [matrix[row, col] for (_n, row, col) in field_specs]
+    replacements, reduced = sp.cse(exprs, optimizations="basic")
+    lines: list[str] = []
+    for sym, sub in replacements:
+        lines.append(f"    const float {_printer.doprint(sym)} = {_ccode(sub)};")
+    for (_name, row, col), red in zip(field_specs, reduced):
+        lines.append(f"    {array_var}[{row}][{col}] = {_ccode(red)};")
+    return lines
+
+
+def _emit_unrolled(out: list[str], Fm: sp.Matrix, Hm: sp.Matrix,
+                   dd: list[tuple[str, sp.Expr]]) -> None:
+    """Append the UNROLLED emit form: named-field structs + struct fillers.
+
+    This section is the default, fastest form and must stay byte-identical to
+    the originally committed header (no consumer-visible perturbation).
+    """
     # ---- F struct ----
     out.append("// Delta-perturbation entries of the predict Jacobian F = I + delta_F.")
     out.append("// Quaternion block (a01..a32), quaternion-bias block (qb_*),")
@@ -499,6 +504,140 @@ def emit_c_header(path: str) -> None:
     out.extend(_c_assignments(H_FIELDS, Hm, "H"))
     out.append("    return H;")
     out.append("}")
+
+
+def _emit_rolled(out: list[str], Fm: sp.Matrix, Hm: sp.Matrix,
+                 dd: list[tuple[str, sp.Expr]]) -> None:
+    """Append the ROLLED emit form: array-indexed fillers.
+
+    Same CSE'd subexpressions as the unrolled form, but written into dense
+    fixed-size arrays (``float dF[11][11]``, ``float H[3][11]``, ``float
+    dD[4]``) keyed by (row, col) instead of N named struct fields. The denser
+    layout lets the compiler keep .text tighter at larger state counts; the
+    numeric values are identical to the unrolled form.
+    """
+    # ---- F array filler ----
+    out.append("// Fill the F delta-perturbation entries into a dense 11x11 array. The")
+    out.append("// matrix is zeroed, then only the nonzero (row,col) perturbations of")
+    out.append("// F = I + delta_F are written (identity diagonal stays for the caller to")
+    out.append("// add). Inputs and tas-gate caveat match ekfqFJacobian() above; the (row,")
+    out.append("// col) slots correspond one-to-one to the EkfqFJacobian named fields.")
+    out.append("static inline void ekfqFJacobianRolled(")
+    out.append("        float q0, float q1, float q2, float q3,")
+    out.append("        float bp, float bq, float br,")
+    out.append("        float p, float q, float r,")
+    out.append("        float ax_raw, float ay_raw, float az_raw,")
+    out.append("        float tas, float dt, float dF[11][11]) {")
+    out.append("    for (int i = 0; i < 11; ++i)")
+    out.append("        for (int j = 0; j < 11; ++j)")
+    out.append("            dF[i][j] = 0.0f;")
+    out.extend(_c_array_assignments(F_FIELDS, Fm, "dF"))
+    out.append("}")
+    out.append("")
+    # ---- a_D partials array filler ----
+    out.append("// Partials of a_D w.r.t. the quaternion into a dense 4-vector")
+    out.append("// dD = {dD_q0, dD_q1, dD_q2, dD_q3}. Same values as ekfqADPartials().")
+    out.append("static inline void ekfqADPartialsRolled(")
+    out.append("        float q0, float q1, float q2, float q3,")
+    out.append("        float ax_raw, float ay_raw, float az_raw, float dD[4]) {")
+    dd_exprs = [e for (_n, e) in dd]
+    dd_repl, dd_red = sp.cse(dd_exprs, optimizations="basic")
+    for sym, sub in dd_repl:
+        out.append(f"    const float {_printer.doprint(sym)} = {_ccode(sub)};")
+    for idx, red in enumerate(dd_red):
+        out.append(f"    dD[{idx}] = {_ccode(red)};")
+    out.append("}")
+    out.append("")
+    # ---- H array filler ----
+    out.append("// Fill the H entries into a dense 3x11 array. The matrix is zeroed, then")
+    out.append("// only the nonzero (row,col) entries are written. The (row,col) slots")
+    out.append("// correspond one-to-one to the EkfqHJacobian named fields.")
+    out.append("static inline void ekfqHJacobianRolled(")
+    out.append("        float q0, float q1, float q2, float q3, float tas,")
+    out.append("        float H[3][11]) {")
+    out.append("    for (int i = 0; i < 3; ++i)")
+    out.append("        for (int j = 0; j < 11; ++j)")
+    out.append("            H[i][j] = 0.0f;")
+    out.extend(_c_array_assignments(H_FIELDS, Hm, "H"))
+    out.append("}")
+
+
+def emit_c_header(path: str, mode: str = "unrolled") -> None:
+    """Write the core-pure C header of generated F/H entries to ``path``.
+
+    ``mode`` selects which emit forms appear in the file:
+
+    - ``"unrolled"`` (default): emit BOTH forms, named-struct fillers first
+      (the fast default a consumer reaches for) followed by the array-indexed
+      rolled fillers, so the size/speed knob is present in the header and the
+      consumer chooses at compile time without regenerating. The named-struct
+      section is byte-identical to the originally committed header.
+    - ``"rolled"``: emit ONLY the array-indexed fillers (compact .text), for a
+      consumer that wants the small form and nothing else.
+
+    Both forms compute identical values; they differ only in code shape.
+    """
+    if mode not in ("unrolled", "rolled"):
+        raise ValueError(f"emit_c_header: unknown mode {mode!r} "
+                         "(expected 'unrolled' or 'rolled')")
+
+    Fm = F_matrix()
+    Hm = H_matrix()
+    dd = _build_dd()
+
+    out: list[str] = []
+    out.append(_BANNER_C.rstrip("\n"))
+    out.append("//")
+    out.append("// EKFQ predict Jacobian (F) delta-perturbations and accelerometer")
+    out.append("// measurement Jacobian (H) entries, derived symbolically.")
+    out.append("//")
+    out.append("// F = I + delta_F. Field names match the EKFQ.cpp predict()/correct()")
+    out.append("// locals so a later PR can replace the hand-written expressions with")
+    out.append("// calls to these fillers mechanically. F is the Jacobian of the LINEAR")
+    out.append("// quaternion mean (q + q_dot*dt) by design; the beta row uses the R21")
+    out.append("// polynomial form, so every entry below is polynomial -- the header is")
+    out.append("// core-pure (no <math.h>, no pow()).")
+    out.append("//")
+    out.append("// Two emit forms are provided: named-struct fillers (unrolled, default,")
+    out.append("// fastest -- ekfqFJacobian/ekfqHJacobian return EkfqFJacobian/EkfqHJacobian)")
+    out.append("// and array-indexed fillers (rolled, compact .text --")
+    out.append("// ekfqFJacobianRolled/ekfqHJacobianRolled write float dF[11][11]/H[3][11]).")
+    out.append("// They compute identical values; choose per the size/speed tradeoff. This")
+    out.append("// is the ArduPilot loop-re-rolling lesson made explicit: fully-unrolled")
+    out.append("// per-entry code grows .text at larger state counts, the array form stays")
+    out.append("// compact. EKFQ is small (N=11) so unrolled is the default. Emit mode is")
+    out.append("// controlled by emit_c_header(mode=...) in symbolic.py.")
+    out.append("//")
+    out.append("// NOT YET INCLUDED BY THE FIRMWARE. A follow-up PR slots it into")
+    out.append("// EKFQ.cpp predict()/correct() and deletes the hand expressions.")
+    out.append("")
+    out.append("#ifndef ONSPEED_CORE_AHRS_EKFQ_JACOBIANS_GENERATED_H")
+    out.append("#define ONSPEED_CORE_AHRS_EKFQ_JACOBIANS_GENERATED_H")
+    out.append("")
+    out.append("namespace onspeed {")
+    out.append("")
+
+    if mode == "unrolled":
+        # Both forms in one file: unrolled (default, fast) first, then rolled.
+        out.append("// ============================================================")
+        out.append("// UNROLLED FORM (default, fastest) -- named-struct fillers.")
+        out.append("// ============================================================")
+        out.append("")
+        _emit_unrolled(out, Fm, Hm, dd)
+        out.append("")
+        out.append("// ============================================================")
+        out.append("// ROLLED FORM (compact .text) -- array-indexed fillers.")
+        out.append("// Identical numeric values to the unrolled form above.")
+        out.append("// ============================================================")
+        out.append("")
+        _emit_rolled(out, Fm, Hm, dd)
+    else:  # mode == "rolled"
+        out.append("// ============================================================")
+        out.append("// ROLLED FORM (compact .text) -- array-indexed fillers.")
+        out.append("// ============================================================")
+        out.append("")
+        _emit_rolled(out, Fm, Hm, dd)
+
     out.append("")
     out.append("}  // namespace onspeed")
     out.append("")
