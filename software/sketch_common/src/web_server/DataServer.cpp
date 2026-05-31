@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
@@ -168,13 +169,23 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     float fWifiVSI;
     float fWifiIAS;
     float fWifiOAT;
+
+    // Read the AHRS output fields as one coherent frame from the
+    // lock-free snapshot (published once per AHRS::Process() iteration
+    // by ImuReadTask).  Every g_AHRS.* read in this function now comes
+    // from this single snapshot, so the whole JSON frame is internally
+    // consistent — pitch, VSI, AOA, accel and gyro all from the same
+    // AHRS iteration.  read() is wait-free and never blocks the producer.
+    const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+        onspeed::ahrs::g_AhrsSnapshot.read();
+
     // Installation-corrected body-vertical acceleration (G), EMA-smoothed
     // by AHRS::Process to suppress per-tick IMU jitter.  The M5 wire path
-    // ships AccelVertFilter.get() at DisplaySerial.cpp:145 — same source
+    // ships the same filtered value at DisplaySerial.cpp — same source
     // here so the LiveView G readout doesn't twitch where the M5's holds
     // steady.  GLimitDecision still reads the unsmoothed AccelVertCorr
     // for over-G warnings; the smoothing is purely a presentation choice.
-    float fVerticalGload = g_AHRS.AccelVertFilter.get();
+    float fVerticalGload = ahrsSnap.accelVertFilteredG;
 
     // AOA / DerivedAOA emit JSON null when bIasAlive is false, matching
     // IAS / percentLift.  `bIasAlive` is the canonical sensor-level
@@ -203,10 +214,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiPitch = vn.Pitch;
             fWifiRoll  = vn.Roll;
 
-            if (g_AHRS.fTAS > 0)
+            if (ahrsSnap.tasMps > 0)
             {
                 // TAS is being updated in an interrupt
-                fWifiFlightpath = rad2deg(safeAsin(-vn.VelNedDown/g_AHRS.fTAS)); // vnVelNedDown is reversed (positive when descending)
+                fWifiFlightpath = rad2deg(safeAsin(-vn.VelNedDown/ahrsSnap.tasMps)); // vnVelNedDown is reversed (positive when descending)
             }
             else
                 fWifiFlightpath = 0;
@@ -232,15 +243,15 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             }
 
             else
-                if (g_AHRS.fTAS > 0)
+                if (ahrsSnap.tasMps > 0)
                 {
-                    fWifiFlightpath = rad2deg(safeAsin(g_AHRS.KalmanVSI/g_AHRS.fTAS)); // convert efiVSI from fpm to m/s
+                    fWifiFlightpath = rad2deg(safeAsin(ahrsSnap.kalmanVsiMps/ahrsSnap.tasMps)); // convert efiVSI from fpm to m/s
                 }
                 else
                     fWifiFlightpath=0;
 
             // kalmanVSI is being updated in an interrupt
-            fWifiVSI = mps2fpm(g_AHRS.KalmanVSI);
+            fWifiVSI = mps2fpm(ahrsSnap.kalmanVsiMps);
             fWifiIAS = ef.IAS;
         } // end if enType != EnVN300
 
@@ -250,10 +261,10 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     else
     {
         // Internal data
-        fWifiPitch      = g_AHRS.SmoothedPitch;      // degrees
-        fWifiRoll       = g_AHRS.SmoothedRoll;       // degrees
-        fWifiFlightpath = g_AHRS.FlightPath;         // degrees
-        fWifiVSI        = mps2fpm(g_AHRS.KalmanVSI); // fpm
+        fWifiPitch      = ahrsSnap.pitchDeg;          // degrees
+        fWifiRoll       = ahrsSnap.rollDeg;           // degrees
+        fWifiFlightpath = ahrsSnap.flightPathDeg;     // degrees
+        fWifiVSI        = mps2fpm(ahrsSnap.kalmanVsiMps); // fpm
 
         fWifiIAS = g_Sensors.IAS;
     } // end internal cal source
@@ -333,7 +344,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fVerticalGload  = SafeJsonFloat(fVerticalGload, 0.0f);
     fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
-    const float fPAltFt = SafeJsonFloat(m2ft(g_AHRS.KalmanAlt), 0.0f);
+    const float fPAltFt = SafeJsonFloat(m2ft(ahrsSnap.kalmanAltMeters), 0.0f);
     // Lateral G: smoothed by AccelLatFilter, raw sign (positive = right
     // per the EKFQ body-axis convention).  The legacy /live AOA tab and
     // the new /indexer data-table both display this number as "Lat G"
@@ -344,9 +355,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // The JS slip-ball consumer applies the same wire-format negation
     // locally so the ball deflects in the conventional direction
     // (rightward G → ball moves left, "step on the ball").
-    const float fLatG   = SafeJsonFloat(g_AHRS.AccelLatFilter.get(), 0.0f);
+    const float fLatG   = SafeJsonFloat(ahrsSnap.accelLatFilteredG, 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
-    const float fPitchRate  = SafeJsonFloat(g_AHRS.gPitch, 0.0f);
+    const float fPitchRate  = SafeJsonFloat(ahrsSnap.gPitchDps, 0.0f);
     const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
 
     // Snapshot the active flap entry plus the full flap vector once
@@ -492,7 +503,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // G-onset rate filtered in AHRS (250 ms tau).  Same value the
     // M5 wire format reads, so the M5 hardware indicator and the
     // LiveView's right-edge tape stay in lockstep.
-    const float fGOnsetRate = SafeJsonFloat(g_AHRS.gOnsetRate, 0.0f);
+    const float fGOnsetRate = SafeJsonFloat(ahrsSnap.gOnsetRate, 0.0f);
 
     // Format the AOA / DerivedAOA / IAS / percentLift values as strings
     // — JSON `null` when air data is invalid (so the consumer's fmt()
@@ -509,7 +520,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     else
         std::strcpy(szAoa, "null");
     // Single read so the IsFiniteFloat check and the snprintf format the same value (TOCTOU-free).
-    const float fDerivedAoaSnap = g_AHRS.DerivedAOA;
+    const float fDerivedAoaSnap = ahrsSnap.derivedAoaDeg;
     if (bIasValidForOutput && IsFiniteFloat(fDerivedAoaSnap))
         snprintf(szDerivedAoa, sizeof(szDerivedAoa), "%.2f", fDerivedAoaSnap);
     else

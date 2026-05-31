@@ -6,6 +6,7 @@
 
 #include <esp_timer.h>          // esp_timer_get_time() — 64-bit µs since boot
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 #include <buildinfo.h>
 #include <log/ConsumeAlignedWrite.h>
 #include <log/LogMetaBuilder.h>
@@ -1063,45 +1064,23 @@ void LogSensor::Write()
     // CSV column type.
     uint64_t      uTimeStampUs = static_cast<uint64_t>(esp_timer_get_time());
 
-    // Snapshot g_AHRS.* under xAhrsMutex so the row's AHRS fields all
-    // come from the same iteration of g_AHRS.Process(). Every other
-    // reader of these fields (DisplaySerial, DataServer, Housekeeping,
-    // ApiHandlers) holds xAhrsMutex; without this snapshot, Write()
-    // races against AHRS::Process() and can split a row across two
-    // AHRS iterations. Closes issue #520.
-    //
-    // The 8 g_AHRS reads were previously scattered through the function
-    // body (lines fed into row.tasKt, row.pitchDeg/rollDeg, then
-    // row.earthVerticalG / flightPathDeg / vsiFpm / altitudeFt /
-    // derivedAoaDeg after the EFIS/boom blocks). All are now snapshotted
-    // here once. Mutex hold is 8 word loads — sub-microsecond, way under
-    // the 4.8 ms IMU period.
-    float ahrsTasMps, ahrsPitchDeg, ahrsRollDeg;
-    float ahrsEarthVertG, ahrsFlightPathDeg, ahrsKalmanVsiMps;
-    float ahrsKalmanAltMeters, ahrsDerivedAoaDeg;
-    if (xSemaphoreTake(xAhrsMutex, portMAX_DELAY) == pdTRUE) {
-        ahrsTasMps          = g_AHRS.fTAS;
-        ahrsPitchDeg        = g_AHRS.SmoothedPitch;
-        ahrsRollDeg         = g_AHRS.SmoothedRoll;
-        ahrsEarthVertG      = g_AHRS.EarthVertG;
-        ahrsFlightPathDeg   = g_AHRS.FlightPath;
-        ahrsKalmanVsiMps    = g_AHRS.KalmanVSI;
-        ahrsKalmanAltMeters = g_AHRS.KalmanAlt;
-        ahrsDerivedAoaDeg   = g_AHRS.DerivedAOA;
-        xSemaphoreGive(xAhrsMutex);
-    } else {
-        // portMAX_DELAY → take always succeeds; this branch is for
-        // completeness. Initialize to defensive defaults in case any
-        // future timeout change drops us here.
-        ahrsTasMps          = 0.0f;
-        ahrsPitchDeg        = 0.0f;
-        ahrsRollDeg         = 0.0f;
-        ahrsEarthVertG      = 0.0f;
-        ahrsFlightPathDeg   = 0.0f;
-        ahrsKalmanVsiMps    = 0.0f;
-        ahrsKalmanAltMeters = 0.0f;
-        ahrsDerivedAoaDeg   = 0.0f;
-    }
+    // Read the AHRS output fields as one coherent frame from the
+    // lock-free snapshot (published once per AHRS::Process() iteration).
+    // Reading them all from a single snapshot keeps the row's AHRS fields
+    // from splitting across two AHRS iterations — the coherence that
+    // closed issue #520, now without taking xAhrsMutex on the writer's
+    // critical path. read() is wait-free (~150 ns) and never blocks
+    // AHRS::Process().
+    const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+        onspeed::ahrs::g_AhrsSnapshot.read();
+    const float ahrsTasMps          = ahrsSnap.tasMps;
+    const float ahrsPitchDeg        = ahrsSnap.pitchDeg;
+    const float ahrsRollDeg         = ahrsSnap.rollDeg;
+    const float ahrsEarthVertG      = ahrsSnap.earthVertG;
+    const float ahrsFlightPathDeg   = ahrsSnap.flightPathDeg;
+    const float ahrsKalmanVsiMps    = ahrsSnap.kalmanVsiMps;
+    const float ahrsKalmanAltMeters = ahrsSnap.kalmanAltMeters;
+    const float ahrsDerivedAoaDeg   = ahrsSnap.derivedAoaDeg;
 
     onspeed::LogRow row;
     row.boomEnabled = g_Config.bReadBoom;

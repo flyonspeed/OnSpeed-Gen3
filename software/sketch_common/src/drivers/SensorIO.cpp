@@ -5,6 +5,7 @@
 #include <OneWire.h>
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
@@ -561,10 +562,16 @@ void SensorIO::Read()
         if ((uNowMs - uLastDebugPrintMs) >= 1000)
         {
             uLastDebugPrintMs = uNowMs;
+            // Read the AHRS output fields from the coherent snapshot so
+            // this 1 Hz debug line is internally consistent and doesn't
+            // read g_AHRS members cross-core (this runs in SensorReadTask,
+            // a different task from the ImuReadTask producer).
+            const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+                onspeed::ahrs::g_AhrsSnapshot.read();
             g_Log.printf("timeStamp: %lu,iPfwd: %i,PfwdSmoothed: %.2f,iP45: %i,P45Smoothed: %.2f,Pstatic: %.2f,Palt: %.2f,IAS: %.2f,AOA: %.2f,flapsPos: %i,VerticalG: %.2f,LateralG: %.2f,ForwardG: %.2f,RollRate: %.2f,PitchRate: %.2f,YawRate: %.2f, SmoothedPitch %.2f\n",
                 millis(), iPfwd, PfwdSmoothed, iP45, P45Smoothed, PStatic, Palt, IAS, AOA, g_Flaps.iPosition,
-                g_AHRS.AccelVertFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelFwdFilter.get(),
-                g_AHRS.gRoll, g_AHRS.gPitch, g_AHRS.gYaw, g_AHRS.SmoothedPitch);
+                ahrsSnap.accelVertFilteredG, ahrsSnap.accelLatFilteredG, ahrsSnap.accelFwdFilteredG,
+                ahrsSnap.gRollDps, ahrsSnap.gPitchDps, ahrsSnap.gYawDps, ahrsSnap.pitchDeg);
         }
     } // end if debug print
 

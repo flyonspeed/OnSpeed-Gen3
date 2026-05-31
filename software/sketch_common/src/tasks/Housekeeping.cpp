@@ -1,5 +1,6 @@
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 #include "src/util/Helpers.h"
 #include "src/audio_io/Volume.h"
 #include "src/drivers/Mcp3202Adc.h"
@@ -55,22 +56,18 @@ void HousekeepingTask(void * pvParams)
         // xTaskGetTickCount() * portTICK_PERIOD_MS gives the elapsed ms since boot.
         uint32_t nowMs = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
-        // --- Snapshot AHRS state under mutex (written by ImuReadTask at 208 Hz) ---
-        // All AHRS fields read here are copied into plain local variables so the
-        // decision functions below never touch shared globals.  This is the
-        // audit #010 fix: the old code read g_AHRS members outside the mutex.
-        float fSnapRoll      = 0.0f;
-        float fSnapYaw       = 0.0f;
-        float fSnapAccelVert = -1.0f;
-        float fSnapAccelLat  = 0.0f;
-        if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(5)))
-        {
-            fSnapRoll      = g_AHRS.gRoll;
-            fSnapYaw       = g_AHRS.gYaw;
-            fSnapAccelVert = g_AHRS.AccelVertCorr;
-            fSnapAccelLat  = g_AHRS.AccelLatCorr;
-            xSemaphoreGive(xAhrsMutex);
-        }
+        // --- Read AHRS state from the lock-free snapshot ---
+        // Published once per AHRS::Process() iteration by ImuReadTask.
+        // Reading the whole frame at once keeps the G-limit and 3D-pan
+        // decisions below coherent (gyro rates and accel from the same
+        // AHRS iteration) without taking xAhrsMutex — read() is wait-free
+        // and never blocks the IMU producer.
+        const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+            onspeed::ahrs::g_AhrsSnapshot.read();
+        const float fSnapRoll      = ahrsSnap.gRollDps;
+        const float fSnapYaw       = ahrsSnap.gYawDps;
+        const float fSnapAccelVert = ahrsSnap.accelVertCorrG;
+        const float fSnapAccelLat  = ahrsSnap.accelLatCorrG;
 
         // --- GLimit (every tick, 100ms) ---
         // Build input and config snapshots from globals, then delegate the
