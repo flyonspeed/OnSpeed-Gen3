@@ -282,22 +282,11 @@ class EKFQ:
         R22 = q0 * q0 - q1 * q1 - q2 * q2 + q3 * q3
         a_D = R20 * ax_raw + R21 * ay_raw + R22 * az_raw + GRAVITY_MPS2 - b_az
 
-        # Attitude angles (needed for beta dynamics and Jacobians)
-        sin_th = 2.0 * (q0 * q2 - q3 * q1)
-        sin_th_clamp = max(-1.0, min(1.0, sin_th))
-        cos_th_sq = max(0.0, 1.0 - sin_th_clamp * sin_th_clamp)
-        cos_th = float(np.sqrt(cos_th_sq))
-        if cos_th < 1e-6:
-            cos_th = 1e-6   # near gimbal; clamp to avoid division
-        # roll: sin(φ) = 2(q2 q3 + q0 q1) / cos(θ);  cos(φ) = (q0² - q1² + q2² - q3²) / cos(θ)
-        # (Equivalent to standard quaternion→Euler formulas, rescaled by cos θ.)
-        # Safer numerically: compute atan2 directly.
-        roll = np.arctan2(2.0 * (q0 * q1 + q2 * q3),
-                          1.0 - 2.0 * (q1 * q1 + q2 * q2))
-        sin_ph = np.sin(roll)
-        cos_ph = np.cos(roll)
-
-        # β̇ ≈ (f_body_y + sin φ · cos θ · g) / TAS − r
+        # β̇ ≈ (f_body_y + g·R_be[2,1]) / TAS − r
+        #
+        # R_be[2,1] = 2(q2 q3 + q0 q1) is the gravity projection onto body Y,
+        # the same polynomial form the firmware and the F block use (its
+        # off-manifold Jacobian is the one F is derived from).
         #
         # Full formula has − r·cos α + p·sin α; we drop the α dependence
         # (cos α ≈ 1, sin α ≈ 0) because the α-coupling created a positive
@@ -305,8 +294,7 @@ class EKFQ:
         # → roll uncorrected → ay grows → α via vz/TAS grows → β feedback).
         # The error introduced is O(α·rate) which Q_β absorbs.
         if tas > self.cfg.tas_min_mps:
-            beta_dot = ((ay_raw + sin_ph * cos_th * GRAVITY_MPS2) / tas
-                        - r_c)
+            beta_dot = (ay_raw + R21 * GRAVITY_MPS2) / tas - r_c
         else:
             beta_dot = 0.0
 
