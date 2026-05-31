@@ -9,9 +9,9 @@
 //   - Bulk-read via HardwareSerial::readBytes() (one IDF syscall per
 //     ASCII line) instead of per-byte Stream::read() (one IDF syscall
 //     per character).  Mirrors the VN-300 EfisRead refactor.
-//   - Atomic publish of the decoded floats via xBoomDataMutex_ —
-//     readers (LogSensorCommitTask) get a coherent struct via
-//     Snapshot() instead of risking torn field-by-field reads.
+//   - Lock-free publish via SnapshotPublisher<SuBoomData> — readers
+//     (LogSensorCommitTask) get a coherent struct via Snapshot()
+//     without taking any mutex.
 
 #include "src/Globals.h"
 #include <boom/BoomParser.h>
@@ -27,39 +27,24 @@ BoomSerialIO::BoomSerialIO()
     uTimestamp      = millis();
 
     MaxAvailable = 0;
-    // published_ is zero-initialised by the in-class member init.
-    // xBoomDataMutex_ stays nullptr — created on first Init() so it
-    // works whether BoomSerialIO is constructed as a static (before
-    // FreeRTOS is up) or on the heap.
+    // published_ default-constructs to a zeroed SuBoomData with
+    // seqcount version=0 (even, "no writer in flight"), so the very
+    // first reader gets a clean zero payload — matches the prior
+    // mutex-based default-init behavior.
 }
 
 // ----------------------------------------------------------------------------
 
-void BoomSerialIO::EnsureMutex()
-{
-    if (xBoomDataMutex_ == nullptr) {
-        xBoomDataMutex_ = xSemaphoreCreateMutex();
-    }
-}
-
 void BoomSerialIO::Init(Stream * pBoomSerial)
 {
     pSerial = pBoomSerial;
-    EnsureMutex();
+    // No mutex to create; SnapshotPublisher is constexpr-constructible
+    // and already initialized.
 }
 
 void BoomSerialIO::Snapshot(SuBoomData& out) const
 {
-    if (xBoomDataMutex_ != nullptr &&
-        xSemaphoreTake(xBoomDataMutex_, portMAX_DELAY) == pdTRUE) {
-        out = published_;
-        xSemaphoreGive(xBoomDataMutex_);
-    } else {
-        // Mutex unavailable (pre-Init, or creation failed) — fall back
-        // to an unsynchronized read.  Same shape as the equivalent
-        // EfisSerialPort fallback.
-        out = published_;
-    }
+    out = published_.read();
 }
 
 // ----------------------------------------------------------------------------
@@ -82,10 +67,13 @@ void BoomSerialIO::Read()
 
     // Staging buffer for the next publish — we build it from any
     // successfully-decoded frames in this drain and publish at the
-    // end under the mutex.  If multiple frames complete in one drain,
-    // the most recent one wins (same observable behavior as the prior
-    // per-byte-publish code path).
-    SuBoomData staging       = published_;   // start from current state
+    // end.  If multiple frames complete in one drain, the most recent
+    // one wins (same observable behavior as the prior per-byte-publish
+    // code path).
+    //
+    // Single-writer (BoomReadTask) → safe to read-modify-write on
+    // published_: no other task is publishing concurrently.
+    SuBoomData staging       = published_.read();
     bool       sawValidFrame = false;
 
     for (size_t bi = 0; bi < got; ++bi) {
@@ -152,14 +140,9 @@ void BoomSerialIO::Read()
 #endif
     }
 
-    // Publish the staging copy atomically.  If no valid frame
-    // completed in this drain, staging == published_ already (we
-    // started from a copy), so the publish is a no-op overwrite.
-    if (sawValidFrame &&
-        xBoomDataMutex_ != nullptr &&
-        xSemaphoreTake(xBoomDataMutex_, portMAX_DELAY) == pdTRUE) {
-        published_ = staging;
-        xSemaphoreGive(xBoomDataMutex_);
+    // Publish the staging copy.  Wait-free.
+    if (sawValidFrame) {
+        published_.publish(staging);
     }
 
     // Update the link-alive timestamp once per Read() rather than per

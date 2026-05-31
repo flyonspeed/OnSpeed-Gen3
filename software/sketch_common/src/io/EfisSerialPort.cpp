@@ -17,118 +17,55 @@ EfisSerialPort::EfisSerialPort()
     , lastReceivedEfisTime(0)
     , parser_(onspeed::efis::EfisType::None)
 {
-    // NOTE: do NOT create the FreeRTOS mutex here.  This constructor
-    // runs during static initialization, BEFORE setup() and BEFORE the
-    // FreeRTOS scheduler is started.  xSemaphoreCreateMutex() returns
-    // NULL in that context.  Mutex creation is deferred to
-    // AttachUart() which runs from setup().  Until then, applyFrame /
-    // applyVn300Data / SnapshotEfis / SnapshotVn300 all hit the
-    // "mutex is null → fall through to unsynchronized access" path —
-    // which is fine because no other task is running yet either.
+    // Initial-state publish: most fields default to zero (matching the
+    // SnapshotPublisher's default-constructed payload), but a few have
+    // non-zero "no data yet" defaults that consumers depend on:
+    //   - suEfis.Heading = -1  (sentinel for "no heading; treat as N/A")
+    //   - suVN300.Wind* = NaN  (no GPS fix → no wind solution)
+    // Publishing the staging structs here puts those defaults into the
+    // SnapshotPublishers so the first reader (which may run before
+    // any frame has decoded) sees them.
+    //
+    // The constructor runs during static init, BEFORE the FreeRTOS
+    // scheduler is up.  SnapshotPublisher's publish() is just three
+    // atomic ops + a memcpy — no FreeRTOS calls, no mutex creation,
+    // safe to call in any context.
+    SuEfisData efInit{};
+    efInit.Heading = -1;
+    suEfis_pub_.publish(efInit);
 
-    // Initialize the published structs to "no data" baselines.  These
-    // values are what consumers see before the first frame decodes; they
-    // match the previous direct-field-init pattern byte-for-byte.
-    SuEfisData& suEfis = suEfis_published_;
-    suEfis.DecelRate        = 0.00f;
-    suEfis.IAS              = 0.00f;
-    suEfis.Pitch            = 0.00f;
-    suEfis.Roll             = 0.00f;
-    suEfis.LateralG         = 0.00f;
-    suEfis.VerticalG        = 0.00f;
-    suEfis.PercentLift      = 0;
-    suEfis.Palt             = 0;
-    suEfis.VSI              = 0;
-    suEfis.TAS              = 0.00f;
-    suEfis.OAT              = 0.00f;
-    // EMS engine fields zero-initialize to "no data received."  When an
-    // EFIS is connected but sends no EMS frames (non-EMS-equipped
-    // aircraft, or a D10/G5/MGL connection where no EMS frame exists),
-    // applyFrame() never overwrites these defaults — the SD log reads
-    // 0 for the duration.  Post-flight tools should treat the row's
-    // efisRpm/efisMap/efisFuelFlow/efisFuelRemaining/efisPercentPower
-    // columns as "absent" when all five read 0 with `efisAge` not set.
-    // Changing this to NaN/empty-string output is tracked separately;
-    // leaving 0 here preserves the pre-PR contract for downstream tools.
-    suEfis.FuelRemaining    = 0.00f;
-    suEfis.FuelFlow         = 0.00f;
-    suEfis.MAP              = 0.00f;
-    suEfis.RPM              = 0;
-    suEfis.PercentPower     = 0;
-    suEfis.Heading          = -1;
-    suEfis.szTime[0]        = '\0';
-
-    SuVN300Data& suVN300 = suVN300_published_;
-    suVN300.AngularRateRoll  = 0.00f;
-    suVN300.AngularRatePitch = 0.00f;
-    suVN300.AngularRateYaw   = 0.00f;
-    suVN300.VelNedNorth      = 0.00f;
-    suVN300.VelNedEast       = 0.00f;
-    suVN300.VelNedDown       = 0.00f;
-    suVN300.AccelFwd         = 0.00f;
-    suVN300.AccelLat         = 0.00f;
-    suVN300.AccelVert        = 0.00f;
-    suVN300.Yaw              = 0.00f;
-    suVN300.Pitch            = 0.00f;
-    suVN300.Roll             = 0.00f;
-    suVN300.LinAccFwd        = 0.00f;
-    suVN300.LinAccLat        = 0.00f;
-    suVN300.LinAccVert       = 0.00f;
-    suVN300.YawSigma         = 0.00f;
-    suVN300.RollSigma        = 0.00f;
-    suVN300.PitchSigma       = 0.00f;
-    suVN300.GnssVelNedNorth  = 0.00f;
-    suVN300.GnssVelNedEast   = 0.00f;
-    suVN300.GnssVelNedDown   = 0.00f;
-    suVN300.GPSFix           = 0;
-    suVN300.GnssLat          = 0.00;
-    suVN300.GnssLon          = 0.00;
-    suVN300.EstAltMeters     = 0.00;
-    suVN300.TimeStartupNs    = 0;
-    suVN300.TimeGpsNs        = 0;
-    suVN300.TimeStatus       = 0;
-    suVN300.WindSpd        = std::nanf("");
-    suVN300.WindDir       = std::nanf("");
-    suVN300.WindVertical   = std::nanf("");
+    SuVN300Data vnInit{};
+    vnInit.WindSpd      = std::nanf("");
+    vnInit.WindDir      = std::nanf("");
+    vnInit.WindVertical = std::nanf("");
+    suVN300_pub_.publish(vnInit);
 
     uTimestamp = millis();
 }
 
 // ---------------------------------------------------------------------------
-// Atomic snapshot accessors.  Callers pass a stack-resident destination
-// struct; we memcpy the published state into it under the data mutex.
-// Hold time is bounded by sizeof(struct) — sub-microsecond for both.
+// Atomic snapshot accessors.  Wait-free reads via SnapshotPublisher's
+// seqcount.  See the header for the deadlined-caller contract.
 // ---------------------------------------------------------------------------
 
 void EfisSerialPort::SnapshotEfis(SuEfisData& out) const
 {
-    // Null-check the mutex: it's lazily created in AttachUart(), so any
-    // caller that hits Snapshot before AttachUart (unit test, future
-    // bench scaffold) would otherwise hand a NULL handle to
-    // xSemaphoreTake — which dereferences it as a queue pointer and
-    // crashes.  Mirrors BoomSerial::Snapshot's guard.
-    if (xEfisDataMutex_ != nullptr &&
-        xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
-        out = suEfis_published_;
-        xSemaphoreGive(xEfisDataMutex_);
-    } else {
-        // Mutex creation failed or pre-AttachUart — degrade to a torn
-        // read rather than block forever.  Should not happen in
-        // production (AttachUart runs in setup() before any task is
-        // spawned).
-        out = suEfis_published_;
-    }
+    out = suEfis_pub_.read();
 }
 
 void EfisSerialPort::SnapshotVn300(SuVN300Data& out) const
 {
-    if (xEfisDataMutex_ != nullptr &&
-        xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
-        out = suVN300_published_;
-        xSemaphoreGive(xEfisDataMutex_);
-    } else {
-        out = suVN300_published_;
-    }
+    out = suVN300_pub_.read();
+}
+
+bool EfisSerialPort::TrySnapshotEfis(SuEfisData& out) const
+{
+    return suEfis_pub_.tryRead(out);
+}
+
+bool EfisSerialPort::TrySnapshotVn300(SuVN300Data& out) const
+{
+    return suVN300_pub_.tryRead(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,13 +90,9 @@ onspeed::efis::EfisType EfisSerialPort::toCoreType(EnEfisType t)
 
 void EfisSerialPort::AttachUart(IdfUartStream* pStream, EnEfisType enEfisType)
 {
-    // Lazy mutex creation.  Static-init constructed g_EfisSerial before
-    // FreeRTOS was up; this is the first opportunity to make the mutex.
-    // Idempotent — re-attaching (e.g. via runtime type-change reboot)
-    // reuses the existing handle.
-    if (xEfisDataMutex_ == nullptr) {
-        xEfisDataMutex_ = xSemaphoreCreateMutex();
-    }
+    // No mutex to create — SnapshotPublisher is constexpr-constructible
+    // and the static-init defaults are already in place from the
+    // EfisSerialPort constructor.
 
     enType       = enEfisType;
     pStream_     = pStream;
@@ -291,15 +224,18 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
     // inferring it from float-NaN tests.
     const uint32_t fp = frame.fieldsPresent;
 
-    // Take the data mutex for the entire field-update sequence.
-    // Single-writer (EfisReadTask) → uncontended path, only readers
-    // wait.  Hold time bounded by ~15 field assignments + a possible
-    // strncpy of <= 16 bytes — well under a microsecond.  We're the
-    // only writer so a brief readers-blocked window is fine.
-    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) != pdTRUE)
-        return;     // mutex broken; skip publish rather than tear
-
-    SuEfisData& suEfis = suEfis_published_;
+    // Read-modify-write on suEfis_pub_.  EfisFrame is a sparse delta —
+    // only the bits set in fp get updated; the rest of suEfis retains
+    // its prior value.  So we read the current published state into a
+    // local, mutate the fields marked present, and re-publish the
+    // whole struct atomically.
+    //
+    // Safe because EfisReadTask is the single writer.  A reader that
+    // races between our read and publish sees the OLD struct (still
+    // coherent) until our publish lands, then sees the NEW struct.
+    // No interleaved-publisher window because no other task is
+    // publishing.
+    SuEfisData suEfis = suEfis_pub_.read();
 
     if (fp & F::Ias)        suEfis.IAS         = frame.iasKt;
     if (fp & F::Pitch)      suEfis.Pitch       = frame.pitchDeg;
@@ -326,15 +262,10 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
 
     // VN-300 frames are NEVER routed through applyFrame in this codebase.
     // FeedBytes() routes the dual-hit (gotFrame && gotVn300) case to
-    // applyVn300Data() only, which writes the full suVN300_published_
-    // and mirrors Pitch/Roll/Heading into suEfis_published_ in one
-    // mutex hold.  See FeedBytes() in this file for the dispatch logic.
-    // If a future change starts routing VN-300 frames through here, the
-    // suVN300 mirror would be partial (missing GnssLat/Lon, TimeStartupNs,
-    // WindSpd, etc.) — better to assert than to silently publish a
-    // half-populated VN-300 struct.
+    // applyVn300Data() only, which publishes both suVN300_pub_ and the
+    // suEfis mirror.  See FeedBytes() in this file for the dispatch logic.
 
-    xSemaphoreGive(xEfisDataMutex_);
+    suEfis_pub_.publish(suEfis);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,21 +333,27 @@ void EfisSerialPort::applyVn300Data(const onspeed::efis::Vn300Data& data)
         staging.WindVertical = std::nanf("");
     }
 
-    // Single atomic publish: memcpy under mutex.  Hold time is
-    // sizeof(SuVN300Data) ≈ 150 bytes worth of PSRAM-to-PSRAM copy,
-    // sub-microsecond.  ALSO mirror attitude into suEfis_published_
-    // under the same mutex hold so any SnapshotEfis() reader sees
-    // VN-300 attitude consistent with whatever SnapshotVn300() would
-    // return for the same frame.  Done inside the mutex hold (not as
-    // a separate take/give pair) so the dual-struct update is atomic
-    // from any reader's view — closes the cross-struct race that
-    // showed up in log_098 (1.6% of stim rows had Pitch/Roll from
-    // frame N + Lat/Lon from frame N-1).
-    if (xSemaphoreTake(xEfisDataMutex_, portMAX_DELAY) == pdTRUE) {
-        suVN300_published_ = staging;
-        suEfis_published_.Pitch   = data.pitch;
-        suEfis_published_.Roll    = data.roll;
-        suEfis_published_.Heading = static_cast<int>(data.yaw);
-        xSemaphoreGive(xEfisDataMutex_);
-    }
+    // Publish the full VN-300 frame via suVN300_pub_.  Wait-free.
+    suVN300_pub_.publish(staging);
+
+    // Mirror attitude into suEfis_pub_ via a read-modify-write.  This
+    // is the second publish for the same logical "VN-300 frame N
+    // arrived" event.  Each Snapshot* call returns a coherent struct
+    // (the seqcount guarantees it), but a reader running between the
+    // two publishes can see VN-300 frame N's data with suEfis
+    // attitude still at frame N-1 (or vice versa) for the few
+    // hundred nanoseconds between calls.
+    //
+    // Acceptable in our task layout: the only consumer that snapshots
+    // BOTH structs in lockstep is LogSensor at log-rate (50-416 Hz),
+    // which is much slower than EfisReadTask's publish rate, so the
+    // two-publish gap is invisible at log granularity.  For consumers
+    // that need cross-struct atomicity (none today), a future change
+    // could combine the two payloads into one struct with one
+    // publisher.
+    SuEfisData efMirror = suEfis_pub_.read();
+    efMirror.Pitch   = data.pitch;
+    efMirror.Roll    = data.roll;
+    efMirror.Heading = static_cast<int>(data.yaw);
+    suEfis_pub_.publish(efMirror);
 }

@@ -2,6 +2,7 @@
 #include <Arduino.h>
 
 #include <algorithm>
+#include <cmath>
 
 #include "src/Globals.h"
 #include <aoa/DisplayPctAnchors.h>
@@ -352,16 +353,23 @@ void DisplaySerial::Write()
         // onspeed_core/efis/OatSelect.h for the decision rule and the
         // gates that lock the EFIS branch out when the EFIS feed is
         // disabled or stale.
-        // Atomic snapshot for the OAT field (must go through mutex —
-        // single field but the parent struct is mutex-protected).
+        // Atomic snapshot for the OAT field via TrySnapshot — display
+        // serial runs at 20 Hz hard cadence (M5 expects a frame every
+        // 50 ms).  Spinning is unsafe if the producer is preempted.
+        // On bailout, pass NaN as efisOatC; SelectDisplayOatC's
+        // std::isfinite() check rejects NaN and falls back to the
+        // internal DS18B20.  The M5 holds the previous frame for
+        // 50 ms, so a single missed OAT-update is invisible.
         EfisSerialPort::SuEfisData efOat;
-        g_EfisSerial.SnapshotEfis(efOat);
+        const float efisOatC = g_EfisSerial.TrySnapshotEfis(efOat)
+                                   ? efOat.OAT
+                                   : std::nanf("");
         const float fOatC = onspeed::efis::SelectDisplayOatC(
             g_Config.bCalSourceEfis,
             g_Config.bReadEfisData,
             g_EfisSerial.IsDataFresh(2000),
             g_Config.bOatSensor,
-            efOat.OAT,
+            efisOatC,
             g_Sensors.OatC);
         // Round to nearest integer so the M5 reads the same whole
         // degrees the LiveView shows (which keeps the fractional part).

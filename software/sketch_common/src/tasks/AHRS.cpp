@@ -80,14 +80,23 @@ onspeed::AhrsInputs AHRS::SnapshotInputs_() const
     in.useEfisOat = g_Config.bCalSourceEfis
                   && g_Config.bReadEfisData
                   && g_EfisSerial.IsDataFresh(2000);
-    // Snapshot for atomic OAT read (struct member, not a single aligned
-    // 32-bit float in the parent struct — must go through the mutex).
+    // Atomic OAT read via TrySnapshot — AHRS runs at IMU rate (208-416 Hz),
+    // so we must NOT spin on the snapshot publisher.  If the EFIS publisher
+    // is mid-publish (writer preempted by ISR), TrySnapshotEfis returns
+    // false and we flip useEfisOat to false for this tick so the AHRS
+    // skips the EFIS branch entirely and falls back to whatever OAT
+    // source useInternalOat permits.  A single missed EFIS-OAT-tick
+    // is invisible — the OAT field changes glacially (1°C / minute is a
+    // fast climb), and the prior valid value is already absorbed into
+    // the AHRS filter state.
+    in.efisOatCelsius = 0.0f;
     if (in.useEfisOat) {
         EfisSerialPort::SuEfisData ef;
-        g_EfisSerial.SnapshotEfis(ef);
-        in.efisOatCelsius = ef.OAT;
-    } else {
-        in.efisOatCelsius = 0.0f;
+        if (g_EfisSerial.TrySnapshotEfis(ef)) {
+            in.efisOatCelsius = ef.OAT;
+        } else {
+            in.useEfisOat = false;   // bailout — skip EFIS-OAT this tick
+        }
     }
     in.useInternalOat = g_Config.bOatSensor;
 

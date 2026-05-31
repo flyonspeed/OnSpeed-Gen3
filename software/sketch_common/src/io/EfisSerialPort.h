@@ -5,12 +5,10 @@
 #include <Stream.h>
 #include <optional>
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-
 #include "src/Globals.h"
 #include <efis/EfisParser.h>
 #include <types/EfisFrame.h>
+#include <util/SnapshotPublisher.h>
 
 // EfisSerialPort — thin UART adapter that reads the hardware serial port,
 // feeds bytes to the appropriate onspeed_core protocol parser, and exposes
@@ -125,16 +123,20 @@ public:
     unsigned long    uTimestamp;            // millis() at last successful decode
     unsigned long    lastReceivedEfisTime;
 
-    // The decoded data structs (suEfis, suVN300) are now PRIVATE.  Readers
-    // must call SnapshotEfis() / SnapshotVn300() to get a coherent copy.
-    // The previous pattern — direct field reads against a global that the
-    // producer was field-by-field writing — could observe torn structs
-    // where some fields were from frame N and others from frame N+1.
+    // The decoded data structs are PRIVATE.  Readers call SnapshotEfis() /
+    // SnapshotVn300() to get a coherent copy.
     //
-    // Producer side: applyVn300Data / applyFrame build a local copy and
-    // memcpy it into the published struct under xEfisDataMutex_.  Mutex
-    // hold time is bounded by sizeof(struct) memcpy + an SD/PSRAM access
-    // — sub-microsecond at typical sizes.
+    // Publishing is via SnapshotPublisher<T> — a lock-free seqcount.
+    // Producer (EfisReadTask, single-writer) builds a staging struct on
+    // stack and calls suEfis_pub_.publish() / suVN300_pub_.publish(),
+    // which is wait-free.  Readers call SnapshotEfis(out) which is
+    // implemented as suEfis_pub_.read(): typically returns in ~150-200 ns
+    // (one acquire-load + memcpy + one acquire-load).  No mutex; readers
+    // never block the producer.
+    //
+    // Per-frame coherence is guaranteed by the seqcount: every Snapshot
+    // call returns either the OLD struct or the NEW struct — never a
+    // mix where some fields are from frame N and others from frame N+1.
 
     // Methods
 
@@ -155,10 +157,26 @@ public:
     // declare a local of the appropriate type, pass it in by reference,
     // and read every field from the local copy that follows.  These are
     // the ONLY supported readers of the data — direct member access is
-    // gone.  Both methods take the data mutex briefly (~1 µs hold time
-    // for the memcpy); safe to call from any task on any core.
+    // gone.  Both methods are wait-free (~150-200 ns); safe to call
+    // from any task on any core EXCEPT deadlined ones.
+    //
+    // The `Snapshot*` variants spin if the producer is preempted mid-
+    // publish.  Use them for tolerant consumers (web handlers, log
+    // writer, WebSocket broadcaster, anything not on a hard cadence).
     void SnapshotEfis(SuEfisData& out) const;
     void SnapshotVn300(SuVN300Data& out) const;
+
+    // Bounded-retry variants for deadlined consumers (DisplaySerial at
+    // 20 Hz, AHRS at IMU rate, future audio).  Return false if 8
+    // retries didn't get a coherent read; caller must skip the frame
+    // rather than act on potentially-torn data.
+    //
+    // Return semantics:
+    //   true  → `out` is coherent, caller can use it
+    //   false → `out` is untouched/torn, caller must use a fallback
+    //           (typically: leave the field at its prior value)
+    [[nodiscard]] bool TrySnapshotEfis(SuEfisData& out) const;
+    [[nodiscard]] bool TrySnapshotVn300(SuVN300Data& out) const;
 
     // Apply any pending RequestTypeChange call. Idempotent. EfisRead
     // calls this once per wake before FeedBytes; the type change runs
@@ -219,32 +237,35 @@ private:
     // are no-ops in that state).
     class IdfUartStream*  pStream_ = nullptr;
 
-    // Published, mutex-guarded snapshots of the decoded data.  Producer
-    // (applyFrame / applyVn300Data) builds a local copy from the parser
-    // output, takes the mutex, memcpys into the published struct, and
-    // releases.  Readers do the inverse via SnapshotEfis / SnapshotVn300.
-    // Hold time bounded by a small memcpy (~50-150 B) — sub-microsecond.
+    // Lock-free seqcount publishers for the decoded data.  Producer
+    // (applyFrame / applyVn300Data) builds a stack-local staging
+    // struct and calls publish() — wait-free.  Readers call .read()
+    // via Snapshot* methods — wait-free in our task layout (see the
+    // DEADLINED CALLERS note above).
     //
-    // The mutex is recursive (created via xSemaphoreCreateMutex which on
-    // ESP-IDF's FreeRTOS port is a non-recursive priority-inheritance
-    // mutex). Priority inheritance matters here: if a low-priority
-    // reader (LogSensorCommitTask, pri 1) holds the mutex when the
-    // higher-priority producer (EfisReadTask, pri 3) tries to take it,
-    // the IDF mutex temporarily boosts the reader's priority so it
-    // releases promptly.
-    SuEfisData            suEfis_published_  = {};
-    SuVN300Data           suVN300_published_ = {};
-    mutable SemaphoreHandle_t xEfisDataMutex_ = nullptr;
+    // Lazy publisher placement: kept here as direct members (not
+    // pointers) because SnapshotPublisher's constexpr constructor
+    // is safe in static-init phase — there's no FreeRTOS dependency
+    // to worry about.  Both structs default to zero-initialized
+    // payloads with version=0 (even, "no writer in flight"), so the
+    // very first reader (before any publish) gets a clean zero
+    // payload, matching the previous mutex-based default.
+    onspeed::util::SnapshotPublisher<SuEfisData>   suEfis_pub_;
+    onspeed::util::SnapshotPublisher<SuVN300Data>  suVN300_pub_;
 
     // Convert EfisType enum to onspeed core enum
     static onspeed::efis::EfisType toCoreType(EnEfisType t);
 
-    // Populate suEfis_published_ from a normalised EfisFrame.  Builds
-    // a local SuEfisData copy field-by-field, then publishes under
-    // xEfisDataMutex_.
+    // Build a SuEfisData staging copy from a normalised EfisFrame and
+    // publish via suEfis_pub_ (lock-free).  Single-writer — only
+    // EfisReadTask calls this.
     void applyFrame(const onspeed::EfisFrame& frame);
 
-    // Populate suVN300_published_ from Vn300Data.  Same publish pattern
-    // as applyFrame.
+    // Build SuVN300Data + SuEfisData-mirror staging copies from
+    // Vn300Data and publish both via their respective publishers.
+    // Single-writer — only EfisReadTask calls this.  The suEfis
+    // mirror (Pitch/Roll/Heading) is published in lock-step with the
+    // suVN300 update so any reader sees attitude consistent with the
+    // VN-300 frame it came from.
     void applyVn300Data(const onspeed::efis::Vn300Data& data);
 };
