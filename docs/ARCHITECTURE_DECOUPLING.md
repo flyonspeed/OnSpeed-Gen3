@@ -4,7 +4,7 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
-> **Last reconciled with master:** 2026-05-27, against tip `2070bae1`. Four more days. The concurrency primitive the doc has been calling for is now in code review: **PR #653 (open) lands `SnapshotPublisher<T>` — a lock-free single-writer seqcount snapshot** in `onspeed_core/src/util/`, with 9 native race-condition tests. This is the foundation for both #645 (`LogProducerTask`) and the eventual `LiveDataFrame` composition layer. Also: PR #646 added universal SD-writer hardening (32 KB PSRAM staging, 8 KB size gate + 100 ms age gate, 1 MB PSRAM ring) plus bounded `xAhrsMutex` holds in web handlers (was `portMAX_DELAY` → now 100–1000 ms with 503 fallback). PR #647 added experimental 416 Hz IMU rate — bit-identical at 50 / 208, opt-in at 416. **The plan now has its concurrency primitive (#653), its rate scaffolding (#647), and its writer hardening (#646) all converging.** Step 1 of the doc's planning sequence is no longer aspirational — it's been decomposed into commits, and commit 1 is in code review. See **"Step 1 in flight (PR #653)"** below for the merged design, **"What's already moving in this direction"** for the running scoreboard, and **"Next priority"** at the bottom for the post-#653 sequence.
+> **Last reconciled with master:** 2026-05-31, against tip `0ea6fa6e`. Four more days, and the architectural payoff arrived — **not via the seqcount primitive (PR #653) but via PR #656's dedicated-per-stream-mutex + atomic-memcpy pattern at the EFIS and boom seams.** Producer builds a struct on the stack; atomic publish via memcpy into the canonical instance under a dedicated mutex; consumers call `SnapshotEfis(out)` / `SnapshotVn300(out)` / `Snapshot(out)` and get a coherent copy. Bench-validated at 416 Hz IMU + 400 Hz VN-300 for 21 minutes: **zero tears across 528,180 rows, zero drops, zero reboots.** PR #648 captured bench-stress lessons from the cycle. PR #653 (seqcount primitive) is *still open* — the merged design used dedicated per-stream mutexes instead. **AHRS-output side is unchanged** (DataServer still reads `g_AHRS.SmoothedPitch` directly, no atomic publish). See **"What landed and what didn't (PR #656, 2026-05-31)"** below for the close read, and **"Next priority"** at the bottom for the migration call.
 
 ## The model
 
@@ -162,55 +162,74 @@ The user's question turned the abstraction into something concrete. The composed
 
 The struct doesn't grow with each new consumer. The set of *projections* grows, and the set of *writer tasks* grows. **The pre-condition for this design to pay off is the snapshot itself: until LiveDataFrame exists, every new logging path has to invent its own snapshot.** This is precisely the architectural argument for step 1, restated for the user's specific upcoming work.
 
-## Step 1 in flight (PR #653, 2026-05-27)
+## What landed and what didn't (PR #656, 2026-05-31)
 
-The composed `LiveDataFrame` design and #645's `LogProducerTask` design merged into one composed plan, and PR #653 lands its first commit.
+PR #656 ("VN-300 at 400 Hz + atomic-publish architecture for EFIS / boom") landed the atomic-snapshot pattern at two upstream seams. **The pattern is right, the bench-validation is rigorous, but it's not the design PR #653 proposed and the AHRS-output side is unchanged.** This section is a close read of what landed against what the plan called for.
 
-### The merged design — versioned snapshot primitive + composed view
-
-This doc has been arguing for `LiveDataFrame` (composed sub-struct view) for several months. Issue #645 sharpened the picture with a different emphasis: the *concurrency primitive* underneath the snapshot — versioned-counter lock-free reads, not `xAhrsMutex`-based snapshotting. **The two designs aren't competitors; they're the two halves of one stack.**
+### The actual landed architecture (EFIS + boom)
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│  Consumers (DataServer, LogProducer, M5 wire, audio, etc.)    │
-└─────────────────────────────┬─────────────────────────────────┘
-                              │ reads
-┌─────────────────────────────▼─────────────────────────────────┐
-│  LiveDataFrame composition (BuildLiveDataFrame, pure)         │
-│  — composes per-stream snapshots into one frame at one moment │
-└─────────────────────────────┬─────────────────────────────────┘
-                              │ N lock-free reads
-┌─────────────────────────────▼─────────────────────────────────┐
-│  Per-stream SnapshotPublisher<T> primitives                   │
-│  (g_ImuSnap, g_PressureSnap, g_AhrsSnap, g_FlapSnap, ...)     │
-└─────────────────────────────┬─────────────────────────────────┘
-                              │ single-writer publish() per stream
-┌─────────────────────────────▼─────────────────────────────────┐
-│  Producer tasks (ImuReadTask, SensorReadTask, EfisReadTask,   │
-│  BoomReadTask, Flaps::Update, ...)                            │
-└───────────────────────────────────────────────────────────────┘
+EfisReadTask (Core 0)                BoomReadTask (Core 0)
+   |                                    |
+   | parses VN-300 / D10 / G5 / etc.   | parses boom frames
+   v                                    v
+   build SuVN300Data / SuEfisData      build SuBoomData
+   on stack                            on stack
+   |                                    |
+   v                                    v
+[xEfisDataMutex_, portMAX_DELAY]   [xBoomDataMutex_, portMAX_DELAY]
+   memcpy → published struct           memcpy → published struct
+                |                                  |
+                v                                  v
+Many consumers (LogSensor, AHRS, DisplaySerial, DataServer):
+   SuVN300Data vn; g_EfisSerial.SnapshotVn300(vn);
+   SuBoomData  bm; g_BoomSerial.Snapshot(bm);
 ```
 
-The primitive (PR #653) is per-stream and lock-free. The composition (`BuildLiveDataFrame`, future PR) reads N snapshots and assembles. Consumers read the composed frame and get coherent multi-stream views without ever taking `xAhrsMutex`.
+Each stream has its own dedicated mutex (`xEfisDataMutex_`, `xBoomDataMutex_`) — not the global `xAhrsMutex`. The publish path holds the mutex for one memcpy (sub-microsecond). Consumers hold it for one memcpy on the read side. **Web handlers reading EFIS state never contend with the IMU task.** The fine-grained per-stream mutex is the architectural win — even though it's mutex-based (not seqcount), the *scope* of the lock is constrained to the producer-consumer pair.
 
-### PR #653 specifics
+### Bench validation
 
-- Header-only template at `software/Libraries/onspeed_core/src/util/SnapshotPublisher.h` (~250 lines including extensive race-correctness comments).
-- 9 native race tests in `test/test_snapshot_publisher/` covering: default state, single-threaded publish/read, monotonicity under concurrent writes, two-pattern integrity (alternating 0xAA / 0x55), `tryRead()` bailout contract, pointer-bearing payloads.
-- Standard seqcount pattern: writer bumps version to odd before publish, even after; readers spin until v1 == v2 after reading. `read()` is unbounded (always returns coherent); `tryRead()` bails after 8 retries.
-- **No callsite migrations in PR #653.** Pure infrastructure. Future PRs introduce specific publishers (`g_AhrsSnap`, `g_FlapSnap`, etc.) one at a time.
+- 416 Hz IMU + 400 Hz VN-300, 21 minutes, real hardware with USB-TTL stim dongle on EFIS RX
+- 525,966 rows captured at exact 416 Hz
+- **Zero tears across 528,180 atomic-publish observations** (offline detector: `tools/bench/check-atomic-publish.py`, per-frame counter encoded into Yaw / Pitch / Roll / Lat / Lon / tNs via `efis-stim --epoch-encode`)
+- Zero reboots, zero ring drops, zero coredumps
+- Compare to Vac's pre-#656 branch on the same stress: 5 reboots in 30 min, 35% Lat/Lon tear rate, 38,625 ring drops
 
-The companion local plan (`local-plans/PLAN_RATE_DECOUPLED_FILTER.md`) sequences seven commits. Commit 1 is this PR. Commits 2–4 migrate consumers off `xAhrsMutex` one at a time. Commits 5–6 split EKFQ's predict/correct schedule and move AHRS update from `ImuReadTask` to `SensorReadTask`. Optional commit 7 introduces `LogProducerTask` at configurable wake rate.
+This is a stronger validation than PR #653's 9 unit tests would have provided. **The bench-validated production pattern beats the theoretically-better unit-tested primitive.**
 
-### What this commits the doc to
+### What we got right
 
-Three real updates to the plan's framing, locked in by #653 landing:
+1. **Snapshot pattern at the right seams.** EFIS and boom are upstream stream sources whose consumers want coherent multi-field views. The pattern landed exactly there. Producer-task-owns-publish discipline.
+2. **Per-stream mutex, not global.** `xEfisDataMutex_` and `xBoomDataMutex_` are independent of `xAhrsMutex`. EFIS reads no longer block IMU writes.
+3. **The AHRS step now consumes via Snapshot pattern.** `AHRS::SnapshotInputs_()` reads `g_pIMU->Snapshot()`, `g_Sensors.Snapshot()`, `g_EfisSerial.SnapshotEfis()`. The four-stage pipeline (PR #590) now feeds from coherent input snapshots — the upstream half of the architecture is genuinely complete.
+4. **Bench validation is rigorous.** Offline tear detector + per-frame counter is the right shape for catching this class of bug. PR #648 captured lessons for future cycles.
+5. **Pattern is duplicable.** EFIS and boom implementations mirror each other line-for-line. Each new stream that adopts this pattern is mechanical — same shape, ~30 lines.
 
-1. **The concurrency primitive is lock-free seqcount, not mutex.** §1 of the plan previously sketched a mutex-based snapshot (extending PR #634's narrow `xAhrsMutex` pattern). That was wrong-design. PR #653 is the right design.
+### What we missed (or chose differently)
 
-2. **Per-stream snapshots are the foundation; `LiveDataFrame` is the composition view.** This doc had implied one composite atomic struct. That's not what we're building — single-writer is *per-stream* (ImuReadTask writes IMU; SensorReadTask writes pressures; etc.), so the primitive is per-stream too. Composition happens at the read side.
+1. **PR #653's seqcount primitive is still open and unused.** The merged design used dedicated per-stream mutexes instead. For EFIS/boom this was *probably the right pragmatic call* — fine-grained mutex with sub-microsecond hold is genuinely fine. The interesting question is whether seqcount still belongs on master for the AHRS-output migration (see "Next priority" below).
 
-3. **DataServer migration is the first validation target, not LogSensor.** The previous reconciliation (May 23) recommended LogSensor-first because PR #634's narrow snapshot was already there. That was wrong. PR #634's snapshot uses `xAhrsMutex` — exactly the thing the new primitive eliminates. DataServer-first validates the lock-free primitive against its motivating measurement (the 18-20 ms IMU stalls under web load from PR #647's bench data).
+2. **`portMAX_DELAY` on both publish and snapshot.** This is the same anti-pattern PR #646 fixed for web handlers (was `portMAX_DELAY` → now 100-1000 ms with 503 fallback). In the EFIS/boom case the mutex hold is genuinely sub-microsecond memcpy, so contention is rare — but if a writer is ever preempted between take and give, every reader blocks indefinitely. Best practice is `pdMS_TO_TICKS(X)` with a documented skip-frame fallback. Worth flagging as a hardening item but not blocking the architecture.
+
+3. **AHRS-output side is unchanged.** The 18-20 ms IMU stall measurement (PR #647 bench data) is *not* addressed by #656. `DataServer.cpp:177-258` still reads `g_AHRS.SmoothedPitch`, `g_AHRS.SmoothedRoll`, `g_AHRS.KalmanVSI`, `g_AHRS.fTAS`, `g_AHRS.AccelVertFilter.get()`, `g_AHRS.AccelLatFilter.get()` directly. Any web handler that needs multi-field AHRS state still takes `xAhrsMutex` and can block ImuReadTask. **The pattern landed at EFIS and boom; it hasn't reached AHRS yet.** That's the next step.
+
+4. **No composed `LiveDataFrame` yet.** DataServer still does ~25 reads, now augmented with `SnapshotEfis()` / `SnapshotVn300()` calls plus the existing `xAhrsMutex`-taken flap snapshot. The composition layer doesn't exist. Correct prioritization — per-stream snapshots are building blocks, composition comes later — but worth saying we're at "Stage 4.5" (per-stream snapshots in production), not "Stage 5" (composed view).
+
+5. **The dedicated-mutex pattern doesn't scale cleanly to AHRS.** EFIS-mutex and boom-mutex each protect a single-writer (EfisReadTask, BoomReadTask). AHRS-output has multiple state-mutating sites: `ImuReadTask` writes during `Process()`, `HandleConfigSave` writes during flap vector swap, `ConfigWebServer` writes during init. A dedicated `xAhrsOutputMutex` would still have writer-writer contention against any of those. **The cleanest pattern for AHRS-output is single-publisher seqcount** — which is exactly what PR #653 implements. **PR #653 still belongs on master; the AHRS migration is its motivating use case.**
+
+### Side-wins from PR #656
+
+Several non-architectural wins ride along: bulk-read EFIS (51% → 7% Core 0), gzip on dynamic pages (67 KB → 23 KB on `/aoaconfig`), VN-300 binary protocol at 400 Hz / 921600 baud with per-sample timestamps, double-precision Lat/Lon through CSV. Each one validates that the system absorbs high-rate work cleanly when the architecture is right.
+
+### What this changes in the plan
+
+The previous reconciliation (May 27) framed the next steps as commits 2-7 of `local-plans/PLAN_RATE_DECOUPLED_FILTER.md` building on PR #653's seqcount primitive. **Reality compressed two steps into one:** PR #656 landed the EFIS + boom snapshots directly (skipping the seqcount layer) and demonstrated they work at bench rates. The plan needs to be re-sequenced:
+
+- **Done (PR #656):** EFIS snapshot, boom snapshot, AHRS consuming via Snapshot pattern.
+- **Next (this reconciliation calls):** AHRS-output snapshot. Either via PR #653's seqcount primitive or a dedicated `xAhrsOutputMutex` following the EFIS pattern. See **"Next priority"** below for the argument.
+- **After that:** consumer migrations off `xAhrsMutex` (DataServer, LogSensor, DisplaySerial, web API handlers).
+- **Composition layer (`LiveDataFrame`):** still desirable but lower urgency; the per-stream snapshots are individually testable and individually consumable.
 
 ## Where we succeed
 
@@ -425,9 +444,18 @@ This section tracks landed work that pulls in the model's direction. It's intent
 - **PR #646** *Universal writer + web-mutex hardening.* 32 KB PSRAM staging buffer, 8 KB size gate + 100 ms age gate, 1 MB PSRAM ring. Bounded `xAhrsMutex` holds in web handlers (was `portMAX_DELAY` → now 100–1000 ms with 503 fallback). Writer pipeline is now rate-agnostic — works correctly at any iLogRate from 1 Hz to 416 Hz. **This is the writer-side prerequisite for the rate-decoupled producer that #645/#653 enable.**
 - **Side-effects from #647** captured several bench-surfaced bugs: `Serial.end()` chip wedge fix; new `imu_lateMaxUsAT` PERF counter that survives per-window resets; ImuReadTask deferred to end of `setup()` so WiFi softAP comes up first.
 
-**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days through May 18 fixed the reliability around the surfaces and ratified the canonical-shape pattern on the web side. The two days through May 20 ratified the upstream half of the pattern in firmware code (four-stage AHRS) and turned the AHRS step into an offline-tunable unit. The three days through May 23 made the upstream streams genuinely independent tasks. **The four days since (May 23 → 27) landed the writer-side rate-agnosticism (#646), the experimental high-rate IMU option (#647), and — in code review — the lock-free concurrency primitive (#653) that decouples writers from readers.** Step 1 is no longer aspirational; commit 1 of step 1 is in code review.
+**The pattern.** v4.21 fixed the math; v4.22 fixed the surfaces around the math. The 12 days through May 18 fixed the reliability around the surfaces and ratified the canonical-shape pattern on the web side. The two days through May 20 ratified the upstream half of the pattern in firmware code (four-stage AHRS) and turned the AHRS step into an offline-tunable unit. The three days through May 23 made the upstream streams genuinely independent tasks. The four days through May 27 landed the writer-side rate-agnosticism (#646), the experimental high-rate IMU option (#647), and — in code review — the lock-free concurrency primitive (#653).
 
-What still has *not* landed: the rest of step 1's commits (consumer migrations, `LiveDataFrame` composition layer, `LogProducerTask`), the OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **Step 1's first commit is in flight; the rest follow as a sequenced series of migrations off `xAhrsMutex`.** Each migration is its own bench-validated PR.
+**Four more days (May 27 → May 31) — atomic-publish at EFIS and boom, bench-validated at 400/416 Hz:**
+
+- **PR #656** *VN-300 at 400 Hz + atomic-publish architecture for EFIS / boom.* The architectural milestone of this cluster. `EfisSerialPort` and `BoomSerial` now build decoded data into a stack-resident staging struct, then atomic-publish via single mutex-protected memcpy. Consumers call `SnapshotEfis(out)` / `SnapshotVn300(out)` / `Snapshot(out)`. Per-stream dedicated mutexes (`xEfisDataMutex_`, `xBoomDataMutex_`) — not the global `xAhrsMutex`. **Bench-validated: 416 Hz IMU + 400 Hz VN-300, 21 minutes, zero tears across 528,180 rows, zero drops, zero reboots.** Compare to Vac's pre-#656 branch on the same stress: 5 reboots, 35% Lat/Lon tear rate. Plus: bulk-read EFIS (51% → 7% Core 0), gzip on dynamic pages (67 KB → 23 KB), VN-300 binary protocol with per-sample timestamps, double-precision Lat/Lon through CSV.
+- **PR #648** *Bench-stress lessons from 416 Hz / VN-300 cycle.* Skill-level documentation of failure signatures, anti-patterns, and reference tables learned from running the bench-stress protocol on the pre-#656 PR stack. WiFi heap fragmentation, mid-run CSV gap clusters, per-window PERF counter limitations.
+- **PR #652** *Follow-ups to #647 (HWCDC comment, upload-path reboot prompt).* Small.
+- **PR #653** *(still open).* The seqcount `SnapshotPublisher<T>` primitive. Not used by #656. **Still applicable to the next migration target (AHRS-output).** See §1 below.
+
+**The deeper pattern.** PR #656 demonstrated that **the atomic-publish-via-memcpy pattern works in production at the bench-validation rates we care about.** The user's "everything is a stream" thesis is no longer aspirational; for EFIS and boom, it's bench-validated production. The seqcount primitive (#653) was the *theoretically* right answer; the mutex pattern was the *pragmatically validated* answer that shipped first. Both are valid; the merged design now needs to absorb that EFIS/boom uses one approach and AHRS-output will likely need the other (because AHRS has multi-writer state and the dedicated-mutex scaling story is uglier there).
+
+What still has *not* landed: AHRS-output snapshot (the remaining stall surface), the rest of the consumer migrations off `xAhrsMutex` (DataServer, LogSensor, DisplaySerial), `LiveDataFrame` composition layer, `LogProducerTask`, OAT/boom re-injection in LogReplay (§3), MAVLink emit (planning step 4), parallel estimators (§6 / planning step 7), and BLE sink (planning step 10). **Two upstream streams are on the pattern; AHRS-output is next.**
 
 ## Data sources: what's complete, what's missing
 
@@ -723,57 +751,77 @@ Each step is independently reviewable and shippable. None require a top-down rew
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
 
-## Next priority (as of 2026-05-27)
+## Next priority (as of 2026-05-31)
 
-**Step 1's commit 1 is in code review (PR #653).** The doc has been arguing for `LiveDataFrame` for months; the foundation primitive landed in code review four days ago. The question shifts from "what's next?" to "what comes after #653 lands?"
+**EFIS and boom shipped the pattern (PR #656). AHRS-output is next.** The May 27 sequence assumed PR #653 would land first as the seqcount foundation, then consumers would migrate. Reality reordered: PR #656 used a different primitive (dedicated per-stream mutex + atomic memcpy) and bench-validated it under production load before any seqcount work shipped. **The migration order shifts; the destination doesn't.**
 
-The composed plan now follows the local-plan sequence (`local-plans/PLAN_RATE_DECOUPLED_FILTER.md`), with each commit independently bench-validated:
+### Step 1 — AHRS-output snapshot, the load-bearing migration
 
-### After #653 lands — the commit sequence
+**The 18-20 ms IMU stalls measured in PR #647 bench data are still real and unfixed.** EFIS and boom contention with the IMU task is gone (PR #656). AHRS-output contention is unchanged — DataServer, LogSensor, DisplaySerial, and 4 web API handlers all still read `g_AHRS.SmoothedPitch`, `g_AHRS.SmoothedRoll`, `g_AHRS.KalmanVSI`, `g_AHRS.fTAS`, `g_AHRS.AccelVertFilter.get()` directly. Multi-field reads still take `xAhrsMutex` (now bounded to 100-1000ms per PR #646, but still contended).
 
-**Commit 2 — Migrate first consumer (`Housekeeping`) off `xAhrsMutex`.** New file `software/sketch_common/src/ahrs/AhrsSnapshot.h` defining `AhrsSnapshotPayload` + `g_AhrsSnapshot` global publisher. `ImuReadTask` publishes after `Process()`; `Housekeeping` drops its `xAhrsMutex` take and reads from the snapshot instead. **Smallest possible blast radius (4 fields, 10 Hz consumer, no flap vector).** Validates the pattern on hardware before fanning out.
+This is the next migration target.
 
-**Commit 3 — Expand `g_AhrsSnapshot` payload and migrate every read-only consumer.** Full payload (17 fields covering everything any pure-AHRS consumer reads). Migrate `LogSensor::Write` (replaces PR #634's narrow snapshot), `DataServer::UpdateLiveDataJson` (drops `xAhrsMutex` from web handlers — **this is where the 18-20 ms IMU stall measurement validates the design**), `ApiHandlers` (4 endpoints), `DisplaySerial::Write` (the AHRS-only fields). **`xAhrsMutex` is now held only by writers + flap-vector readers.**
+### Why this one needs a different design than EFIS/boom
 
-**Commit 4 — Publish `g_FlapSnapshot`, migrate flap readers.** Final readers off `xAhrsMutex`. Rename `xAhrsMutex` to `xFlightStateMutex` to reflect its narrower writer-vs-writer contract. End state: every read-only consumer is lock-free.
+The EFIS/boom pattern works because each has a *single* writer (EfisReadTask, BoomReadTask) — adding a dedicated per-stream mutex is clean. **AHRS-output has three writers**:
+- `ImuReadTask::Process()` writes during AHRS step (~208/416 Hz, the hot path)
+- `HandleConfigSave` writes during flap-vector swap (rare, but holds the mutex for ms)
+- `ConfigWebServer` writes during AHRS::Init on config change (rare)
 
-**Commit 5 — EKFQ predict/correct schedule split.** This is where the high-rate IMU win materializes: predict at IMU rate (cheap gyro integration), correct at 50 Hz (the natural rate of fresh accel-filtered + baro data). At 1666 Hz IMU, projects `subsys.ekfq.correct` from 60% Core 1 → ~9%. Madgwick stays monolithic.
+A dedicated `xAhrsOutputMutex` doesn't solve the IMU-stall problem because the *writers themselves* can block each other and the readers. The pattern that solves this cleanly is single-publisher seqcount (PR #653) — multi-writer would need coordination, but if `Process()` is the only hot-path writer and the others are rare-enough that brief contention with them is acceptable, the seqcount primitive is the right tool.
 
-**Commit 6 — Move AHRS update from `ImuReadTask` to `SensorReadTask`.** The real architectural shift. `ImuReadTask` becomes "IMU SPI → predict → publish." `SensorReadTask` owns the correct step. **The single-writer constraint of `SnapshotPublisher` (called out in the #653 review) means this commit needs either two separate publishers (predict-side + correct-side) or both publishes moved to the same task. The local plan needs to be revised here before commit 6 lands.**
+**Two viable paths:**
 
-**Optional commit 7 — `LogProducerTask` at configurable rate.** Once commits 3 and 6 are in, the log producer no longer inherits any sensor task's rate. `iLogRate` becomes a true rate selector (1 Hz to 416 Hz, fully configurable). This is what #645 was originally proposing; it now lands cleanly because the snapshot infrastructure is already in place.
+**Path A: Use PR #653's `SnapshotPublisher<T>` for AHRS-output.**
+- Resurrect PR #653 from open-but-stale. It's still the right primitive for this use case.
+- `ImuReadTask::Process()` publishes after AHRS::Process completes.
+- Rare config-change writers either acquire a brief lock around their write (defeating part of the seqcount benefit but only at config-save time) or coordinate via a higher-level mechanism.
+- Readers (DataServer, LogSensor, DisplaySerial, web handlers) read lock-free.
+- Validates against the 18-20 ms IMU stall measurement.
 
-### Where the user's upcoming binary + pilot-tuning logging plan fits
+**Path B: Use the EFIS/boom pattern (dedicated mutex + atomic memcpy) for AHRS-output.**
+- Pattern is bench-validated and we now know it works.
+- Dedicated `xAhrsOutputMutex` separate from the existing `xAhrsMutex` (which keeps protecting the writer-writer cases).
+- Two-level mutex pattern: writers hold `xAhrsMutex` while computing, then briefly hold `xAhrsOutputMutex` for the publish memcpy.
+- Readers take only `xAhrsOutputMutex` — never the writer-mutex.
+- Less elegant than seqcount but follows the proven pattern.
 
-After commit 7 lands, the user's two upcoming log streams are mechanical:
+**Recommendation: Path A.** PR #656 surfaced exactly the case (multi-writer state, hot-path producer, many readers) where seqcount's invariants pay off. PR #653 was written to solve this; its 9 race tests cover the safety properties. The EFIS/boom pattern works for those streams because they're single-writer; for AHRS-output, the seqcount design is the right structural match. Also: it lets us validate the seqcount primitive against the motivating measurement rather than leaving #653 stale on the shelf.
 
-- **Binary cloning log**: a new writer task that wakes at IMU rate, reads `{g_ImuSnap, g_EfisRawBytes}`, writes binary frames to a dedicated SD file. ~80 lines, no new struct needed.
-- **Pilot tuning log**: a new writer task that wakes at IMU rate, reads `{g_ImuSnap, g_SensorSnap, g_AhrsSnap-pre-smoothing}`, writes binary frames for offline smoothing-parameter tuning. Requires the pre-smoothing variant of AhrsOutputs (small AHRS interface change), then ~80 lines.
+### Concrete sequence
 
-Both **drop in as additional writer tasks against the same per-stream lock-free snapshots**, with no re-invention.
+**Commit A — Land PR #653.** Re-validate against current master. Address the single-writer-constraint concern from the #653 review (the local plan's commit 6 still needs to be revised, but that's a future commit; commit 6 itself isn't this PR).
 
-### Rate-bump (PR #647's 416 Hz mode) becomes the always-on path
+**Commit B — Publish `g_AhrsOutputSnap` using #653's primitive.** Define `AhrsOutputSnapshot` payload (~17 fields: SmoothedPitch, SmoothedRoll, KalmanVSI, KalmanAlt, FlightPath, DerivedAOA, fTAS, AccelVertFiltered, AccelLatFiltered, gPitch, gRoll, gYaw, gOnsetRate, EarthVertG, plus timestamps). `ImuReadTask::Process()` publishes after AHRS step. **Migrate one consumer first** — Housekeeping (4 fields, 10 Hz, smallest blast radius) — to validate before fanning out.
 
-PR #647's PR description is explicit: *"once 416 validates in flight we expect to flip IMU to always-416 and let `iLogRate` become a pure log-cadence selector — but that flip needs #645 (LogProducerTask with atomic AHRS/sensor snapshots) to land first."*
+**Commit C — Migrate every read-only AHRS-output consumer.** DataServer's `UpdateLiveDataJson` (the load-bearing change — this is where the 18-20 ms stall measurement validates the design). LogSensor::Write (replaces PR #634's narrow snapshot). DisplaySerial::Write. The 4 web API handlers that take `xAhrsMutex`. **Bench-validate against PR #647's stress harness** that the IMU stalls under aggressive web load actually disappear. The validation rig from PR #656 (offline tear detector, stim dongle) maps directly to this work.
 
-That flip is **commit 7 of this sequence.** After it lands, IMU rate is set by hardware ODR; AHRS rate is 50 Hz (driven by SensorReadTask); log rate is whatever the pilot picks. All three rates are independent — the architectural payoff the doc has been pointing at for months becomes the production configuration.
+**Commit D — Publish `g_FlapSnapshot` and migrate flap readers.** Same shape as B/C. After this lands, `xAhrsMutex` is held only by writer-writer cases, no readers. Renames in order.
 
-### What's *not* the next priority, with the same nuance from May 20
+### After AHRS-output migration
 
-- **MAVLink emit (#4)** still depends on the snapshot infrastructure landing. Once commits 3-4 are in, MAVLink emit is a new consumer that reads `g_AhrsSnap` + `g_SensorSnap` + `g_FlapSnap` lock-free and emits ATTITUDE / AOA_SSA / VFR_HUD. Falls out cleanly.
-- **OAT / boom re-injection in LogReplay (#3)** still closes mechanically once snapshot infrastructure is in place. The replay path publishes synthetic data into the same snapshots; consumers read the same way regardless of source.
-- **Parallel estimators (#7)** still depends on the snapshot infrastructure + a separate upstream-parallel design exercise (EKFQ/Madgwick are mutually exclusive today). With per-stream snapshots, adding a new `g_FitDerivedAoaSnap` (the live IAS-to-AOA fit residual estimator the doc has mentioned) is just another publisher.
+The remaining sequence from the May 27 plan still applies, but with the upstream half now genuinely done:
+
+- **EKFQ predict/correct schedule split** — the high-rate IMU win materializes. Predict at IMU rate, correct at 50 Hz.
+- **Move AHRS update from `ImuReadTask` to `SensorReadTask`** — needs the seqcount commit-6 revision worked out (split publishers or single-task ownership).
+- **`LogProducerTask` at configurable rate** — `iLogRate` becomes a true rate selector. PR #647's "once 416 validates in flight we expect to flip IMU to always-416" lands here.
+- **Composed `LiveDataFrame` view layer** — optional consolidation; the per-stream snapshots are individually testable and individually consumable. Lower urgency than before now that two streams already have the pattern.
+- **MAVLink emit, BLE GATT, parallel estimators** — all consume the per-stream snapshots; each is a new writer task that reads N snapshots and emits.
+
+### Where the user's upcoming binary + pilot-tuning logs fit
+
+Unchanged from May 27: after the per-stream snapshots are in place and `LogProducerTask` lands, each new log stream is ~80 lines (read snapshots, project to format, push to ring).
+
+PR #656's offline analyzer pattern (`check-atomic-publish.py`) generalizes: any new log can have its own offline validation rig that proves coherence under stress.
 
 ### Recommendation — what to do next
 
-The earlier recommendation options (a/b/c/d) are now superseded by the #653 sequence. The next action is:
+**(1) Re-validate and merge PR #653.** It's been open since May 25 while the rest of the codebase moved. Rebase, re-bench, address the single-writer-constraint review concern, merge. Bench against current master rather than its branch point.
 
-**(a') Wait for #653 to merge.** It's in code review now. Bench validation in the review thread is the load-bearing check.
+**(2) Build commit B (AHRS-output snapshot + Housekeeping migration) on the merged #653 primitive.** Smallest possible blast radius for the first hot-path use. Validates the primitive against the high-stakes consumer (the IMU task is the writer).
 
-**(b') Start commit 2 (Housekeeping migration) as the next PR.** Smallest blast radius. Validates the snapshot publisher works against a real consumer with real timing. ~50 lines.
+**(3) Build commit C (full consumer migration) with the PR #656 bench validation rig adapted.** This is the load-bearing change. Stress-test the same way: stim dongle, offline analyzer for AHRS-state coherence, web-handler concurrency from `stress_web_handlers.py`. **Success criterion: 18-20 ms IMU stalls measurably disappear under aggressive web load.**
 
-**(c') In parallel, draft the local plan's commit-6 revision** addressing the single-writer constraint the #653 review surfaced. Either split the publisher into two (predict-side + correct-side, with readers picking by version), or restructure so one task hosts both publishes. The plan as written has this latent bug; better to resolve it on paper before commit 6 starts.
+**(4) In parallel, draft the commit-6 revision** addressing the single-writer constraint for the eventual `Process() splits across ImuReadTask + SensorReadTask` change. Don't let this block commit C.
 
-I'd do (a') and (b') in sequence; (c') as background design work that doesn't block anything until commit 5 finishes.
-
-**Honest framing:** the C++ side has shipped the pattern in five places, and the formal primitive is now in code review (sixth place). Every step from here is incremental — one consumer migration at a time, each with its own bench validation. The "overdue" framing of earlier reconciliations becomes "in flight" as #653 merges.
+**Honest framing:** PR #656 validated the architecture at the EFIS and boom seams. The remaining open question (does seqcount work for the AHRS-output case where writer is a high-priority hot-path task and we have rare multi-writer state?) is exactly what PR #653 + Path A above tests. The migration is incremental; each step is bench-validated; the production architecture the user has been sketching is increasingly visible in production code.
