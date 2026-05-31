@@ -48,15 +48,11 @@
 //     with its own loops/s + work µs/loop, not buried in ArduinoLoop).
 //   - loop() shrinks to just ConsoleSerial.Read() — interactive, low rate.
 //
-// Synth-build behaviour
-// =====================
-// In perf-synth builds (ONSPEED_SYNTH_SENSORS=1), the EFIS byte source is
-// a SyntheticStream, NOT a real UART. setup() does not install the IDF
-// UART driver in that case; the SyntheticStream is wired into
-// g_EfisSerial.pSerial directly. EfisReadTask then has no event queue to
-// block on, so it falls back to a fixed-period vTaskDelay tick at the
-// synth's emission cadence (~50 Hz for VN-300). Same task, same Read()
-// callsite, different wake primitive.
+// Synth EFIS was removed in cc7d7ac1 — bench EFIS work now uses
+// tools/bench/uart_efis_stim.py over a real USB-TTL dongle.  The
+// task body below assumes a real IDF-driver-backed UART; on init
+// failure (no event queue) the task suicides rather than running a
+// fallback path.
 
 #include "EfisRead.h"
 

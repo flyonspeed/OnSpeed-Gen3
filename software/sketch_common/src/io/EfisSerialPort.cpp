@@ -324,13 +324,15 @@ void EfisSerialPort::applyFrame(const onspeed::EfisFrame& frame)
         suEfis.szTime[sizeof(suEfis.szTime) - 1] = '\0';
     }
 
-    // VN-300: mirror valid attitude into suVN300 under the same mutex
-    // so the cross-struct write is also atomic-from-a-reader's-view.
-    if (frame.source == EfisSource::Vn300) {
-        if (fp & F::Pitch)   suVN300_published_.Pitch = frame.pitchDeg;
-        if (fp & F::Roll)    suVN300_published_.Roll  = frame.rollDeg;
-        if (fp & F::Heading) suVN300_published_.Yaw   = frame.headingDeg;
-    }
+    // VN-300 frames are NEVER routed through applyFrame in this codebase.
+    // FeedBytes() routes the dual-hit (gotFrame && gotVn300) case to
+    // applyVn300Data() only, which writes the full suVN300_published_
+    // and mirrors Pitch/Roll/Heading into suEfis_published_ in one
+    // mutex hold.  See FeedBytes() in this file for the dispatch logic.
+    // If a future change starts routing VN-300 frames through here, the
+    // suVN300 mirror would be partial (missing GnssLat/Lon, TimeStartupNs,
+    // WindSpd, etc.) — better to assert than to silently publish a
+    // half-populated VN-300 struct.
 
     xSemaphoreGive(xEfisDataMutex_);
 }

@@ -576,11 +576,6 @@ bool SendCompressedIfRequested(int code,
     const bool hasAE = CfgServer.hasHeader("Accept-Encoding");
     const String aeVal = CfgServer.header("Accept-Encoding");
     const bool wantsGzip = hasAE && aeVal.indexOf("gzip") >= 0;
-    // Temporary debug: log gzip negotiation per request. Pulled when
-    // the gzip code path is validated on the bench.
-    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnDebug,
-                 "gzip-debug: hasAE=%d ae='%s' wantsGzip=%d bodyLen=%u\n",
-                 (int)hasAE, aeVal.c_str(), (int)wantsGzip, (unsigned)bodyLen);
     if (!wantsGzip || bodyLen < 256)
         {
         // Below 256 B compression overhead exceeds the savings; just
@@ -604,7 +599,7 @@ bool SendCompressedIfRequested(int code,
     if (pComp == nullptr)
         {
         g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
-                     "gzip-debug: compressor alloc failed (size=%u)\n",
+                     "gzip: compressor alloc failed (size=%u), falling back to raw\n",
                      (unsigned)sizeof(tdefl_compressor));
         CfgServer.send_P(code, contentType,
                          reinterpret_cast<PGM_P>(body), bodyLen);
@@ -622,7 +617,7 @@ bool SendCompressedIfRequested(int code,
     if (outBuf == nullptr)
         {
         g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
-                     "gzip-debug: outBuf alloc failed (outCapacity=%u)\n",
+                     "gzip: outBuf alloc failed (outCapacity=%u), falling back to raw\n",
                      (unsigned)outCapacity);
         free(pComp);
         CfgServer.send_P(code, contentType,
@@ -647,7 +642,7 @@ bool SendCompressedIfRequested(int code,
     if (tdefl_init(pComp, nullptr, nullptr, static_cast<int>(flags)) != TDEFL_STATUS_OKAY)
         {
         g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
-                     "gzip-debug: tdefl_init failed\n");
+                     "gzip: tdefl_init failed, falling back to raw\n");
         free(pComp);
         free(outBuf);
         CfgServer.send_P(code, contentType,
@@ -685,7 +680,7 @@ bool SendCompressedIfRequested(int code,
     if (!compressOk)
         {
         g_Log.printf(MsgLog::EnWebServer, MsgLog::EnWarning,
-                     "gzip-debug: tdefl_compress failed in=%u out=%u remain=%u\n",
+                     "gzip: tdefl_compress failed in=%u out=%u remain=%u, falling back to raw\n",
                      (unsigned)bodyLen, (unsigned)totalOut,
                      (unsigned)inRemaining);
         free(pComp);
@@ -694,11 +689,6 @@ bool SendCompressedIfRequested(int code,
                          reinterpret_cast<PGM_P>(body), bodyLen);
         return true;
         }
-
-    g_Log.printf(MsgLog::EnWebServer, MsgLog::EnDebug,
-                 "gzip-debug: compress OK in=%u out=%u ratio=%u%%\n",
-                 (unsigned)bodyLen, (unsigned)totalOut,
-                 (unsigned)(totalOut * 100 / bodyLen));
 
     // Write the 8-byte gzip trailer: CRC32 LE + uncompressed-size LE.
     const uint32_t crc32 = mz_crc32(MZ_CRC32_INIT, body, bodyLen);
