@@ -1,2 +1,3 @@
 dependencies:
   idf: '>=5.1'
+  espressif/ds18b20: "^0.1.0"
