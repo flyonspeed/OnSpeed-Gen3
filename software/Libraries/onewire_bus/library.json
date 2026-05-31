@@ -1,0 +1,17 @@
+{
+  "name": "onewire_bus",
+  "version": "1.1.1",
+  "description": "Espressif 1-Wire bus driver (RMT backend). Vendored from github.com/espressif/idf-extra-components, components/onewire_bus. UART backend excluded (RMT only).",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/espressif/idf-extra-components"
+  },
+  "license": "Apache-2.0",
+  "platforms": ["espressif32"],
+  "frameworks": "arduino",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include",
+    "srcFilter": ["+<*>", "-<onewire_bus_impl_uart.c>"]
+  }
+}
