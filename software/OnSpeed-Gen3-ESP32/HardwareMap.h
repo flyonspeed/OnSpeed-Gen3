@@ -227,11 +227,22 @@ constexpr int kEfisTx = -1;   // never transmit to the EFIS
 //
 // Note: GPIO 3 is the ESP32-S3's UART0 RX (RXD0) at boot. With
 // ARDUINO_USB_CDC_ON_BOOT=0 + ARDUINO_USB_MODE=1 (set in platformio.ini),
-// the framework's `Serial` object is USB-CDC, not UART0. UART0 / GPIO 3
-// is therefore free for Serial1's RX pin. If a future framework upgrade
-// changes that default and Serial1 stops receiving boom bytes, the most
-// likely cause is UART0 silently re-claiming GPIO 3 before Serial1.begin
-// runs — fix is an explicit Serial.end() in setup() before Serial1.begin.
+// the framework's `Serial` object is USB-CDC (HWCDC over native USB-OTG),
+// not UART0. UART0 / GPIO 3 is therefore free for Serial1's RX pin. If a
+// future framework upgrade changes that default and Serial1 stops
+// receiving boom bytes, the most likely cause is UART0 silently
+// re-claiming GPIO 3 before Serial1.begin runs.
+//
+// DO NOT "fix" that by calling Serial.end() — on this hardware Serial is
+// HWCDC, and HWCDC::end() deletes its internal tx_lock synchronously
+// without waiting for in-flight HWCDC::write callers, producing a
+// use-after-free that wedges the chip with no recovery path. See
+// software/sketch_common/src/util/Helpers.cpp::_softRestart for the
+// full explanation (PR #647 bench-bisected this on the reboot path).
+//
+// Correct resolutions if the re-claim ever fires: use Serial0.end()
+// (which is the real UART0 handle, not HWCDC) or detach UART0 from
+// GPIO 3 explicitly via the GPIO matrix.
 // ---------------------------------------------------------------------------
 constexpr int kBoomRx = 3;
 constexpr int kBoomTx = -1;   // never transmit to the boom
