@@ -193,12 +193,41 @@ void EKFQ::predict(float p, float q_in, float r_in,
     const float q_c = q_in - bq;
     const float r_c = r_in - br;
 
-    // 1) Quaternion derivative q̇ = 0.5 · Ω(ω) · q.
+    // 1) Quaternion mean propagation by the exact exponential map.
+    //
+    // For a body rate ω = (p_c, q_c, r_c) held constant across the step, the
+    // attitude advances by q ← q ⊗ exp(½ ω dt), where the increment is the
+    // unit quaternion of the rotation vector ω·dt:
+    //
+    //     Δq = [ cos(½‖ω‖dt),  sinc(½‖ω‖dt) · ½ ω dt ]
+    //
+    // sinc(x) = sin(x)/x → 1 as x → 0, so the small-angle limit is the
+    // first-order step Δq ≈ [1, ½ ω dt] — the same q̇ = ½ Ω(ω) q the linear
+    // covariance Jacobian F below is built from. Unlike q + q̇·dt, Δq is unit
+    // by construction and the Hamilton product preserves ‖q‖, so the mean no
+    // longer relies on the post-step renormalise to undo integration drift.
     const float half_dt = 0.5f * dt;
-    const float q0_dot = half_dt * (-q1 * p_c - q2 * q_c - q3 * r_c);
-    const float q1_dot = half_dt * ( q0 * p_c + q2 * r_c - q3 * q_c);
-    const float q2_dot = half_dt * ( q0 * q_c - q1 * r_c + q3 * p_c);
-    const float q3_dot = half_dt * ( q0 * r_c + q1 * q_c - q2 * p_c);
+    const float wx = p_c * dt, wy = q_c * dt, wz = r_c * dt;  // rotation vector
+    const float theta2 = wx * wx + wy * wy + wz * wz;         // ‖ω·dt‖²
+    const float half_angle = 0.5f * std::sqrt(theta2);
+    const float dq_w = std::cos(half_angle);
+    // s = sinc(½‖ω‖dt) · ½  — the vector-part scale on ω·dt. Taylor-expand
+    // sinc near zero to stay exact and branch-cheap through ω → 0.
+    float s;
+    if (half_angle > 1e-4f) {
+        s = 0.5f * std::sin(half_angle) / half_angle;
+    } else {
+        // sinc(x) ≈ 1 − x²/6; here x = half_angle, so ½·sinc ≈ ½(1 − x²/6).
+        s = 0.5f * (1.0f - half_angle * half_angle * (1.0f / 6.0f));
+    }
+    const float dq_x = s * wx, dq_y = s * wy, dq_z = s * wz;
+
+    // Hamilton product q_new = q ⊗ Δq. Same operand ordering as the linear
+    // step it replaces; to first order in ω·dt this reduces to q + q̇·dt.
+    const float q0_new = q0 * dq_w - q1 * dq_x - q2 * dq_y - q3 * dq_z;
+    const float q1_new = q0 * dq_x + q1 * dq_w + q2 * dq_z - q3 * dq_y;
+    const float q2_new = q0 * dq_y - q1 * dq_z + q2 * dq_w + q3 * dq_x;
+    const float q3_new = q0 * dq_z + q1 * dq_y - q2 * dq_x + q3 * dq_w;
 
     // 2) Body-frame gravity components (R₂₀, R₂₁, R₂₂ = third row of R_be).
     const float R20 = 2.0f * (q1 * q3 - q0 * q2);
@@ -436,13 +465,15 @@ void EKFQ::predict(float p, float q_in, float r_in,
     P_[BETA][BETA] += config_.q_beta * dt;
 
     // 9) Commit state.
-    x_[Q0] = q0 + q0_dot;
-    x_[Q1] = q1 + q1_dot;
-    x_[Q2] = q2 + q2_dot;
-    x_[Q3] = q3 + q3_dot;
+    x_[Q0] = q0_new;
+    x_[Q1] = q1_new;
+    x_[Q2] = q2_new;
+    x_[Q3] = q3_new;
     x_[Z]    = new_z;
     x_[VZ]   = new_vz;
     x_[BETA] = new_beta;
+    // The exponential-map increment is unit by construction, so this only
+    // sheds the float rounding that accumulates over millions of products.
     renormaliseQuaternion();
 }
 
