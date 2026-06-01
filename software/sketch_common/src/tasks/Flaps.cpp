@@ -3,6 +3,13 @@
 #include "src/config/Config.h"
 #include "src/drivers/Mcp3202Adc.h"
 #include <sensors/FlapsDetector.h>
+#include "src/ahrs/FlapSnapshot.h"
+
+// Lock-free snapshot of flap state. Owned here; published by both
+// Flaps::Update overloads and by HandleConfigSave's flap-vector swap.
+// See src/ahrs/FlapSnapshot.h for the payload and the writer contract.
+onspeed::util::SnapshotPublisher<onspeed::ahrs::FlapSnapshotPayload>
+    onspeed::ahrs::g_FlapSnapshot;
 
 // ----------------------------------------------------------------------------
 
