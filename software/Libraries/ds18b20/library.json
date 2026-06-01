@@ -1,0 +1,19 @@
+{
+  "name": "ds18b20",
+  "version": "0.1.2",
+  "description": "Espressif DS18B20 1-Wire temperature sensor driver. Vendored from github.com/espressif/esp-bsp, components/ds18b20. Depends on vendored onewire_bus.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/espressif/esp-bsp"
+  },
+  "license": "Apache-2.0",
+  "platforms": ["espressif32"],
+  "frameworks": "arduino",
+  "dependencies": {
+    "onewire_bus": "*"
+  },
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  }
+}
