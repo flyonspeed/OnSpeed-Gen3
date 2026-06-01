@@ -39,6 +39,7 @@ extern "C" {
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/FlapSnapshot.h"
 
 #include "src/web_server/ApiHandlers.h"
 
@@ -1257,6 +1258,24 @@ void HandleConfigSave()
         g_Flaps.iIndex = 0;
     else
         g_Flaps.iIndex = constrain(g_Flaps.iIndex, 0, (int)g_Config.aFlaps.size() - 1);
+    // Publish the new flap vector so lock-free readers (audio, display,
+    // web) pick up the swapped-in calibration on their next frame. Inside
+    // the xAhrsMutex window so it serializes with Flaps::Update's publishes.
+    {
+        onspeed::ahrs::FlapSnapshotPayload fp;
+        const size_t nF = g_Config.aFlaps.size();
+        const size_t nC = (nF < (size_t)onspeed::MAX_AOA_CURVES)
+                            ? nF : (size_t)onspeed::MAX_AOA_CURVES;
+        for (size_t i = 0; i < nC; ++i)
+            fp.aFlaps[i] = g_Config.aFlaps[i];
+        fp.nFlaps    = (uint8_t)nC;
+        fp.iIndex    = g_Flaps.iIndex;
+        fp.iPosition = (nC > 0 && (size_t)g_Flaps.iIndex < nC)
+                         ? g_Config.aFlaps[g_Flaps.iIndex].iDegrees : -1;
+        fp.uValue    = g_Flaps.uValue;
+        fp.bValid    = (nC > 0) && (g_Flaps.iIndex >= 0) && ((size_t)g_Flaps.iIndex < nC);
+        onspeed::ahrs::g_FlapSnapshot.publish(fp);
+    }
     xSemaphoreGive(xAhrsMutex);
     // aOldFlaps and aNewFlaps go out of scope at function end -- by
     // then the AHRS reseed below has held xAhrsMutex again, providing
