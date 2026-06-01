@@ -2,7 +2,6 @@
 
 #include <math.h>
 #include <type_traits>
-#include <OneWire.h>
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
@@ -324,8 +323,7 @@ SensorIO::SensorIO()
       P45Median(g_Config.iPressureSmoothing),
       P45Avg(10),
       IasDerivative(&fIasDerInput, 15),
-      OneWireBus(kPinOat),
-      OatSensor(OneWireBus)
+      OatSensor(kPinOat)
 {
     Palt       = 0.00;
     OatC       = kOatDefaultC;
