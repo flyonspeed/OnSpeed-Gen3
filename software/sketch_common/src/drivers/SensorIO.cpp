@@ -5,6 +5,7 @@
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/FlapSnapshot.h"
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
@@ -18,14 +19,14 @@
 //   xSensorMutex - guards the shared SPI bus (IMU + 3 pressure sensors +
 //                  MCP3202 ADC).  Held for microseconds at a time, only
 //                  for the duration of an SPI transaction.
-//   xAhrsMutex   - guards AHRS state (Madgwick / EKFQ) AND the swap of
-//                  g_Config.aFlaps + the matching write to g_Flaps.iIndex
-//                  in HandleConfigSave.  Per-flap setpoints and the AOA
-//                  polynomial must therefore be snapshotted under
-//                  xAhrsMutex by every reader on the flight-data path
-//                  (SensorIO::Read -> Audio.cpp::UpdateTones, the AOA
-//                  curve evaluation, DisplaySerial::Write,
-//                  DataServer::UpdateLiveDataJson, Flaps::Update).
+//   xAhrsMutex   - guards AHRS filter state (Madgwick / EKFQ) during
+//                  Process()/Init(), and serializes the flap-state WRITERS
+//                  (Flaps::Update + HandleConfigSave's vector swap) so their
+//                  g_FlapSnapshot publishes stay single-writer.  Flap READERS
+//                  (Audio.cpp::UpdateTones, the SensorIO AOA curve eval,
+//                  DisplaySerial::Write, DataServer::UpdateLiveDataJson, the
+//                  calwiz API) no longer take it -- they read the lock-free
+//                  g_FlapSnapshot.
 //
 // Rule: never nest these two.  If a code path needs both, take
 // xSensorMutex first, release, then take xAhrsMutex.  Nested takes
@@ -57,14 +58,13 @@ ActiveFlapSnapshot SnapshotActiveFlap()
     ActiveFlapSnapshot snap{};
     snap.bValid = false;
 
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) != pdTRUE)
-        return snap;
-
-    const size_t nFlaps = g_Config.aFlaps.size();
-    const int    iIdx   = g_Flaps.iIndex;
-    if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+    // Lock-free read of the coherent flap frame published by Flaps::Update /
+    // HandleConfigSave. No xAhrsMutex.
+    const onspeed::ahrs::FlapSnapshotPayload fs = onspeed::ahrs::g_FlapSnapshot.read();
+    const int iIdx = fs.iIndex;
+    if (fs.bValid && iIdx >= 0 && (size_t)iIdx < (size_t)fs.nFlaps)
     {
-        const auto& flap   = g_Config.aFlaps[iIdx];
+        const auto& flap   = fs.aFlaps[iIdx];
         snap.curve         = flap.AoaCurve;
         snap.th.fLDMAXAOA       = flap.fLDMAXAOA;
         snap.th.fONSPEEDFASTAOA = flap.fONSPEEDFASTAOA;
@@ -73,7 +73,6 @@ ActiveFlapSnapshot SnapshotActiveFlap()
         snap.bValid             = true;
     }
 
-    xSemaphoreGive(xAhrsMutex);
     return snap;
 }
 
