@@ -10,11 +10,18 @@
 #include <math.h>
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 #include "src/drivers/IMU330.h"
 #include "src/drivers/SensorIO.h"
 
 using onspeed::accelPitch;
 using onspeed::accelRoll;
+
+// Lock-free snapshot of AHRS output state.  Owned here; published by
+// AHRS::PublishSnapshot().  See src/ahrs/AhrsSnapshot.h for the payload
+// and the producer/consumer contract.
+onspeed::util::SnapshotPublisher<onspeed::ahrs::AhrsSnapshotPayload>
+    onspeed::ahrs::g_AhrsSnapshot;
 
 // Smoothing alpha for the legacy EMA accel filters.  Kept here only so
 // the filter objects on the AHRS class can be constructed with the same
@@ -147,6 +154,32 @@ void AHRS::PublishCoreState_()
 
 // ----------------------------------------------------------------------------
 
+void AHRS::PublishSnapshot()
+{
+    onspeed::ahrs::AhrsSnapshotPayload snap;
+    snap.pitchDeg           = SmoothedPitch;
+    snap.rollDeg            = SmoothedRoll;
+    snap.flightPathDeg      = FlightPath;
+    snap.derivedAoaDeg      = DerivedAOA;
+    snap.earthVertG         = EarthVertG;
+    snap.tasMps             = fTAS;
+    snap.kalmanAltMeters    = KalmanAlt;
+    snap.kalmanVsiMps       = KalmanVSI;
+    snap.accelFwdFilteredG  = AccelFwdFilter.get();
+    snap.accelLatFilteredG  = AccelLatFilter.get();
+    snap.accelVertFilteredG = AccelVertFilter.get();
+    snap.accelFwdCorrG      = AccelFwdCorr;
+    snap.accelLatCorrG      = AccelLatCorr;
+    snap.accelVertCorrG     = AccelVertCorr;
+    snap.gPitchDps          = gPitch;
+    snap.gRollDps           = gRoll;
+    snap.gYawDps            = gYaw;
+    snap.gOnsetRate         = gOnsetRate;
+    onspeed::ahrs::g_AhrsSnapshot.publish(snap);
+}
+
+// ----------------------------------------------------------------------------
+
 // See kAhrsBootstrapRateHz above for why the constructor uses a fixed
 // bootstrap rate instead of g_imuSampleRateHz.
 AHRS::AHRS(int gyroSmoothing)
@@ -204,9 +237,15 @@ void AHRS::Init(float fSampleRate)
     const onspeed::AhrsInputs seed = SnapshotInputs_();
     core_.Init(seed, g_Sensors.Palt);
 
-    // Publish initial outputs (pitch/roll seeded by core::Init).
-    SmoothedPitch = core_.latest().pitchDeg;
-    SmoothedRoll  = core_.latest().rollDeg;
+    // Mirror the seeded core state into the public members and publish the
+    // initial snapshot.  Init() runs in setup() before any reader task is
+    // spawned, so this guarantees the first frame a consumer ever reads
+    // from g_AhrsSnapshot is the real seeded rest state (level attitude,
+    // +1 g vertical) rather than the publisher's zero/default payload.
+    // gOnsetRate stays at its constructed value until the first Process()
+    // ticks the G-onset filter; the seeded frame carries that 0.0f.
+    PublishCoreState_();
+    PublishSnapshot();
 
     g_Log.printf(MsgLog::EnAHRS, MsgLog::EnWarning,
         "AHRS Init (%s, pitch bias %.1f, roll bias %.1f)\n",
@@ -238,6 +277,12 @@ void AHRS::Process(float fDeltaTimeSeconds)
     // 250 ms, so the higher tick rate just gives a slightly smoother
     // output without changing the time constant.
     gOnsetRate = gOnsetFilter_.Update(AccelVertFilter.get(), fDeltaTimeSeconds);
+
+    // Publish the coherent output snapshot AFTER gOnsetRate is computed
+    // (it is the one output field set here rather than in
+    // PublishCoreState_).  Readers on other tasks and cores get the whole
+    // frame atomically via g_AhrsSnapshot — no xAhrsMutex needed.
+    PublishSnapshot();
 }
 
 // ----------------------------------------------------------------------------

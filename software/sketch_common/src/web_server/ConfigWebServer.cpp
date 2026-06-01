@@ -38,6 +38,7 @@ extern "C" {
 }
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 
 #include "src/web_server/ApiHandlers.h"
 
@@ -2001,10 +2002,16 @@ void HandleSensorConfig()
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gy Bias:</td><td style=\"text-align: right;\">"               + String(g_Config.fGyBias)       + "</td><td></td></tr>\n";
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">gz Bias:</td><td style=\"text-align: right;\">"               + String(g_Config.fGzBias)       + "</td><td></td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Pitch:</td><td style=\"text-align: right;\">" + String(g_AHRS.PitchWithBias()) + "</td><td>Degrees</td></tr>\n";
+        const onspeed::ahrs::AhrsSnapshotPayload ahrsCfgSnap =
+            onspeed::ahrs::g_AhrsSnapshot.read();
+        const float fTrueAcPitch = onspeed::accelPitch(
+            ahrsCfgSnap.accelFwdCorrG, ahrsCfgSnap.accelLatCorrG, ahrsCfgSnap.accelVertCorrG);
+        const float fTrueAcRoll  = onspeed::accelRoll(
+            ahrsCfgSnap.accelFwdCorrG, ahrsCfgSnap.accelLatCorrG, ahrsCfgSnap.accelVertCorrG);
+        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Pitch:</td><td style=\"text-align: right;\">" + String(fTrueAcPitch) + "</td><td>Degrees</td></tr>\n";
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Pitch Bias:</td><td style=\"text-align: right;\">"            + String(g_Config.fPitchBias)    + "</td><td>Degrees</td></tr>\n";
 
-        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Roll:</td><td style=\"text-align: right;\">"  + String(g_AHRS.RollWithBias())  + "</td><td>Degrees</td></tr>\n";
+        sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Current True AC Roll:</td><td style=\"text-align: right;\">"  + String(fTrueAcRoll)  + "</td><td>Degrees</td></tr>\n";
         sCurrentConfig +=" <tr><td style=\"padding-right: 20px;\">Roll Bias:</td><td style=\"text-align: right;\">"             + String(g_Config.fRollBias)     + "</td><td>Degrees</td></tr>\n";
 
         sCurrentConfig +=" </table>\n";

@@ -31,8 +31,10 @@
 #include <vector>
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 
 #include <api/CalwizSave.h>
+#include <util/OnSpeedTypes.h>
 #include <api/CalwizSaveParse.h>
 #include <api/CalwizStateJson.h>
 #include <api/SensorBiasesJson.h>
@@ -1163,10 +1165,18 @@ void HandleApiSensorsBiases() {
         xSemaphoreGive(xSensorMutex);
     }
 
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(50))) {
-        in.truePitchDeg = g_AHRS.PitchWithBias();
-        in.trueRollDeg  = g_AHRS.RollWithBias();
-        xSemaphoreGive(xAhrsMutex);
+    // True (installation-corrected) AC pitch/roll from the lock-free AHRS
+    // snapshot.  PitchWithBias()/RollWithBias() compute accelPitch/accelRoll
+    // from the corrected-accel components; read those from the coherent
+    // snapshot and apply the same helpers, so this UI poll no longer takes
+    // xAhrsMutex.
+    {
+        const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+            onspeed::ahrs::g_AhrsSnapshot.read();
+        in.truePitchDeg = onspeed::accelPitch(
+            ahrsSnap.accelFwdCorrG, ahrsSnap.accelLatCorrG, ahrsSnap.accelVertCorrG);
+        in.trueRollDeg  = onspeed::accelRoll(
+            ahrsSnap.accelFwdCorrG, ahrsSnap.accelLatCorrG, ahrsSnap.accelVertCorrG);
     }
 
     in.pFwdBiasCounts = g_Config.iPFwdBias;

@@ -5,6 +5,7 @@
 #include "freertos/idf_additions.h"
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 
 #ifdef SUPPORT_LITTLEFS
 // Undefine SdFat's FILE_READ/FILE_WRITE before including LittleFS which redefines them
@@ -482,11 +483,16 @@ void ConsoleSerialIO::Read()
 
                     g_Log.printf("Accel IMU  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->fAccelX,         g_pIMU->fAccelY,         g_pIMU->fAccelZ);
                     g_Log.printf("Accel A/C  X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_pIMU->Ax,              g_pIMU->Ay,              g_pIMU->Az);
-                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", g_AHRS.AccelFwdFilter.get(), g_AHRS.AccelLatFilter.get(), g_AHRS.AccelVertFilter.get());
+                    // Read the AHRS output fields from the coherent snapshot
+                    // so this diagnostic dump is internally consistent and
+                    // doesn't read g_AHRS members cross-core.
+                    const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
+                        onspeed::ahrs::g_AhrsSnapshot.read();
+                    g_Log.printf("Smoothed   X : %5.2f  Y : %5.2f  Z : %5.2f\r\n", ahrsSnap.accelFwdFilteredG, ahrsSnap.accelLatFilteredG, ahrsSnap.accelVertFilteredG);
                     // (Post-comp accels are now algorithm-internal; the smoothed wire values are the right diagnostic.)
 
-                    g_Log.printf("Pitch        : %5.2f\r\n", g_AHRS.SmoothedPitch);
-                    g_Log.printf("Roll         : %5.2f\r\n", g_AHRS.SmoothedRoll);
+                    g_Log.printf("Pitch        : %5.2f\r\n", ahrsSnap.pitchDeg);
+                    g_Log.printf("Roll         : %5.2f\r\n", ahrsSnap.rollDeg);
 
                     g_Log.printf("PFwd         : %6.3f PSI %4d Counts\r\n",          g_pPitot->ReadPressurePSI(uPitotCounts), uPitotCounts);
                     g_Log.printf("PAoA         : %6.3f PSI %4d Counts\r\n",          g_pAOA->ReadPressurePSI(uAoaCounts),     uAoaCounts);

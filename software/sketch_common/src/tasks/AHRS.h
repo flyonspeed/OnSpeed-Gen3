@@ -24,6 +24,7 @@
 #pragma once
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 
 #include <ahrs/Ahrs.h>
 #include <filters/EMAFilter.h>
@@ -92,6 +93,14 @@ public:
     void    Init(float fSampleRate);
     void    Process();
     void    Process(float deltaTimeSeconds);
+
+    // Publish the public output fields above into g_AhrsSnapshot as one
+    // coherent payload (lock-free seqcount).  Called at the end of
+    // Process() on the live path (ImuReadTask) and after LogReplay's
+    // per-row write-back (LogReplayTask) so replay-mode consumers read
+    // the same snapshot.  Single-writer-in-time: the live and replay
+    // producers never run concurrently.
+    void    PublishSnapshot();
 
     float   PitchWithBias();
     float   PitchWithBiasSmth();

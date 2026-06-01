@@ -323,6 +323,16 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
 
     g_AHRS.AccelLatCorr  = res.accelLatSmoothed;
     g_AHRS.AccelVertCorr = res.accelVertSmoothed;
+
+    // Publish the coherent AHRS output snapshot from the fields just
+    // written above, so replay-mode consumers (DataServer, DisplaySerial,
+    // Housekeeping, LogSensor) read the same g_AhrsSnapshot the live path
+    // publishes from AHRS::Process().  Replay sets a subset of the g_AHRS
+    // output fields; the rest keep their prior value — exactly what the
+    // pre-snapshot direct-g_AHRS readers saw in replay mode.  LogReplayTask
+    // and ImuReadTask never run concurrently (replay replaces the live IMU
+    // loop), so the single-writer invariant holds.
+    g_AHRS.PublishSnapshot();
     }
 
 // ----------------------------------------------------------------------------

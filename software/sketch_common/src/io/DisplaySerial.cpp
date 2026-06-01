@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "src/Globals.h"
+#include "src/ahrs/AhrsSnapshot.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>
@@ -148,9 +149,22 @@ void DisplaySerial::Write()
     // trustworthy.  See issue #358.
     const bool bIasValidForOutput = g_Sensors.bIasAlive;
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
-    const float fPAltFt = m2ft(g_AHRS.KalmanAlt);
+    // Read the AHRS output fields as one coherent frame from the
+    // lock-free snapshot.  WriteDisplayDataTask runs on a hard 20 Hz
+    // cadence (Core 1, deadlined), so use tryRead(): if the IMU producer
+    // is mid-publish, the bounded retry budget would rather bail than
+    // spin.  On a (rare) bailout, hold the previous frame's AHRS values
+    // for this 50 ms tick — the M5 already tolerates a held frame.
+    static onspeed::ahrs::AhrsSnapshotPayload s_ahrsLast;
+    onspeed::ahrs::AhrsSnapshotPayload ahrsSnap;
+    if (onspeed::ahrs::g_AhrsSnapshot.tryRead(ahrsSnap))
+        s_ahrsLast = ahrsSnap;
+    else
+        ahrsSnap = s_ahrsLast;
 
-    const float fAccelVert = g_AHRS.AccelVertFilter.get();
+    const float fPAltFt = m2ft(ahrsSnap.kalmanAltMeters);
+
+    const float fAccelVert = ahrsSnap.accelVertFilteredG;
     if (IsFiniteFloat(fAccelVert))
         // Round-to-nearest tenth so the M5 / indexer display matches the
         // LiveView's `verticalGLoad`.  Over-G alerting reads the unrounded
@@ -163,7 +177,7 @@ void DisplaySerial::Write()
     // G-onset rate: read the smoothed signal from AHRS, where the
     // GOnsetFilter lives now so DataServer (LiveView JSON) and this
     // wire-format consumer share one source.  See AHRS::Process().
-    const float fGOnsetRate = g_AHRS.gOnsetRate;
+    const float fGOnsetRate = ahrsSnap.gOnsetRate;
 
 
     // Snapshot the active flap entry plus the full flap vector once
@@ -294,8 +308,8 @@ void DisplaySerial::Write()
         {
         // Clamp to fixed-width protocol fields to prevent buffer overruns and
         // malformed output when values go out of range.
-        const int      iPitch10   = SafeScaledInt(g_AHRS.SmoothedPitch, 10.0f, -999,    999);
-        const int      iRoll10    = SafeScaledInt(g_AHRS.SmoothedRoll,  10.0f, -9999,  9999);
+        const int      iPitch10   = SafeScaledInt(ahrsSnap.pitchDeg, 10.0f, -999,    999);
+        const int      iRoll10    = SafeScaledInt(ahrsSnap.rollDeg,  10.0f, -9999,  9999);
         const unsigned uIas10     = SafeScaledUInt(fIasForOutput,       10.0f, 0,      9999);
         const int      iPaltFt    = SafeScaledInt(fPAltFt,         1.0f, -99999, 99999);
         // G3X format negates intentionally — the Garmin `=11` wire's
@@ -304,7 +318,7 @@ void DisplaySerial::Write()
         // receiving OnSpeed output rely on this negation to match what
         // their EFIS already expects from a Garmin-format AHRS source.
         // Do NOT remove without coordinating with Garmin G3X users.
-        const int      iLatG100   = SafeScaledInt(-g_AHRS.AccelLatFilter.get(),  100.0f, -99,      99);
+        const int      iLatG100   = SafeScaledInt(-ahrsSnap.accelLatFilteredG,  100.0f, -99,      99);
         const int      iVertG10   = ClampInt(iDisplayVerticalG,                -99,      99);
         // G3X format keeps integer percent (0..99) on its own wire.
         // Use SafeScaledInt (which guards against NaN/Inf and out-of-
@@ -379,28 +393,28 @@ void DisplaySerial::Write()
         const int iOATc = static_cast<int>(lroundf(fOatC));
 
         DisplayBuildInputs inputs;
-        inputs.pitchDeg           = g_AHRS.SmoothedPitch;
-        inputs.rollDeg            = g_AHRS.SmoothedRoll;
+        inputs.pitchDeg           = ahrsSnap.pitchDeg;
+        inputs.rollDeg            = ahrsSnap.rollDeg;
         inputs.iasKt              = fIasForOutput;
         // Sentinel-encode IAS on the wire when air data is not valid;
         // the M5 consumer renders "--" for IAS and percentLift digits.
         // See proto/DisplaySerial.h for the iasValid contract.
         inputs.iasValid           = bIasValidForOutput;
         inputs.paltFt             = fPAltFt;
-        inputs.turnRateDps        = g_AHRS.gYaw;
+        inputs.turnRateDps        = ahrsSnap.gYawDps;
         // Body-frame: positive = airframe accelerating rightward, matching
         // the IMU, SD log, and WebSocket JSON conventions. Slip-skid ball
         // renderers negate locally at the rendering site (the M5's
         // SerialRead::SerialProcess does, and the LiveView's slipBall.js
         // does the same). See DisplaySerial.h's DisplayBuildInputs::lateralG block and #383.
-        inputs.lateralG           = g_AHRS.AccelLatFilter.get();
+        inputs.lateralG           = ahrsSnap.accelLatFilteredG;
         inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
         inputs.percentLiftPct     = fPercentLiftPct;     // 0.0..99.9, encoder scales ×10 to tenths
         inputs.vsiFpm10           = ClampInt(
-                                        (int)floorf(mps2fpm(g_AHRS.KalmanVSI) / 10.0f),
+                                        (int)floorf(mps2fpm(ahrsSnap.kalmanVsiMps) / 10.0f),
                                         -999, 999);
         inputs.oatC               = iOATc;
-        inputs.flightPathDeg      = g_AHRS.FlightPath;
+        inputs.flightPathDeg      = ahrsSnap.flightPathDeg;
         // flapsDeg is the lever-interpolated value from
         // ComputeDisplayPctAnchors, so the displayed flap angle slides
         // smoothly with the lever rather than stepping at the snap
