@@ -80,11 +80,16 @@ static_assert(std::is_trivially_copyable_v<AhrsSnapshotPayload>,
               "AhrsSnapshotPayload must be trivially copyable for "
               "SnapshotPublisher's memcpy-based seqcount.");
 
-// Global publisher. Defined in AHRS.cpp. Single writer:
-// AHRS::PublishSnapshot(), called at the end of AHRS::Process() (live,
-// ImuReadTask) and after LogReplay's per-row write-back (replay,
-// LogReplayTask). The two writers never run concurrently — replay mode
-// replaces the live IMU loop — so the single-writer invariant holds.
+// Global publisher. Defined in AHRS.cpp. The sole producer is
+// AHRS::PublishSnapshot(), reached from three paths:
+//   1. AHRS::Process() on ImuReadTask (live IMU loop), and
+//   2. AHRS::Init() on the config-save / bias-cal handlers,
+// both of which run under xAhrsMutex, so they are serialized against
+// each other and never publish concurrently; and
+//   3. LogReplay's per-row write-back on LogReplayTask, which is
+// mutually exclusive with the live IMU loop — replay mode replaces it.
+// Across all three, only one PublishSnapshot() is ever in flight, so
+// the publisher's single-writer invariant holds.
 extern onspeed::util::SnapshotPublisher<AhrsSnapshotPayload> g_AhrsSnapshot;
 
 }   // namespace onspeed::ahrs
