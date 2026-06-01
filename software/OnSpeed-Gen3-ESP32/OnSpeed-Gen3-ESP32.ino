@@ -414,9 +414,24 @@ void setup()
 
     // These always run
     xTaskCreatePinnedToCore(AudioPlayTask,        "AudioPlay",      5000,  NULL, 6, &xTaskAudioPlay,     1);
-    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display",  4000,  NULL, 4, &xTaskDisplaySerial, 1);
+    // Display serial (M5 wire) and Housekeeping (heartbeat LED, G-limit
+    // over-G warning, Vno chime) run on Core 0. On Core 1 the IMU+AHRS
+    // (prio 5), pressure (prio 5) and audio (prio 6) tasks fully consume
+    // the core at 416 Hz IMU, leaving no slice for the prio-4 display task
+    // or the prio-0 heartbeat — the M5 showed NO DATA and the LED froze
+    // solid. Both read AHRS output via the lock-free g_AhrsSnapshot (no
+    // xAhrsMutex on the AHRS reads, per #662), so the cross-core move is
+    // coherent. Core 0 has the spare cycles (SD writer, EFIS/boom, web).
+    //
+    // Housekeeping runs at prio 3 (not 0): it carries the safety-relevant
+    // over-G warning and Vno chime on a 100 ms tick. At prio 0 on a
+    // web-loaded Core 0 it was starved to ~0.56x its 10 Hz cadence with
+    // intermittent multi-tick freezes; prio 3 restores a steady 10 Hz. Its
+    // per-tick work is microseconds and it yields via vTaskDelay, so it
+    // does not meaningfully delay the SD writer (prio 1) or web handlers.
+    xTaskCreatePinnedToCore(WriteDisplayDataTask, "Write Display",  4000,  NULL, 4, &xTaskDisplaySerial, 0);
     xTaskCreatePinnedToCore(SwitchCheckTask,      "Check Switch",   5000,  NULL, 4, &xTaskCheckSwitch,   1);
-    xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   4000,  NULL, 0, &xTaskHousekeeping,  1); // Heartbeat init needed 4 KB in v4.10
+    xTaskCreatePinnedToCore(HousekeepingTask,     "Housekeeping",   4000,  NULL, 3, &xTaskHousekeeping,  0); // Heartbeat init needed 4 KB in v4.10
 
     // EFIS + boom UART readers — pinned to Core 0 at priority 3.
     // EfisRead blocks on the IDF UART event queue (wake-on-data) on
