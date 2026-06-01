@@ -32,6 +32,7 @@
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/FlapSnapshot.h"
 
 #include <api/CalwizSave.h>
 #include <util/OnSpeedTypes.h>
@@ -469,23 +470,12 @@ void HandleApiSampleAoa() {
 }
 
 void HandleApiSampleFlapsRaw() {
-    // Snapshot adcCounts + degrees position under xAhrsMutex so the
-    // two readings are coherent.  Same pattern DataServer.cpp uses.
-    uint16_t adc        = 0;
-    int      positionDeg = -1;
-    bool     ok         = false;
-
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(50))) {
-        adc         = g_Flaps.uValue;
-        positionDeg = g_Flaps.iPosition;
-        ok          = true;
-        xSemaphoreGive(xAhrsMutex);
-    }
-
-    if (!ok) {
-        SendError(503, "flaps", "AHRS mutex busy");
-        return;
-    }
+    // Read adcCounts + degrees position from the coherent flap frame
+    // (published by Flaps::Update / HandleConfigSave). One read() keeps the
+    // two readings from the same revision. No xAhrsMutex.
+    const onspeed::ahrs::FlapSnapshotPayload fs = onspeed::ahrs::g_FlapSnapshot.read();
+    const uint16_t adc        = fs.uValue;
+    const int      positionDeg = fs.iPosition;
 
     String body;
     body.reserve(48);
@@ -1033,24 +1023,21 @@ void HandleApiCalwizState() {
     ::onspeed::api::CalwizStateInputs in;
     int currentFlapIndex = 0;
 
-    // Snapshot under xAhrsMutex so the per-flap vector and the
-    // current detent index agree (HandleConfigSave swaps under this
-    // mutex).  The aircraft scalars live in g_Config and are written
-    // only by SaveConfigurationToFile; reading them outside the mutex
-    // is fine, but we batch under the same lock for one-shot
-    // consistency.
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(50))) {
-        in.acGrossWeightLb = g_Config.iAcGrossWeight;
-        in.acBestGlideKt   = g_Config.fAcBestGlideIAS;
-        in.acVfeKt         = g_Config.fAcVfe;
-        in.acGLimit        = g_Config.fAcGlimit;
-        for (const auto& f : g_Config.aFlaps)
-            in.flaps.push_back(f);
-        currentFlapIndex = g_Flaps.iIndex;
-        xSemaphoreGive(xAhrsMutex);
-    } else {
-        SendError(503, "calwiz", "AHRS mutex busy");
-        return;
+    // The per-flap vector and the active detent index come from the coherent
+    // lock-free flap frame (published by Flaps::Update / HandleConfigSave), so
+    // they agree without xAhrsMutex.  The aircraft scalars live in g_Config
+    // and are written only by SaveConfigurationToFile; reading them directly
+    // is fine.
+    in.acGrossWeightLb = g_Config.iAcGrossWeight;
+    in.acBestGlideKt   = g_Config.fAcBestGlideIAS;
+    in.acVfeKt         = g_Config.fAcVfe;
+    in.acGLimit        = g_Config.fAcGlimit;
+    {
+        const onspeed::ahrs::FlapSnapshotPayload fs =
+            onspeed::ahrs::g_FlapSnapshot.read();
+        for (size_t i = 0; i < fs.nFlaps; ++i)
+            in.flaps.push_back(fs.aFlaps[i]);
+        currentFlapIndex = fs.iIndex;
     }
     in.currentFlapIndex = currentFlapIndex;
 
@@ -1109,6 +1096,25 @@ void HandleApiCalwizSave() {
                 found = true;
                 break;
             }
+        }
+        // Republish the edited flap vector so lock-free readers (audio,
+        // display, web) pick up the new calibration on their next frame
+        // rather than waiting for the next 1 Hz Flaps::Update tick. Inside
+        // the mutex window so it serializes with the other writers.
+        if (found) {
+            onspeed::ahrs::FlapSnapshotPayload fp;
+            const size_t nF = g_Config.aFlaps.size();
+            const size_t nC = (nF < (size_t)onspeed::MAX_AOA_CURVES)
+                                ? nF : (size_t)onspeed::MAX_AOA_CURVES;
+            for (size_t i = 0; i < nC; ++i)
+                fp.aFlaps[i] = g_Config.aFlaps[i];
+            fp.nFlaps    = (uint8_t)nC;
+            fp.iIndex    = g_Flaps.iIndex;
+            fp.iPosition = (nC > 0 && (size_t)g_Flaps.iIndex < nC)
+                             ? g_Config.aFlaps[g_Flaps.iIndex].iDegrees : -1;
+            fp.uValue    = g_Flaps.uValue;
+            fp.bValid    = (nC > 0) && (g_Flaps.iIndex >= 0) && ((size_t)g_Flaps.iIndex < nC);
+            onspeed::ahrs::g_FlapSnapshot.publish(fp);
         }
         xSemaphoreGive(xAhrsMutex);
     } else {
