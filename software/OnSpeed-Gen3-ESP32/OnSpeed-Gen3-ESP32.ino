@@ -294,6 +294,11 @@ void setup()
     // Init AHRS after sensors so Kalman starts with real pressure altitude.
     g_AHRS.Init(g_imuSampleRateHz);
 
+    // Seed g_FlapSnapshot before any reader task spawns so the first frame a
+    // consumer reads is the detected flap state, not the zeroed default. The
+    // detect-and-publish happens inside Flaps::Update under xAhrsMutex.
+    g_Flaps.Update();
+
     // Init audio system
     g_AudioPlay.Init();
 
