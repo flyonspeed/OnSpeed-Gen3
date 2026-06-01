@@ -9,8 +9,10 @@
 //
 // This publisher carries a coherent copy of those fields so a consumer
 // reads either the whole previous frame or the whole current frame, never
-// a mix of the two. The single writer is AHRS::PublishSnapshot(); readers
-// call g_AhrsSnapshot.read() (tolerant) or .tryRead(out) (deadlined).
+// a mix of the two. The producer is AHRS::PublishSnapshot() (see the
+// single-writer-at-a-time contract at the g_AhrsSnapshot declaration
+// below); readers call g_AhrsSnapshot.read() (tolerant) or .tryRead(out)
+// (deadlined).
 //
 // The flap vector and per-flap setpoints are NOT in this payload — they
 // have a separate ownership and lifetime (HandleConfigSave swaps the flap

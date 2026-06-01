@@ -237,9 +237,15 @@ void AHRS::Init(float fSampleRate)
     const onspeed::AhrsInputs seed = SnapshotInputs_();
     core_.Init(seed, g_Sensors.Palt);
 
-    // Publish initial outputs (pitch/roll seeded by core::Init).
-    SmoothedPitch = core_.latest().pitchDeg;
-    SmoothedRoll  = core_.latest().rollDeg;
+    // Mirror the seeded core state into the public members and publish the
+    // initial snapshot.  Init() runs in setup() before any reader task is
+    // spawned, so this guarantees the first frame a consumer ever reads
+    // from g_AhrsSnapshot is the real seeded rest state (level attitude,
+    // +1 g vertical) rather than the publisher's zero/default payload.
+    // gOnsetRate stays at its constructed value until the first Process()
+    // ticks the G-onset filter; the seeded frame carries that 0.0f.
+    PublishCoreState_();
+    PublishSnapshot();
 
     g_Log.printf(MsgLog::EnAHRS, MsgLog::EnWarning,
         "AHRS Init (%s, pitch bias %.1f, roll bias %.1f)\n",
