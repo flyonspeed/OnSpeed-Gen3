@@ -117,6 +117,17 @@ python3 tools/bench/check-atomic-publish.py /Volumes/Untitled/log_NNN.csv
 
 A non-zero tear count means the producer (EfisSerialPort or BoomSerial) is publishing data field-by-field instead of atomically — see PR #656 for the canonical fix and the structural pattern (assemble staging struct, memcpy under mutex, single publish).
 
+### Also for snapshot-touching PRs: scan the AHRS / Sensor / IMU snapshot columns
+
+When the PR touches the lock-free flight-state snapshots (`g_AhrsSnapshot`, `g_SensorSnapshot`, `g_ImuSnapshot`) or their readers (`SensorIO`, `LogSensor`, `DisplaySerial`, `DataServer`, `Flaps`, the AHRS publish path), **also run the snapshot sanity scan** on the same log.  Those snapshots carry physical quantities with no `--epoch-encode` counter, so `check-atomic-publish.py` can't see them; this scans their columns for the torn-read fingerprint instead:
+
+```bash
+uv run tools/bench/check_snapshot_sanity.py /Volumes/Untitled/log_NNN.csv
+# expect: "OK — no torn-read fingerprints in snapshot-fed columns"
+```
+
+It's a heuristic tripwire, not a proof (a clean result misses non-reverting-step tears — see the tool's KNOWN BLIND SPOT). A non-zero flag count is a *review* signal, not an automatic fail: inspect the flagged rows and correlate with `imu_late` / `drops` in the `.dbg` — it can also fire on a genuine one-sample sensor glitch. The authoritative coherence guarantee remains the seqcount (`test_snapshot_publisher`).
+
 ### What the web-stress script does, concurrently:
 - Opens multiple WebSocket clients to `/` and keeps them subscribed
 - Polls `GET /api/logs` on a fast cadence (the handler returns 503 with `Retry-After: 1` when the SD writer is busy; the test exercises that contention path)

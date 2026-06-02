@@ -41,6 +41,14 @@ A future CI version that runs this protocol automatically on a self-hosted runne
 
   The companion file `test_check_atomic_publish.py` is a Python-side regression suite for the analyzer itself (catches future regressions of the detection logic, with synthetic clean + torn fixture rows).  Run with `python3 ./test_check_atomic_publish.py`.
 
+- **`check_snapshot_sanity.py`** — offline torn-read scan for the AHRS / Sensor / IMU lock-free snapshots (`g_AhrsSnapshot`, `g_SensorSnapshot`, `g_ImuSnapshot`).  Where `check-atomic-publish.py` proves the EFIS snapshot via the `--epoch-encode` counter, these snapshots carry physical flight quantities with no encoded counter, so this scans their log columns (accel/gyro triplets, IAS/AOA/Palt, Pitch/Roll/DerivedAOA/VSI) for the torn-read *fingerprint*: a single column making a physically impossible one-sample out-and-back excursion.  Recommended after any change touching those snapshots or their readers (`SensorIO`, `LogSensor`, `DisplaySerial`, `DataServer`, `Flaps`, the AHRS publish path).
+
+  ```bash
+  uv run ./check_snapshot_sanity.py /Volumes/Untitled/log_NNN.csv
+  ```
+
+  Heuristic, not a proof — a clean result is evidence-of-absence for the common reverting tear, NOT a guarantee (it misses tears that land on a non-reverting step; see the docstring's KNOWN BLIND SPOT).  The authoritative coherence guarantee is the seqcount itself (`test_snapshot_publisher`).  Companion self-test: `uv run ./test_check_snapshot_sanity.py`.
+
 ## Related
 
 - `tools/regression/` — host-side regression harness that runs `onspeed_core` algorithms against a recorded flight log. Different layer: this catches algorithm drift across `onspeed_core` extraction PRs, not real-hardware reliability.
