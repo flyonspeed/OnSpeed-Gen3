@@ -492,7 +492,7 @@ void test_kalman_vsi_conversion(void)
     ReplayStepResult res = stepExpectResult(eng, row);
 
     // fpm2mps(196.85f) = 196.85f / 196.85f = 1.0 m/s
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, res.kalmanVSI);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, res.vsiMps);
 }
 
 // coeffP is set from pressureCoeff(pfwd, p45) via AOACalculatorResult.

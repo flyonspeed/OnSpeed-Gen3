@@ -128,23 +128,23 @@ Madgwick::Outputs Madgwick::Step(const Inputs& in)
 
     // 4) Standalone altitude/VSI Kalman on baro + earth-vert-G.  Same
     //    role for Madgwick that EKFQ's z/vz/b_az states fill for that
-    //    algorithm.  The PerfScope(Kalman) here still produces a clean,
-    //    Kalman-only `kalman` histogram.  Note, though, that this scope
-    //    is NESTED inside the PerfScope(Madgwick) that wraps the whole
-    //    Madgwick::Step call in Ahrs::Step, so the `madgwick` histogram
-    //    is INCLUSIVE of this Kalman time (it was exclusive when the
-    //    Kalman ran as a sibling scope in Ahrs::Step stage 3c).  Read
-    //    `madgwick` as Madgwick+Kalman and don't add the two scope
-    //    totals when summing a CPU budget — that double-counts Kalman.
-    //    Perf-build-only (ONSPEED_PERF_ENABLED); no effect on flight.
+    //    algorithm.  The PerfScope(Vertical) here still produces a
+    //    clean vertical-channel histogram.  Note, though, that this
+    //    scope is NESTED inside the PerfScope(Madgwick) that wraps the
+    //    whole Madgwick::Step call in Ahrs::Step, so the `madgwick`
+    //    histogram is INCLUSIVE of this vertical-channel time.  Read
+    //    `madgwick` as Madgwick+vertical and don't add the two scope
+    //    totals when summing a CPU budget — that double-counts the
+    //    vertical filter.  Perf-build-only (ONSPEED_PERF_ENABLED); no
+    //    effect on flight.
     {
         onspeed::util::perf::PerfScope guard(
-            onspeed::util::perf::ScopeId::Kalman);
+            onspeed::util::perf::ScopeId::Vertical);
         kalman_.Update(in.baroAltMeters,
                        onspeed::g2mps(out.earthVertG),
                        in.dtSec,
-                       &out.kalmanAltMeters,
-                       &out.kalmanVsiMps);
+                       &out.altMeters,
+                       &out.vsiMps);
     }
 
     return out;

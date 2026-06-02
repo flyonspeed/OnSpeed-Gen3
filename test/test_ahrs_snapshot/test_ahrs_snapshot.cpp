@@ -72,8 +72,8 @@ void test_publish_then_read_round_trips_all_fields(void) {
     in.derivedAoaDeg      =  4.75f;
     in.earthVertG         =  1.3f;
     in.tasMps             = 51.4f;
-    in.kalmanAltMeters    = 305.0f;
-    in.kalmanVsiMps       =  2.5f;
+    in.altMeters          = 305.0f;
+    in.vsiMps             =  2.5f;
     in.accelFwdFilteredG  =  0.10f;
     in.accelLatFilteredG  = -0.20f;
     in.accelVertFilteredG =  1.30f;
@@ -94,8 +94,8 @@ void test_publish_then_read_round_trips_all_fields(void) {
     TEST_ASSERT_EQUAL_FLOAT(in.derivedAoaDeg,      out.derivedAoaDeg);
     TEST_ASSERT_EQUAL_FLOAT(in.earthVertG,         out.earthVertG);
     TEST_ASSERT_EQUAL_FLOAT(in.tasMps,             out.tasMps);
-    TEST_ASSERT_EQUAL_FLOAT(in.kalmanAltMeters,    out.kalmanAltMeters);
-    TEST_ASSERT_EQUAL_FLOAT(in.kalmanVsiMps,       out.kalmanVsiMps);
+    TEST_ASSERT_EQUAL_FLOAT(in.altMeters,          out.altMeters);
+    TEST_ASSERT_EQUAL_FLOAT(in.vsiMps,             out.vsiMps);
     TEST_ASSERT_EQUAL_FLOAT(in.accelFwdFilteredG,  out.accelFwdFilteredG);
     TEST_ASSERT_EQUAL_FLOAT(in.accelLatFilteredG,  out.accelLatFilteredG);
     TEST_ASSERT_EQUAL_FLOAT(in.accelVertFilteredG, out.accelVertFilteredG);

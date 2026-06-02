@@ -151,11 +151,11 @@ public:
     // measured dt is invalid.  Expose for the sketch shim.
     float imuDeltaTimeSec() const { return imuDeltaTime_; }
 
-    // Latest Kalman altitude/VSI in legacy units (meters, m/s).  These
-    // mirror the legacy AHRS.KalmanAlt/KalmanVSI fields exactly — same
-    // unit, same zeroing rule.
-    float kalmanAltMeters() const { return kalmanAltMeters_; }
-    float kalmanVsiMps()    const { return kalmanVsiMps_;    }
+    // Latest filtered altitude/VSI in metric units (meters, m/s).
+    // Sourced from the active algorithm's vertical channel (EKFQ's
+    // z/vz states or Madgwick's internal KalmanFilter).
+    float altMeters() const { return altMeters_; }
+    float vsiMps()    const { return vsiMps_;    }
 
     // Algorithm selector and config pitch/roll bias for sketch shim.
     Algorithm algorithm() const { return cfg_.algorithm; }
@@ -216,10 +216,10 @@ private:
     float tasDotSmoothed_ = 0.0f;
     uint32_t lastIasUpdateUs_ = 0;
 
-    // Latest Kalman outputs in legacy units (mirrors the published
-    // outputs_.kalmanAltFt/Vsi but in meters and m/s).
-    float kalmanAltMeters_ = 0.0f;
-    float kalmanVsiMps_    = 0.0f;
+    // Latest vertical-channel outputs in metric units (mirrors the
+    // published outputs_.altFt/vsiFpm but in meters and m/s).
+    float altMeters_ = 0.0f;
+    float vsiMps_    = 0.0f;
 
     // Latest published outputs.
     AhrsOutputs outputs_{};

@@ -190,8 +190,8 @@ EkfqPipeline::Outputs EkfqPipeline::Step(const Inputs& in)
     // 7) Vertical channel published from EKFQ's z / vz states.  vz is
     //    NED-down internally; flip the sign here so consumers receive
     //    the firmware's +climb convention.
-    out.kalmanAltMeters = state.z;
-    out.kalmanVsiMps    = -state.vz;
+    out.altMeters = state.z;
+    out.vsiMps    = -state.vz;
 
     // 8) EarthVertG via the filter's quaternion — body→earth rotation
     //    of the unsmoothed installation-corrected vertical accel,

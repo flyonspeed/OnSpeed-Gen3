@@ -125,14 +125,12 @@ void AHRS::PublishCoreState_()
     fTAS           = core_.tasMps();
     TASdotSmoothed = out.tasDotMps2;
 
-    // KalmanAlt and KalmanVSI are stored in legacy units (meters and m/s
-    // respectively) for source compatibility.  Core exposes the raw
-    // metric values via kalmanAltMeters()/kalmanVsiMps() to avoid the
+    // AltMeters / VsiMps are kept in metric units to avoid the
     // m -> ft -> m round-trip the published outputs would otherwise
-    // require.  Consumers wrap these in m2ft()/mps2fpm() — same as
-    // before extraction.
-    KalmanAlt = core_.kalmanAltMeters();
-    KalmanVSI = core_.kalmanVsiMps();
+    // require.  Consumers wrap these in m2ft()/mps2fpm() at the
+    // point of use.
+    AltMeters = core_.altMeters();
+    VsiMps    = core_.vsiMps();
 
     AccelFwdCorr  = core_.accelFwdCorrG();
     AccelLatCorr  = core_.accelLatCorrG();
@@ -163,8 +161,8 @@ void AHRS::PublishSnapshot()
     snap.derivedAoaDeg      = DerivedAOA;
     snap.earthVertG         = EarthVertG;
     snap.tasMps             = fTAS;
-    snap.kalmanAltMeters    = KalmanAlt;
-    snap.kalmanVsiMps       = KalmanVSI;
+    snap.altMeters          = AltMeters;
+    snap.vsiMps             = VsiMps;
     snap.accelFwdFilteredG  = AccelFwdFilter.get();
     snap.accelLatFilteredG  = AccelLatFilter.get();
     snap.accelVertFilteredG = AccelVertFilter.get();
@@ -203,8 +201,8 @@ AHRS::AHRS(int gyroSmoothing)
     SmoothedPitch  = 0.0f;
     SmoothedRoll   = 0.0f;
     TASdotSmoothed = 0.0f;
-    KalmanAlt      = 0.0f;
-    KalmanVSI      = 0.0f;
+    AltMeters      = 0.0f;
+    VsiMps         = 0.0f;
     FlightPath     = 0.0f;
     EarthVertG     = 0.0f;
     DerivedAOA     = 0.0f;

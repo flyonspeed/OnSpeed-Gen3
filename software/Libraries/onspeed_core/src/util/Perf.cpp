@@ -89,7 +89,7 @@ constexpr const char* kScopeNames[] = {
     "ekfq.correct",
     "ekfq.alpha",
     "madgwick",
-    "kalman",
+    "vertical",
     "tas",
     "imu_read",
     "press_read",

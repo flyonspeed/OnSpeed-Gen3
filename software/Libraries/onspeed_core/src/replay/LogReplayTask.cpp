@@ -171,7 +171,7 @@ std::vector<uint8_t> LogReplayTask::EncodeFrame_(
     }
     in.percentLiftPct     = percentLiftPct;
     in.vsiFpm10           = ClampInt(
-        static_cast<int>(std::floor(mps2fpm(r.kalmanVSI) / 10.0f)),
+        static_cast<int>(std::floor(mps2fpm(r.vsiMps) / 10.0f)),
         -999, 999);
     in.oatC               = r.oatC;
     in.flightPathDeg      = r.flightPathDeg;

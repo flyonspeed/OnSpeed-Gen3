@@ -17,8 +17,8 @@ void test_default_initializes_all_fields_to_zero(void)
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.derivedAoaDeg);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.tasMps);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.tasDotMps2);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.kalmanAltFt);
-    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.kalmanVsiFpm);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.altFt);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, a.vsiFpm);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.earthVertG);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.gyroRollFiltDps);
     TEST_ASSERT_EQUAL_FLOAT(0.0f, a.gyroPitchFiltDps);
@@ -35,8 +35,8 @@ void test_fields_are_writable(void)
     a.derivedAoaDeg    =  9.7f;
     a.tasMps           = 55.0f;
     a.tasDotMps2       = -0.5f;
-    a.kalmanAltFt      = 3500.0f;
-    a.kalmanVsiFpm     = -200.0f;
+    a.altFt            = 3500.0f;
+    a.vsiFpm           = -200.0f;
     a.earthVertG       = 1.02f;
     a.gyroRollFiltDps  =  0.3f;
     a.gyroPitchFiltDps =  0.1f;
@@ -44,7 +44,7 @@ void test_fields_are_writable(void)
     a.timestampUs      = 99999u;
 
     TEST_ASSERT_EQUAL_FLOAT(9.7f,    a.derivedAoaDeg);
-    TEST_ASSERT_EQUAL_FLOAT(3500.0f, a.kalmanAltFt);
+    TEST_ASSERT_EQUAL_FLOAT(3500.0f, a.altFt);
     TEST_ASSERT_EQUAL_UINT32(99999u, a.timestampUs);
 }
 

@@ -308,7 +308,7 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
         g_Sensors.bIasAlive, res.iasKt,
         static_cast<float>(g_Config.iIasDisplayThresholdKt));
     g_iDataMark        = res.dataMark;
-    g_AHRS.KalmanVSI   = res.kalmanVSI;
+    g_AHRS.VsiMps      = res.vsiMps;
 
     g_pIMU->Ax = res.imuForwardG;
     g_pIMU->Ay = res.imuLateralG;

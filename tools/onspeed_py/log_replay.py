@@ -179,14 +179,14 @@ def _to_live_snapshot(raw: dict, *,
       flaps_raw_adc         → lever_raw
       flaps_pos             → flap_deg
       palt_ft               → palt
-      kalman_vsi_mps × 196.85 → vsi      (m/s → fpm)
+      vsi_mps × 196.85      → vsi         (m/s → fpm)
       data_mark             → data_mark
       flight_path_deg       → flight_path
 
     Notes:
       - `ias_valid=false` triggers NaN propagation to both ias and aoa,
         matching the old Python behavior for format-3 empty-cell gates.
-      - `kalman_vsi_mps` is converted to fpm (1 m/s = 196.85 fpm).
+      - `vsi_mps` is converted to fpm (1 m/s = 196.85 fpm).
       - `imu_fwd_g` is not currently mapped to LiveSnapshot (no field).
     """
     ias_valid = bool(raw.get('ias_valid', True))
@@ -209,8 +209,12 @@ def _to_live_snapshot(raw: dict, *,
         lat_g  = float(raw.get('imu_lat_g', 0.0))
         vert_g = float(raw.get('imu_vert_g', 1.0))
 
-    # kalman_vsi_mps → fpm (1 m/s = 196.8504 fpm)
-    vsi_fpm = float(raw.get('kalman_vsi_mps', 0.0)) * 196.8504
+    # vsi_mps → fpm (1 m/s = 196.8504 fpm); fall back to legacy
+    # `kalman_vsi_mps` key while host_main still emits the alias.
+    vsi_mps_raw = raw.get('vsi_mps')
+    if vsi_mps_raw is None:
+        vsi_mps_raw = raw.get('kalman_vsi_mps', 0.0)
+    vsi_fpm = float(vsi_mps_raw) * 196.8504
 
     return LiveSnapshot(
         t           = t,

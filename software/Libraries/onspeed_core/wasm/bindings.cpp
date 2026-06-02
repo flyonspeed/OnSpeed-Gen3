@@ -441,7 +441,7 @@ static val StepResultToVal(const onspeed::replay::ReplayStepResult& r)
     out.set("pitchDeg",           r.pitchDeg);
     out.set("rollDeg",            r.rollDeg);
     out.set("flightPathDeg",      r.flightPathDeg);
-    out.set("kalmanVsiMps",       r.kalmanVSI);
+    out.set("vsiMps",             r.vsiMps);
     out.set("imuForwardG",        r.imuForwardG);
     out.set("imuLateralG",        r.imuLateralG);
     out.set("imuVerticalG",       r.imuVerticalG);
@@ -677,7 +677,7 @@ static val build_display_frame(val inputsVal)
     // vsiFpm10 is the wire's pre-divided value (vsi_fpm/10). JS passes
     // raw fpm via "vsiFpm" and we divide+floor here, mirroring the firmware
     // producer in DisplaySerial.cpp:
-    //   inputs.vsiFpm10 = ClampInt((int)floorf(mps2fpm(KalmanVSI)/10.0f), ...);
+    //   inputs.vsiFpm10 = ClampInt((int)floorf(mps2fpm(VsiMps)/10.0f), ...);
     in.vsiFpm10 = static_cast<int>(std::floor(getFloat("vsiFpm", 0.0f) / 10.0f));
     in.oatC               = getInt  ("oatC",               0);
     in.flightPathDeg      = getFloat("flightPathDeg",      0.0f);

@@ -49,9 +49,9 @@ struct AhrsSnapshotPayload {
     // True airspeed (m/s). Consumers wrap mps2kts at the point of use.
     float tasMps            = 0.0f;   // fTAS
 
-    // Kalman altitude / VSI in legacy metric units (meters, m/s).
-    float kalmanAltMeters   = 0.0f;   // KalmanAlt
-    float kalmanVsiMps      = 0.0f;   // KalmanVSI
+    // Filtered altitude / VSI in metric units (meters, m/s).
+    float altMeters   = 0.0f;
+    float vsiMps      = 0.0f;
 
     // Wire-side EMA-smoothed accel components (G). Mirror of the legacy
     // AccelFwdFilter.get() / AccelLatFilter.get() / AccelVertFilter.get().

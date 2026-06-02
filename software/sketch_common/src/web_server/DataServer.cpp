@@ -265,8 +265,8 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             {
                 // Fall back to the OnSpeed-internal vertical channel when
                 // the EFIS frame's TAS isn't usable.
-                fWifiFlightpath = rad2deg(safeAsin(ahrsSnap.kalmanVsiMps/ahrsSnap.tasMps));
-                fWifiVSI        = mps2fpm(ahrsSnap.kalmanVsiMps);
+                fWifiFlightpath = rad2deg(safeAsin(ahrsSnap.vsiMps/ahrsSnap.tasMps));
+                fWifiVSI        = mps2fpm(ahrsSnap.vsiMps);
             }
             else
             {
@@ -286,7 +286,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiPitch      = ahrsSnap.pitchDeg;          // degrees
         fWifiRoll       = ahrsSnap.rollDeg;           // degrees
         fWifiFlightpath = ahrsSnap.flightPathDeg;     // degrees
-        fWifiVSI        = mps2fpm(ahrsSnap.kalmanVsiMps); // fpm
+        fWifiVSI        = mps2fpm(ahrsSnap.vsiMps); // fpm
 
         fWifiIAS = sensSnap.iasKt;
     } // end internal cal source
@@ -366,7 +366,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     fVerticalGload  = SafeJsonFloat(fVerticalGload, 0.0f);
     fWifiOAT        = SafeJsonFloat(fWifiOAT, 0.0f);
 
-    const float fPAltFt = SafeJsonFloat(m2ft(ahrsSnap.kalmanAltMeters), 0.0f);
+    const float fPAltFt = SafeJsonFloat(m2ft(ahrsSnap.altMeters), 0.0f);
     // Lateral G: smoothed by AccelLatFilter, raw sign (positive = right
     // per the EKFQ body-axis convention).  The legacy /live AOA tab and
     // the new /indexer data-table both display this number as "Lat G"

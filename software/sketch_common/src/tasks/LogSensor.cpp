@@ -1092,8 +1092,8 @@ void LogSensor::Write()
     const float ahrsRollDeg         = ahrsSnap.rollDeg;
     const float ahrsEarthVertG      = ahrsSnap.earthVertG;
     const float ahrsFlightPathDeg   = ahrsSnap.flightPathDeg;
-    const float ahrsKalmanVsiMps    = ahrsSnap.kalmanVsiMps;
-    const float ahrsKalmanAltMeters = ahrsSnap.kalmanAltMeters;
+    const float ahrsVsiMps          = ahrsSnap.vsiMps;
+    const float ahrsAltMeters       = ahrsSnap.altMeters;
     const float ahrsDerivedAoaDeg   = ahrsSnap.derivedAoaDeg;
 
     onspeed::LogRow row;
@@ -1226,8 +1226,8 @@ void LogSensor::Write()
 
     row.earthVerticalG = ahrsEarthVertG;
     row.flightPathDeg  = ahrsFlightPathDeg;
-    row.vsiFpm         = mps2fpm(ahrsKalmanVsiMps);
-    row.altitudeFt     = m2ft(ahrsKalmanAltMeters);
+    row.vsiFpm         = mps2fpm(ahrsVsiMps);
+    row.altitudeFt     = m2ft(ahrsAltMeters);
     row.derivedAoaDeg  = ahrsDerivedAoaDeg;
     row.coeffP         = g_fCoeffP;
 

@@ -152,7 +152,7 @@ void test_multi_producer_no_crosstalk(void)
 
     std::thread t1(producer, TaskId::Imu, ScopeId::EkfqCorrect, 50,
                    std::ref(imuPushCount));
-    std::thread t2(producer, TaskId::Sensors, ScopeId::Kalman, 30,
+    std::thread t2(producer, TaskId::Sensors, ScopeId::Vertical, 30,
                    std::ref(sensorsPushCount));
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
     startGate.store(true, std::memory_order_release);
@@ -168,7 +168,7 @@ void test_multi_producer_no_crosstalk(void)
     Consumer consumer;
     consumer.drainAll();
     TEST_ASSERT_EQUAL_UINT64(50, consumer.scopeHistogram(ScopeId::EkfqCorrect).count);
-    TEST_ASSERT_EQUAL_UINT64(30, consumer.scopeHistogram(ScopeId::Kalman).count);
+    TEST_ASSERT_EQUAL_UINT64(30, consumer.scopeHistogram(ScopeId::Vertical).count);
     // Each worker has ONE PerfLoop in its outer scope, so one loop
     // event each — not one per scope.
     TEST_ASSERT_EQUAL_UINT64(1, consumer.taskHistogram(TaskId::Imu).count);

@@ -633,8 +633,8 @@ void test_ekfq_vertical_covariance_reset_on_ias_gate_rising_edge(void)
     TEST_ASSERT_TRUE(std::isfinite(a.latest().pitchDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().rollDeg));
     TEST_ASSERT_TRUE(std::isfinite(a.latest().derivedAoaDeg));
-    TEST_ASSERT_TRUE(std::isfinite(a.latest().kalmanAltFt));
-    TEST_ASSERT_TRUE(std::isfinite(a.latest().kalmanVsiFpm));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().altFt));
+    TEST_ASSERT_TRUE(std::isfinite(a.latest().vsiFpm));
 }
 
 // ---------------------------------------------------------------------

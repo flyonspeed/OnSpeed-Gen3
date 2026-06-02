@@ -11,7 +11,7 @@
 //   * Calls Ahrs::Step(...) and mirrors the result into public fields
 //     so existing readers (DisplaySerial, LogSensor, ConsoleSerial,
 //     web liveview, LogReplay write-back, etc.) keep their old
-//     g_AHRS.SmoothedPitch / .AccelFwdFilter.get() / .KalmanVSI access
+//     g_AHRS.SmoothedPitch / .AccelFwdFilter.get() / .VsiMps access
 //     patterns.  A future PR will migrate consumers to a
 //     `Published<AhrsOutputs>` snapshot holder; this PR only moves the
 //     math into core.
@@ -76,8 +76,8 @@ public:
 
     // Derived signals.
     float           TASdotSmoothed;
-    float           KalmanAlt;          // meters (legacy convention)
-    float           KalmanVSI;          // m/s   (legacy convention)
+    float           AltMeters;          // meters
+    float           VsiMps;             // m/s
     float           FlightPath;         // degrees
     float           EarthVertG;
     float           DerivedAOA;
