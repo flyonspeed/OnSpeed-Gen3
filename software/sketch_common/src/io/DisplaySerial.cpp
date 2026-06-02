@@ -214,13 +214,23 @@ void DisplaySerial::Write()
     size_t  nFlapsSnapshot = 0;
     size_t  iActiveFlapIdx = 0;
     uint16_t uFlapsRawAdc  = 0;
+    // Active detent degrees from the same coherent frame, for the
+    // uncalibrated (nFlaps == 0) flapsDeg fallback below.
+    int      iFlapsPosUncal = -1;
         {
         // Lock-free read of the coherent flap frame (published by
-        // Flaps::Update / HandleConfigSave).  One read() gives the whole
-        // vector + active index + raw ADC from a single revision, so the
-        // producer can't see the vector shrink mid-frame.  No xAhrsMutex.
-        const onspeed::ahrs::FlapSnapshotPayload fs =
-            onspeed::ahrs::g_FlapSnapshot.read();
+        // Flaps::Update / HandleConfigSave).  One coherent read gives the
+        // whole vector + active index + raw ADC from a single revision, so
+        // the producer can't see the vector shrink mid-frame.  No xAhrsMutex.
+        // WriteDisplayDataTask is hard-deadline at 20 Hz, so use tryRead()
+        // and hold the previous frame on a (rare) bailout — same pattern as
+        // the AHRS snapshot read above; the M5 tolerates a held frame.
+        static onspeed::ahrs::FlapSnapshotPayload s_flapLast;
+        onspeed::ahrs::FlapSnapshotPayload fs;
+        if (onspeed::ahrs::g_FlapSnapshot.tryRead(fs))
+            s_flapLast = fs;
+        else
+            fs = s_flapLast;
         const size_t nFlaps = fs.nFlaps;
         const int    iIdx   = fs.iIndex;
         if (fs.bValid && iIdx >= 0 && (size_t)iIdx < nFlaps)
@@ -260,6 +270,7 @@ void DisplaySerial::Write()
         // Raw flap-lever ADC reading for the interpolation, from the same
         // coherent frame.
         uFlapsRawAdc = fs.uValue;
+        iFlapsPosUncal = fs.iPosition;
         }
 
     // PercentLift in whole-percent float (0.0..99.9). The wire encoder
@@ -425,7 +436,7 @@ void DisplaySerial::Write()
         // "uncalibrated" display shape.
         inputs.flapsDeg           = (nFlapsSnapshot > 0)
                                         ? anchors.flapsDeg
-                                        : (int)g_Flaps.iPosition;
+                                        : iFlapsPosUncal;
         // Per-flap band-edge percents — the consumer's calibrated
         // indexer anchors.  tonesOnPctLift and the band edges all snap
         // to the active detent (they drive audio cues and the donut /
