@@ -128,8 +128,15 @@ Madgwick::Outputs Madgwick::Step(const Inputs& in)
 
     // 4) Standalone altitude/VSI Kalman on baro + earth-vert-G.  Same
     //    role for Madgwick that EKFQ's z/vz/b_az states fill for that
-    //    algorithm.  PerfScope here preserves the same Kalman
-    //    attribution the old standalone-Kalman site in Ahrs::Step had.
+    //    algorithm.  The PerfScope(Kalman) here still produces a clean,
+    //    Kalman-only `kalman` histogram.  Note, though, that this scope
+    //    is NESTED inside the PerfScope(Madgwick) that wraps the whole
+    //    Madgwick::Step call in Ahrs::Step, so the `madgwick` histogram
+    //    is INCLUSIVE of this Kalman time (it was exclusive when the
+    //    Kalman ran as a sibling scope in Ahrs::Step stage 3c).  Read
+    //    `madgwick` as Madgwick+Kalman and don't add the two scope
+    //    totals when summing a CPU budget — that double-counts Kalman.
+    //    Perf-build-only (ONSPEED_PERF_ENABLED); no effect on flight.
     {
         onspeed::util::perf::PerfScope guard(
             onspeed::util::perf::ScopeId::Kalman);
