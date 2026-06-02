@@ -47,12 +47,13 @@ uint16_t Flaps::Read()
 
 // ----------------------------------------------------------------------------
 
-// Build and publish the flap snapshot payload from the live globals plus the
-// index/position just written. The caller MUST hold xAhrsMutex (this reads
-// g_Config.aFlaps), which also serializes this publish against the other two
-// writers (the manual-override overload and HandleConfigSave's swap) so the
-// publisher's single-writer invariant holds.
-static void PublishFlapSnapshot_(int iIdx, int iPos, uint16_t uVal)
+// Build and publish the flap snapshot payload from this object's
+// iIndex/iPosition/uValue plus g_Config.aFlaps.  The caller must ensure
+// single-writer discipline: both Update overloads call this under xAhrsMutex
+// (which also serializes against HandleConfigSave / calwiz publishes); the
+// replay path calls it on LogReplayTask, the sole flap-state writer in replay
+// mode.  Reading g_Config.aFlaps here is why the Update callers hold the mutex.
+void Flaps::PublishSnapshot()
 {
     onspeed::ahrs::FlapSnapshotPayload p;
     const size_t nFlaps = g_Config.aFlaps.size();
@@ -61,10 +62,10 @@ static void PublishFlapSnapshot_(int iIdx, int iPos, uint16_t uVal)
     for (size_t i = 0; i < nCopy; ++i)
         p.aFlaps[i] = g_Config.aFlaps[i];
     p.nFlaps    = (uint8_t)nCopy;
-    p.iIndex    = iIdx;
-    p.iPosition = iPos;
-    p.uValue    = uVal;
-    p.bValid    = (nCopy > 0) && (iIdx >= 0) && ((size_t)iIdx < nCopy);
+    p.iIndex    = iIndex;
+    p.iPosition = iPosition;
+    p.uValue    = uValue;
+    p.bValid    = (nCopy > 0) && (iIndex >= 0) && ((size_t)iIndex < nCopy);
     onspeed::ahrs::g_FlapSnapshot.publish(p);
 }
 
@@ -92,7 +93,7 @@ void Flaps::Update()
     if (nFlaps == 0u)
     {
         iPosition = -1;
-        PublishFlapSnapshot_(iIndex, iPosition, uValue);
+        PublishSnapshot();
         xSemaphoreGive(xAhrsMutex);
         return;
     }
@@ -112,7 +113,7 @@ void Flaps::Update()
     iIndex    = iSafeIdx;
     iPosition = g_Config.aFlaps[iSafeIdx].iDegrees;
 
-    PublishFlapSnapshot_(iIndex, iPosition, uValue);
+    PublishSnapshot();
     xSemaphoreGive(xAhrsMutex);
 }
 
@@ -137,7 +138,7 @@ void Flaps::Update(int iFlapsIndex)
         iPosition = g_Config.aFlaps[iIndex].iDegrees;
     }
 
-    PublishFlapSnapshot_(iIndex, iPosition, uValue);
+    PublishSnapshot();
     xSemaphoreGive(xAhrsMutex);
 }
 
