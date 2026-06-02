@@ -95,6 +95,13 @@ public:
     // oatCelsius is set to onspeed::kOatInvalid when bOatSensor is false.
     onspeed::SensorSample Snapshot() const;
 
+    // Publish the current derived-sensor fields to the lock-free
+    // g_SensorSnapshot.  Read() calls this at the end of a full-frame read
+    // (Sensors mode); the replay write-back and the TestPot/RangeSweep synth
+    // ticks call it after they write the defining AOA/IAS, so exactly one
+    // task publishes per data-source mode (single-writer invariant).
+    void    PublishSnapshot();
+
 private:
     bool        bOatConversionPending = false;
     uint32_t    uOatRequestMs = 0;

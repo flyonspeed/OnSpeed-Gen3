@@ -612,6 +612,18 @@ void AudioPlay::PlayTone(EnAudioTone enAudioTone)
 
 void AudioPlay::UpdateTones(const ActiveFlapSnapshot& snap)
     {
+    // INTENTIONAL direct g_Sensors reads (IAS / AOA below). This is the one
+    // flight-data consumer that does NOT read g_SensorSnapshot, and that is
+    // deliberate: UpdateTones is only ever called synchronously from the task
+    // that just wrote g_Sensors — SensorIO::Read on SensorReadTask, and the
+    // replay / test-pot / range-sweep ticks on their own tasks. Same-task
+    // reads are coherent by construction, so the values here equal what the
+    // snapshot would return. Do NOT "make it consistent" by routing through
+    // g_SensorSnapshot.read() — that's a redundant publish-then-read round
+    // trip. And do NOT add xAhrsMutex/xSensorMutex here — this runs on the
+    // audio path's hard cadence and must not block. The asymmetry is the
+    // correct design, not an oversight.
+
     // If audio test is in progress then don't do anything
     if (bAudioTest)
         return;

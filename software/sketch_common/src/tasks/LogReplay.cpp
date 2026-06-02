@@ -341,6 +341,12 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
     // sole flap-state writer in replay mode (SensorReadTask/Flaps::Update
     // do not run), so this publish is single-writer.
     g_Flaps.PublishSnapshot();
+
+    // Publish the derived-sensor frame (IAS/AOA/Palt/bIasAlive/pressures
+    // written above) so replay-mode consumers read it from g_SensorSnapshot
+    // rather than a stale prior frame. LogReplayTask is the sole sensor
+    // writer in replay mode, so this publish is single-writer.
+    g_Sensors.PublishSnapshot();
     }
 
 // ----------------------------------------------------------------------------
@@ -441,6 +447,11 @@ void ReadTestPot()
 
     g_Sensors.IAS = 50; // to turn on the tones
 
+    // Publish the synth sensor frame: in TestPot mode TestPotTask owns AOA/IAS
+    // (SensorIO::Read skips them and does not publish), so this task is the
+    // sole g_SensorSnapshot publisher here.
+    g_Sensors.PublishSnapshot();
+
     g_AudioPlay.UpdateTones(SnapshotActiveFlap()); // TestPot tick: feed live snapshot.
     g_Log.printf(MsgLog::EnReplay, MsgLog::EnDebug, "fReadAOA: %0.2f, AOA: %0.2f\n",fReadAOA, g_Sensors.AOA);
 
@@ -522,6 +533,12 @@ void RangeSweepTask(void *pvParams)
         g_Sensors.AOA = fCurrentRangeSweepValue;
     //    setAOApoints(0); // flaps down (up?)
         g_Sensors.IAS = 50; // to turn on the tones
+
+        // Publish the synth sensor frame: in RangeSweep mode this task owns
+        // AOA/IAS (SensorIO::Read skips them and does not publish), so it is
+        // the sole g_SensorSnapshot publisher here.
+        g_Sensors.PublishSnapshot();
+
         g_AudioPlay.UpdateTones(SnapshotActiveFlap());
 
     } // end while true is true

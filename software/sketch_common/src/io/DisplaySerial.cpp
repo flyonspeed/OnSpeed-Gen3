@@ -7,6 +7,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>
@@ -140,7 +141,17 @@ void DisplaySerial::Write()
     float   fDisplayIAS;
     int     iDisplayVerticalG;
 
-    fDisplayIAS = g_Sensors.IAS;
+    // Coherent derived-sensor frame. WriteDisplayDataTask is hard-deadline
+    // at 20 Hz, so tryRead() + hold-last-frame on bailout, matching the AHRS
+    // and flap snapshot reads in this function.
+    static onspeed::ahrs::SensorSnapshotPayload s_sensLast;
+    onspeed::ahrs::SensorSnapshotPayload sensSnap;
+    if (onspeed::ahrs::g_SensorSnapshot.tryRead(sensSnap))
+        s_sensLast = sensSnap;
+    else
+        sensSnap = s_sensLast;
+
+    fDisplayIAS = sensSnap.iasKt;
     // Display-serial gate uses the sensor-level `bIasAlive` flag — the
     // canonical "air data is valid" signal (rising-edge 20 kt, falling
     // 15 kt, hysteresis; backed by the pitot deadband so it can't latch
@@ -148,7 +159,7 @@ void DisplaySerial::Write()
     // fact, not a UX choice: the audio-mute threshold (iMuteAudioUnderIAS)
     // controls when tones play, not whether displayed values are
     // trustworthy.  See issue #358.
-    const bool bIasValidForOutput = g_Sensors.bIasAlive;
+    const bool bIasValidForOutput = sensSnap.bIasAlive;
     const float fIasForOutput = bIasValidForOutput ? fDisplayIAS : 0.0f;
     // Read the AHRS output fields as one coherent frame from the
     // lock-free snapshot.  WriteDisplayDataTask runs on a hard 20 Hz
@@ -287,7 +298,7 @@ void DisplaySerial::Write()
     // down rounds down to integer to keep its own integer-percent
     // contract.
     if (bFlapSnapshotValid)
-        fPercentLiftPct = ComputePercentLift(g_Sensors.AOA,
+        fPercentLiftPct = ComputePercentLift(sensSnap.aoaDeg,
                                              flapSnapshot,
                                              bIasValidForOutput);
     else
@@ -402,7 +413,7 @@ void DisplaySerial::Write()
             g_EfisSerial.IsDataFresh(2000),
             g_Config.bOatSensor,
             efisOatC,
-            g_Sensors.OatC);
+            sensSnap.oatC);
         // Round to nearest integer so the M5 reads the same whole
         // degrees the LiveView shows (which keeps the fractional part).
         // Truncating would bias every reading half a degree colder than

@@ -7,6 +7,7 @@
 #include <esp_timer.h>          // esp_timer_get_time() — 64-bit µs since boot
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 #include <buildinfo.h>
 #include <log/ConsumeAlignedWrite.h>
 #include <log/LogMetaBuilder.h>
@@ -1073,6 +1074,12 @@ void LogSensor::Write()
     // AHRS::Process().
     const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
         onspeed::ahrs::g_AhrsSnapshot.read();
+    // Coherent derived-sensor frame. LogSensor::Write runs on both
+    // SensorReadTask (same task as the writer) and ImuReadTask (cross-task,
+    // 208 Hz); reading the snapshot gives the ImuReadTask path a coherent
+    // sensor row instead of unguarded g_Sensors fields from mid-update.
+    const onspeed::ahrs::SensorSnapshotPayload sensSnap =
+        onspeed::ahrs::g_SensorSnapshot.read();
     const float ahrsTasMps          = ahrsSnap.tasMps;
     const float ahrsPitchDeg        = ahrsSnap.pitchDeg;
     const float ahrsRollDeg         = ahrsSnap.rollDeg;
@@ -1091,23 +1098,23 @@ void LogSensor::Write()
 
     row.timeStampMs      = (uint32_t)uTimeStamp;
     row.timeStampUs      = uTimeStampUs;
-    row.pfwdCounts       = g_Sensors.iPfwd;
-    row.pfwdSmoothed     = g_Sensors.PfwdSmoothed;
-    row.p45Counts        = g_Sensors.iP45;
-    row.p45Smoothed      = g_Sensors.P45Smoothed;
-    row.pStaticMbar      = g_Sensors.PStatic;
-    row.paltFt           = g_Sensors.Palt;
-    row.iasKt            = g_Sensors.IAS;
-    row.angleOfAttackDeg = g_Sensors.AOA;
+    row.pfwdCounts       = sensSnap.iPfwd;
+    row.pfwdSmoothed     = sensSnap.pfwdSmoothed;
+    row.p45Counts        = sensSnap.iP45;
+    row.p45Smoothed      = sensSnap.p45Smoothed;
+    row.pStaticMbar      = sensSnap.pStaticMbar;
+    row.paltFt           = sensSnap.paltFt;
+    row.iasKt            = sensSnap.iasKt;
+    row.angleOfAttackDeg = sensSnap.aoaDeg;
     // CSV cells for IAS / AngleofAttack / DerivedAOA / efisPercentLift go
     // empty when the sensor-level air-data gate is closed (matches the
     // M5 wire / WebSocket JSON convention from PR #431).
-    row.iasValid              = g_Sensors.bIasAlive;
-    row.efisPercentLiftValid  = g_Sensors.bIasAlive;
+    row.iasValid              = sensSnap.bIasAlive;
+    row.efisPercentLiftValid  = sensSnap.bIasAlive;
     row.flapsPos         = g_Flaps.iPosition;
     row.flapsRawAdc      = g_Flaps.uValue;
     row.dataMark         = g_iDataMark;
-    row.oatCelsius       = g_Sensors.OatC;
+    row.oatCelsius       = sensSnap.oatC;
     row.tasKt            = mps2kts(ahrsTasMps);
 
     // IMU — imuPitchRateDps holds the raw (un-negated) gyro value.

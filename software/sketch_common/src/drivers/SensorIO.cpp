@@ -6,6 +6,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
@@ -39,6 +40,13 @@ using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
 
+// Lock-free snapshot of derived sensor state. Owned here; published by
+// SensorIO::PublishSnapshot() at the end of SensorIO::Read() (live,
+// SensorReadTask) and by LogReplay's per-row write-back (replay). See
+// src/ahrs/SensorSnapshot.h for the payload and the producer/consumer contract.
+onspeed::util::SnapshotPublisher<onspeed::ahrs::SensorSnapshotPayload>
+    onspeed::ahrs::g_SensorSnapshot;
+
 // Snapshotting the active flap entry assumes a trivial copy is sound.
 // SuCalibrationCurve is a POD; SuFlaps is a small aggregate of scalars and
 // one SuCalibrationCurve.  These static_asserts catch the day someone adds
@@ -50,6 +58,31 @@ static_assert(std::is_trivially_copyable_v<SuCalibrationCurve>,
 static_assert(std::is_trivially_copyable_v<FOSConfig::SuFlaps>,
               "FOSConfig::SuFlaps must remain trivially copyable so the "
               "DisplaySerial / DataServer per-flap snapshots are safe.");
+
+// ----------------------------------------------------------------------------
+
+// Publish this object's derived-sensor fields to the lock-free
+// g_SensorSnapshot.  Single-writer per mode: Read() calls this only for a
+// full-frame read (not TestPot/RangeSweep, which the synth tasks own); the
+// replay write-back and the synth ticks call it after writing AOA/IAS.
+void SensorIO::PublishSnapshot()
+{
+    onspeed::ahrs::SensorSnapshotPayload p;
+    p.iasKt        = IAS;
+    p.aoaDeg       = AOA;
+    p.paltFt       = Palt;
+    p.oatC         = OatC;
+    p.pStaticMbar  = PStatic;
+    p.fDecelRate   = fDecelRate;
+    p.pfwdSmoothed = PfwdSmoothed;
+    p.p45Smoothed  = P45Smoothed;
+    p.iPfwd        = iPfwd;
+    p.iP45         = iP45;
+    p.uIasUpdateUs = uIasUpdateUs;
+    p.bIasAlive    = bIasAlive;
+    p.bValid       = true;
+    onspeed::ahrs::g_SensorSnapshot.publish(p);
+}
 
 // ----------------------------------------------------------------------------
 
@@ -562,6 +595,26 @@ void SensorIO::Read()
     }
 
     g_AudioPlay.UpdateTones(snap);
+
+    // Publish the coherent derived-sensor frame. Gated to the modes where
+    // Read() owns the full AOA/IAS frame: in TestPot/RangeSweep the synth
+    // task writes AOA/IAS and publishes instead, so Read() must not also
+    // publish (that would be a second writer on g_SensorSnapshot).
+    //
+    // Tripwire: this exclusion gate assumes the four known data-source modes
+    // (EnSensors, EnReplay, EnTestPot, EnRangeSweep). A new mode would fall
+    // into the publish branch by default — fine UNLESS it also runs its own
+    // synth task that publishes, which would create a second writer. The
+    // static_assert forces whoever adds a fifth SuDataSource value to revisit
+    // this gate (EnUnknown is the count sentinel, so it grows to 5).
+    static_assert(static_cast<int>(SuDataSource::EnUnknown) == 4,
+                  "SuDataSource gained a value — re-check the g_SensorSnapshot "
+                  "publish gate below: does the new mode have its own publisher?");
+    if ((g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) &&
+        (g_Config.suDataSrc.enSrc != SuDataSource::EnRangeSweep))
+    {
+        PublishSnapshot();
+    }
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)
     {
