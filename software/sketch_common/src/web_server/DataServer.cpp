@@ -239,6 +239,16 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
                 // EFIS-side TAS available — derive flightPath and VSI from
                 // the same EFIS frame so the two JSON fields agree on the
                 // vertical-speed source. Closes #347.
+                //
+                // ef.TAS>0 also gates trusting ef.VSI. On SkyView, VSI
+                // (byte 45) and TAS (byte 52) are independently 'X'-gated
+                // and applyFrame is a read-modify-write delta, so a
+                // degraded frame can carry valid TAS with a stale held
+                // VSI — a brief stale web VSI where master showed the
+                // live kalman value. Rare (SkyView-only; D10/G5/G3X don't
+                // send TAS, MGL sends TAS+VSI atomically) and self-heals
+                // on the next valid VSI. Deep fix: plumb VSI validity
+                // through SuEfisData (follow-up to #347).
                 const float fEfisVsiMps = fpm2mps(ef.VSI);
                 fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(ef.TAS)));
                 fWifiVSI        = ef.VSI;
