@@ -1,10 +1,17 @@
 // ahrs/FlapSnapshot.h — lock-free snapshot of flap state.
 //
 // Flap state — the configured flap vector, the active detent index/degrees,
-// and the raw lever ADC — is owned by two serialized writers: Flaps::Update()
-// on SensorReadTask (auto-detect, ~1 Hz) and the flap-vector swap in
-// HandleConfigSave on the WebServer task. Both run under xAhrsMutex, so only
-// one publish() is ever in flight (the publisher's single-writer invariant).
+// and the raw lever ADC — is published from these writer paths:
+//   1. Flaps::Update()      auto-detect, SensorReadTask (~1 Hz)
+//   2. Flaps::Update(int)   manual/test-pot override, SensorReadTask/TestPotTask
+//   3. HandleConfigSave     flap-vector swap, WebServer task
+//   4. HandleApiCalwizSave  per-flap edit, WebServer task
+//   + LogReplay::PublishReplayResult in replay mode (mutually exclusive with
+//     the live IMU loop, so it's the sole writer when it runs).
+// EVERY publish is inside an xAhrsMutex hold, which is what serializes them
+// into a single in-flight publish() and satisfies SnapshotPublisher's
+// single-writer invariant. Adding a new writer WITHOUT taking xAhrsMutex
+// would break that invariant (concurrent publish() is undefined behavior).
 //
 // Consumers — the audio tone path, the SensorIO AOA calc, the M5 wire-format
 // builder, the WebSocket live-data builder, the calwiz API — read the active

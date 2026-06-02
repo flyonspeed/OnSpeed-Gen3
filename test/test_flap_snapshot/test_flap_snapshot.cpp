@@ -1,3 +1,12 @@
+// Scope of this suite: it verifies the PAYLOAD WIRING for g_FlapSnapshot —
+// that the FlapSnapshotPayload round-trips through publish()/read() intact,
+// that the default (pre-first-publish) state is sensible, and that the
+// payload is trivially copyable (the memcpy precondition). The seqcount RACE
+// semantics — no torn reads under concurrent publish, latest-publish-wins,
+// memory ordering across cores — are tested exhaustively and payload-
+// agnostically in test_snapshot_publisher, so they are NOT re-tested per
+// payload here. The static_assert in FlapSnapshot.h is the compile-time half
+// of the contract.
 #include <unity.h>
 #include <cstring>
 #include <type_traits>

@@ -156,6 +156,12 @@ void DisplaySerial::Write()
     // is mid-publish, the bounded retry budget would rather bail than
     // spin.  On a (rare) bailout, hold the previous frame's AHRS values
     // for this 50 ms tick — the M5 already tolerates a held frame.
+    //
+    // SINGLE THREAD OF CONTROL: the hold-last-frame `static` locals here
+    // (s_ahrsLast and s_flapLast below) are safe only because Write() is
+    // called from exactly one task — WriteDisplayDataTask. If a second
+    // caller is ever added, these statics race; make them thread_local or
+    // move them to instance members at that point.
     static onspeed::ahrs::AhrsSnapshotPayload s_ahrsLast;
     onspeed::ahrs::AhrsSnapshotPayload ahrsSnap;
     if (onspeed::ahrs::g_AhrsSnapshot.tryRead(ahrsSnap))
