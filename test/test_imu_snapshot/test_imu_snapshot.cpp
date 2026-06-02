@@ -1,3 +1,9 @@
+// Scope of this suite: PAYLOAD WIRING for g_ImuSnapshot — round-trip of the
+// reused onspeed::ImuSample through publish()/read(), sensible default state,
+// trivially-copyable (the memcpy precondition). The seqcount RACE semantics
+// (no torn reads under concurrent publish, latest-publish-wins, cross-core
+// ordering) are covered exhaustively and payload-agnostically in
+// test_snapshot_publisher, so they are NOT re-tested per payload here.
 #include <unity.h>
 #include <cstring>
 #include <type_traits>

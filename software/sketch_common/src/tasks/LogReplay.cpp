@@ -352,6 +352,14 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
     // Publish the raw IMU frame (g_pIMU->Ax..Gz written above) so the SD log
     // row reads the replayed IMU from g_ImuSnapshot. Same single-writer
     // reasoning — LogReplayTask is the sole IMU writer in replay mode.
+    //
+    // Unlike the live path (ImuReadTask), this does NOT stamp
+    // ImuSample.timestampUs — Snapshot() leaves it 0 here. That's fine: the
+    // only g_ImuSnapshot consumer, LogSensor::Write, reads the seven physical
+    // fields (accel/gyro/temp) and timestamps the row from esp_timer, never
+    // from imuSnap.timestampUs. ReplayStepResult carries no per-row µs value
+    // to restamp from, so plumbing one would be a core-engine change for a
+    // field nobody reads.
     onspeed::ahrs::g_ImuSnapshot.publish(g_pIMU->Snapshot());
     }
 
