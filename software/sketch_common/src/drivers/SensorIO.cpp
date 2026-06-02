@@ -392,9 +392,19 @@ void SensorIO::Read()
     {
         if (!bOatConversionPending && (millis() - uLastOatReadMs > 1000))
         {
-            OatSensor.RequestConversion();      // non-blocking kick
-            bOatConversionPending = true;
-            uOatRequestMs = millis();
+            // Only arm the read window if the kick actually went out. If the
+            // trigger fails (bus fault, or Begin never bound a device), retry
+            // next second rather than reading a scratchpad no conversion was
+            // requested for.
+            if (OatSensor.RequestConversion())
+            {
+                bOatConversionPending = true;
+                uOatRequestMs = millis();
+            }
+            else
+            {
+                uLastOatReadMs = millis();   // back off a second before retrying
+            }
         }
         else if (bOatConversionPending && (millis() - uOatRequestMs >= kOatConversionMs))
         {
