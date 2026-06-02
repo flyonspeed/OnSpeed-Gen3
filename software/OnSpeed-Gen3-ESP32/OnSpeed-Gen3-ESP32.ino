@@ -474,7 +474,13 @@ void setup()
     // BoomRead polls Serial1.available() at 5 ms cadence (Serial1 is
     // shared with Display TX so we can't take exclusive IDF ownership).
     // Stack sizes: 4 KB matches Display, plenty for the parser path.
-    xTaskCreatePinnedToCore(EfisReadTask,         "EFIS Read",      4000,  NULL, 3, &xTaskEfisRead,      0);
+    // 6000 (not 4000): EfisSerialPort::Read() puts a 2 KB `scratch[2048]`
+    // bulk-read buffer on the stack, plus the parser + wind-triangle
+    // (ComputeWind) call tree beneath it.  At 4000 the high-water mark fell
+    // to ~248 bytes free with VN-300 active at 416 Hz (bench TASKS) — a 4x
+    // thinner margin than any other task and a real overflow risk.  6000
+    // restores a healthy >2 KB margin; cost is ~2 KB RAM against 7 MB free.
+    xTaskCreatePinnedToCore(EfisReadTask,         "EFIS Read",      6000,  NULL, 3, &xTaskEfisRead,      0);
     xTaskCreatePinnedToCore(BoomReadTask,         "Boom Read",      4000,  NULL, 3, &xTaskBoomRead,      0);
 
 #ifdef ONSPEED_SYNTH_SENSORS
