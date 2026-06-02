@@ -160,3 +160,100 @@ inputs to match the standard convention EKFQ expects.
 VN-300 truth is logged at ~50 Hz alongside the 208 Hz IMU. The pipeline
 masks loss to VN-300 fresh samples only (via the `vnDataAge` reset
 detector) so we never score the EKF against held-stale truth values.
+
+## Symbolic source of truth
+
+### What's generated and from where
+
+`onspeed_ekf/symbolic.py` is the source of truth for EKFQ's predict
+Jacobian **F** and measurement Jacobian **H**. It builds the symbolic
+state-transition and measurement models and derives the Jacobians by
+`sympy.diff`. From those expressions it emits two artifacts:
+
+- `onspeed_ekf/_generated_jacobians.py` — NumPy callables `F(x, u, dt)`
+  and `H(x, u)`, used by the oracle and parity tests.
+- `software/Libraries/onspeed_core/src/ahrs/EKFQ_jacobians.generated.h` —
+  C structs and filler functions for the firmware (slotted into the flight
+  loop by a later "Move 2" PR, see below).
+
+Regenerate both with:
+
+```bash
+cd ekfq_pipeline && uv run --group dev python -m onspeed_ekf.symbolic
+```
+
+Both files carry a `DO-NOT-EDIT` banner. CI (`ekfq-jacobian-oracle`)
+regenerates them and runs `git diff --exit-code` against the committed
+copies, so a hand-edit or a stale checkout fails the build.
+
+### The oracle
+
+F and H are cross-checked three independent ways over randomized in-air
+and on-ground states:
+
+1. **SymPy** — the symbolic derivation in `symbolic.py`.
+2. **JAX autodiff** — `onspeed_ekf/jax_model.py` differentiates the same
+   model through `jax.jacobian`.
+3. **Hand-written** — the explicit Jacobian expressions in
+   `onspeed_ekf/ekf_quat.py` that the Python twin runs.
+
+`tests/test_jacobian_oracle.py` asserts all three agree. Agreement of
+three derivations built from independent machinery is the correctness
+gate against hand-derivation algebra errors. `tests/test_cpp_python_parity.py`
+adds the C side: it checks the generated NumPy matches SymPy and that
+`host_main`'s attitude output matches the Python twin.
+
+### The mean/Jacobian asymmetry
+
+The predict **mean** uses the exact exponential map
+`q ← q ⊗ exp(½ ω·dt)`. The predict **Jacobian** F is deliberately the
+first-order Jacobian of the *linear* mean `q + q̇·dt`. This is standard
+EKF practice: the covariance linearization is first-order, and the exact
+map's extra terms are `O((ω·dt)³)`, which the covariance does not track.
+The oracle pins this asymmetry — its consistency test asserts
+`jacobian(exact) ≈ jacobian(linear)` to ~3e-6 at a 208 Hz step.
+
+### Performance and the generated layer
+
+**Generated = the algebra (what the Jacobian entries *are*). Hand-written
+= the schedule (how they're combined and looped).** Performance
+optimizations live in the generator's options or in the hand-written
+schedule — never as edits to the generated file (the DO-NOT-EDIT banner
+plus the CI regenerate-diff gate make hand-edits fail loudly).
+
+On the firmware (C++) — the hot path, 208 Hz on the ESP32-S3 — this split
+is load-bearing. The generator owns the per-entry algebra plus CSE,
+float-not-double rendering, and integer-power expansion (`x*x`, no `pow`
+or `<math.h>`, keeping the header core-pure). The MCU perf — the sparse
+`F·P·Fᵀ` that skips identity rows, the scalar-update specializations,
+stack-only P — stays hand-written and *consumes* the generated entries;
+it survives every regeneration because it is not generated. When you want
+a firmware speed or size win, change the generator option or the
+hand-written schedule, never the emitted header.
+
+**Emit-size knob (ahead of need).** Fully-unrolled per-entry codegen grows
+`.text` as the state count rises (the wall ArduPilot hit with EKF
+codegen). The C emitter therefore offers two forms via
+`emit_c_header(mode=...)`: named-struct fillers (unrolled, default,
+fastest) and array-indexed fillers (rolled, compact `.text`). They compute
+identical values; the consumer picks per the size/speed tradeoff. At N=11
+unrolled is fine; the knob exists so the choice is a setting, not a
+retrofit.
+
+**Move 2 (later PR) flips the firmware to consume the header** and deletes
+the hand-written F/H expressions, keeping the sparse multiply. That PR is
+gated on a *cost* check — bench the generated path's flop-count, `.text`,
+and runtime against the hand-written path — layered on top of this PR's
+*correctness* gate. The generated path is proven as-fast and as-small
+before it touches the flight loop.
+
+On the Python side, the twin, tuner, and oracle are offline rather than
+hot paths, so the generated NumPy is clarity-first (`lambdify` + CSE). The
+one perf lever — vectorizing a whole-log pass — is a generator emit
+option, reached for only if a tuning sweep is actually too slow.
+
+### Future note
+
+A future v16 Optuna study runs against the exp-map twin. The existing
+`Config` defaults were tuned on the linear mean; the difference is
+third-order-small, so those defaults remain valid.

@@ -1,9 +1,13 @@
 """Pipeline using the 11-state quaternion+sideslip EKF.
 
-Replays a flight log through the same firmware-style signal chain as before
+Replays a flight log through the same firmware-style signal chain
 (installation bias 3D rotation, EMA, centripetal/TASdot comp, iasAlive
-gating), but with the new filter that has β instead of α as the 11th state.
-Alpha is exposed as a derived output via the universal kinematic formula.
+gating), with the filter that has β instead of α as the 11th state. Alpha is
+exposed as a derived output via the universal kinematic formula.
+
+TAS is derived from IAS + Palt + OAT via the density-altitude correction,
+mirroring the firmware's Ahrs.cpp; the twin does not read the log's TAS
+column. See `_derive_tas_mps`.
 """
 
 from __future__ import annotations
@@ -18,6 +22,38 @@ from .ekf_quat import EKFQ, EKFQConfig, GRAVITY_MPS2, alpha_kinematic
 
 _KT_TO_MPS = 0.514444
 _FT_TO_M = 0.3048
+
+
+def _oat_in_band(oat_c: float) -> bool:
+    """Mirror of onspeed_core Ahrs.cpp::oatInBand: a plausible OAT reading."""
+    return -100.0 < oat_c < 100.0
+
+
+def _derive_tas_mps(ias_kt: float, palt_ft: float, oat_c: float) -> float:
+    """True airspeed (m/s) from IAS via the density-altitude correction.
+
+    Mirrors the firmware's Ahrs.cpp TAS derivation: IAS + Palt + OAT in, TAS
+    out, so the twin flies on the same air-data the firmware computes rather
+    than a logged TAS column. When OAT is in band the full density-altitude
+    correction applies; otherwise (or for a non-positive pow base) a linear
+    altitude approximation is used. _KT_TO_MPS is the same constant the
+    firmware's onspeed::kts2mps() uses (0.514444)."""
+    if not _oat_in_band(oat_c):
+        return _KT_TO_MPS * (ias_kt * (1.0 + palt_ft / 1000.0 * 0.02))
+
+    kelvin = 273.15
+    temp_rate = 0.00198119993
+    isa_temp_k = 15.0 - temp_rate * palt_ft + kelvin
+    oat_k = oat_c + kelvin
+    if oat_k <= 0.0:
+        return _KT_TO_MPS * (ias_kt * (1.0 + palt_ft / 1000.0 * 0.02))
+
+    da = palt_ft + (isa_temp_k / temp_rate) * (
+        1.0 - (isa_temp_k / oat_k) ** 0.2349690)
+    divisor = 1.0 - 6.8755856e-6 * da
+    if divisor > 0.0:
+        return _KT_TO_MPS * (ias_kt / divisor ** 2.12794)
+    return _KT_TO_MPS * (ias_kt * (1.0 + palt_ft / 1000.0 * 0.02))
 
 
 @dataclass
@@ -100,9 +136,9 @@ class PipelineQuat:
         roll_rate_dps  = df["RollRate"].to_numpy(dtype=np.float64)
         pitch_rate_dps = df["PitchRate"].to_numpy(dtype=np.float64)
         yaw_rate_dps   = df["YawRate"].to_numpy(dtype=np.float64)
-        tas_kt  = df["TAS"].to_numpy(dtype=np.float64)
         ias_kt  = df["IAS"].to_numpy(dtype=np.float64)
         palt_ft = df["Palt"].to_numpy(dtype=np.float64)
+        oat_c   = df["OAT"].to_numpy(dtype=np.float64)
         dt_arr = log.dt
 
         phi0, theta0 = self._seed_attitude(log)
@@ -172,8 +208,11 @@ class PipelineQuat:
             ema_lat  += ema_alpha * (ay_corr - ema_lat)
             ema_vert += ema_alpha * (az_corr - ema_vert)
 
-            # 3. TAS + TASdot.
-            tas_mps = float(tas_kt[i]) * _KT_TO_MPS
+            # 3. TAS + TASdot. TAS is derived from IAS+Palt+OAT via the
+            #    density-altitude correction, matching the firmware (Ahrs.cpp);
+            #    the log's TAS column is not used.
+            tas_mps = _derive_tas_mps(
+                float(ias_kt[i]), float(palt_ft[i]), float(oat_c[i]))
             tasdot_raw = (tas_mps - prev_tas_mps) / dt if dt > 0 else 0.0
             tasdot_smoothed += cfg.tasdot_ema_alpha * (tasdot_raw - tasdot_smoothed)
             prev_tas_mps = tas_mps
