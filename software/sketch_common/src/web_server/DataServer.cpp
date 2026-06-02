@@ -13,6 +13,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
@@ -180,6 +181,12 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const onspeed::ahrs::AhrsSnapshotPayload ahrsSnap =
         onspeed::ahrs::g_AhrsSnapshot.read();
 
+    // Coherent derived-sensor frame (IAS / AOA / OAT / decel / IAS-alive)
+    // from one revision, so the JSON's AOA and percent-lift can't split
+    // across two sensor ticks — the unguarded multi-read this used to do.
+    const onspeed::ahrs::SensorSnapshotPayload sensSnap =
+        onspeed::ahrs::g_SensorSnapshot.read();
+
     // Installation-corrected body-vertical acceleration (G), EMA-smoothed
     // by AHRS::Process to suppress per-tick IMU jitter.  The M5 wire path
     // ships the same filtered value at DisplaySerial.cpp — same source
@@ -199,7 +206,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     // The wsClient consumer guard checks `typeof === 'number'` to reject
     // null, then `> AOA_NA_SENTINEL` (-20) as belt-and-suspenders against
     // any future numeric-sentinel drift.  See issues #358 and #455.
-    fWifiAOA = g_Sensors.AOA;
+    fWifiAOA = sensSnap.aoaDeg;
 
     // Pitch, Roll, VSI, Flightpath
     if (g_Config.bCalSourceEfis)
@@ -224,7 +231,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
                 fWifiFlightpath = 0;
 
             fWifiVSI = mps2fpm(-vn.VelNedDown); // fpm
-            fWifiIAS = g_Sensors.IAS;
+            fWifiIAS = sensSnap.iasKt;
         } // end enType = EnVN300
 
         else
@@ -267,7 +274,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         fWifiFlightpath = ahrsSnap.flightPathDeg;     // degrees
         fWifiVSI        = mps2fpm(ahrsSnap.kalmanVsiMps); // fpm
 
-        fWifiIAS = g_Sensors.IAS;
+        fWifiIAS = sensSnap.iasKt;
     } // end internal cal source
 
     // OAT source selection — shared with the M5 display-serial path so
@@ -285,7 +292,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         g_EfisSerial.IsDataFresh(2000),
         g_Config.bOatSensor,
         efOat.OAT,
-        g_Sensors.OatC);
+        sensSnap.oatC);
 
 #else   // Dummy data
     static float fWifiAOA = 0.0;
@@ -359,7 +366,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     const float fLatG   = SafeJsonFloat(ahrsSnap.accelLatFilteredG, 0.0f);
     const float fCoeffP = SafeJsonFloat(g_fCoeffP, 0.0f);
     const float fPitchRate  = SafeJsonFloat(ahrsSnap.gPitchDps, 0.0f);
-    const float fDecelRate  = SafeJsonFloat(g_Sensors.fDecelRate, 0.0f);
+    const float fDecelRate  = SafeJsonFloat(sensSnap.fDecelRate, 0.0f);
 
     // Snapshot the active flap entry plus the full flap vector once
     // under xAhrsMutex.  Two consumers below read this snapshot:
@@ -419,18 +426,15 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         uFlapsRawAdc   = fs.uValue;
         }
 
-    // Snapshot the live AOA / IAS once.  Without this snapshot we'd
-    // read g_Sensors.AOA twice (once for fWifiAOA earlier, once for
-    // ComputePercentLift below) and g_Sensors.IAS twice (mute gate
-    // earlier, percent-lift IAS gate below) across an unguarded
-    // multi-tick window, so the displayed numeric AOA and the
-    // percent-lift bar could disagree by one sample tick.  Cheap
-    // local snapshot keeps them coherent.
-    const float fAoaSnap         = g_Sensors.AOA;
+    // AOA and the IAS-alive gate come from the same coherent sensSnap
+    // frame as fWifiAOA above, so the displayed numeric AOA and the
+    // percent-lift bar are from one sensor revision — they can't disagree
+    // by a sample tick the way two unguarded g_Sensors reads could.
+    const float fAoaSnap         = sensSnap.aoaDeg;
     // Match the AOA gate above and the M5 wire-format gate in
     // DisplaySerial.cpp: display validity rides on bIasAlive (sensor-
     // level), not the audio mute threshold (UX-level).  See #358.
-    const bool bIasValidForOutput = g_Sensors.bIasAlive;
+    const bool bIasValidForOutput = sensSnap.bIasAlive;
 
     // Live percent-lift reading — the active-detent calibration is
     // what the audio path uses, so this matches what the pilot hears.

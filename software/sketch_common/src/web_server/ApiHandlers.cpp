@@ -33,6 +33,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 
 #include <api/CalwizSave.h>
 #include <util/OnSpeedTypes.h>
@@ -454,16 +455,17 @@ void HandleApiSampleAoa() {
     // matching the convention from issues #358 / #455.
     String body;
     body.reserve(32);
-    if (!g_Sensors.bIasAlive || !std::isfinite(g_Sensors.AOA))
+    // One coherent sensor frame so the gate and the formatted value agree.
+    const onspeed::ahrs::SensorSnapshotPayload sensSnap =
+        onspeed::ahrs::g_SensorSnapshot.read();
+    if (!sensSnap.bIasAlive || !std::isfinite(sensSnap.aoaDeg))
     {
         body = F("{\"aoa\":null}");
     }
     else
     {
-        // Snapshot once so the formatting and the gate see the same value.
-        const float aoaSnap = g_Sensors.AOA;
         char buf[32];
-        snprintf(buf, sizeof(buf), "{\"aoa\":%.2f}", aoaSnap);
+        snprintf(buf, sizeof(buf), "{\"aoa\":%.2f}", sensSnap.aoaDeg);
         body = buf;
     }
     SendJson(200, body);

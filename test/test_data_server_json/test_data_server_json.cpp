@@ -217,10 +217,14 @@ void test_air_data_gate_uses_bIasAlive(void) {
     std::string src  = ReadFile(root + "/software/sketch_common/src/web_server/DataServer.cpp");
     TEST_ASSERT_TRUE_MESSAGE(!src.empty(), "DataServer.cpp not found");
 
-    // Both the AOA gate and the percentLift gate must reference
-    // bIasAlive.  The exact spelling is `g_Sensors.bIasAlive`.
-    TEST_ASSERT_TRUE_MESSAGE(src.find("g_Sensors.bIasAlive") != std::string::npos,
-                             "DataServer.cpp must gate on g_Sensors.bIasAlive");
+    // Both the AOA gate and the percentLift gate must reference the
+    // sensor-level IAS-alive flag. It is read from the lock-free sensor
+    // snapshot (`sensSnap.bIasAlive`) since the g_SensorSnapshot migration;
+    // pin the `.bIasAlive` field rather than the source object so the
+    // contract survives that refactor while still catching a revert to the
+    // audio-mute gate (checked below).
+    TEST_ASSERT_TRUE_MESSAGE(src.find(".bIasAlive") != std::string::npos,
+                             "DataServer.cpp must gate on the bIasAlive flag");
 
     // The audio-mute threshold must NOT drive any display gate.
     // It's allowed in Audio.cpp (the actual audio path), and may

@@ -1,6 +1,7 @@
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 #include "src/util/Helpers.h"
 #include "src/audio_io/Volume.h"
 #include "src/drivers/Mcp3202Adc.h"
@@ -96,13 +97,10 @@ void HousekeepingTask(void * pvParams)
         // --- VnoChime (every tick, 100ms) ---
         if (g_Config.bVnoChimeEnabled)
         {
-            // IAS is written by the sensor task; snapshot under xSensorMutex.
-            float fSnapIAS = 0.0f;
-            if (xSemaphoreTake(xSensorMutex, pdMS_TO_TICKS(5)))
-            {
-                fSnapIAS = g_Sensors.IAS;
-                xSemaphoreGive(xSensorMutex);
-            }
+            // IAS from the lock-free sensor snapshot (published by the sensor
+            // task). No xSensorMutex; a coherent read can't fail, so the chime
+            // no longer silently skips a tick on mutex contention.
+            const float fSnapIAS = onspeed::ahrs::g_SensorSnapshot.read().iasKt;
 
             onspeed::audio::VnoChimeInputs vnoIn;
             vnoIn.iasKt  = fSnapIAS;
