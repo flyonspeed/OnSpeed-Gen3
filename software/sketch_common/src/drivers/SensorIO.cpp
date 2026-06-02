@@ -7,6 +7,7 @@
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
 #include "src/ahrs/SensorSnapshot.h"
+#include "src/ahrs/ImuSnapshot.h"
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
@@ -46,6 +47,13 @@ using onspeed::CurveCalc;
 // src/ahrs/SensorSnapshot.h for the payload and the producer/consumer contract.
 onspeed::util::SnapshotPublisher<onspeed::ahrs::SensorSnapshotPayload>
     onspeed::ahrs::g_SensorSnapshot;
+
+// Lock-free snapshot of raw IMU state (the onspeed::ImuSample that
+// g_pIMU->Snapshot() builds). Published by ImuReadTask after each
+// g_pIMU->Read(); read cross-task by the SD log row at low log rates.
+// See src/ahrs/ImuSnapshot.h.
+onspeed::util::SnapshotPublisher<onspeed::ImuSample>
+    onspeed::ahrs::g_ImuSnapshot;
 
 // Snapshotting the active flap entry assumes a trivial copy is sound.
 // SuCalibrationCurve is a POD; SuFlaps is a small aggregate of scalars and
