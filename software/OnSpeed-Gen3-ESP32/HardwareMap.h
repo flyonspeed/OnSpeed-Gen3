@@ -193,7 +193,17 @@ constexpr int kSdCs   = 39;
 constexpr int kPinVolume  = 1;    // analog (via MCP3202 CH1 on V4P; internal ADC on V4B)
 constexpr int kPinFlap    = 2;    // analog (via MCP3202 CH0 on V4P; internal ADC on V4B)
 constexpr int kPinLedKnob = 13;   // external LED (AOA status / audio on-off)
-constexpr int kPinOat     = 14;   // 1-wire OAT sensor
+// 1-wire OAT sensor. The two hardware variants route it to different pins:
+//   V4P (Phil's Gen2v4): J1 pin 8 -> OAT_SENSOR_IN -> BSS138 level shifter
+//     -> GPIO 3 (per the Gen2v4 schematic + ESP32 pin matrix; GPIO 14 is NC
+//     on this board). GPIO 3 is also UART0 RXD0 / a boot strapping pin, but
+//     Serial is HWCDC here so UART0 is free and the 1-Wire driver owns it.
+//   V4B (Bob's box): OAT is on GPIO 14.
+#ifdef HW_V4P
+constexpr int kPinOat     = 3;
+#else  // HW_V4B
+constexpr int kPinOat     = 14;
+#endif
 constexpr int kPinSwitch  = 12;   // pilot pushbutton
 
 // ---------------------------------------------------------------------------
@@ -220,31 +230,32 @@ constexpr int kEfisRx = 9;    // DB-15 pin 2 → J1 pin 24 → SW1 → GPIO 9
 constexpr int kEfisTx = -1;   // never transmit to the EFIS
 
 // ---------------------------------------------------------------------------
-// Boom serial (TTL)
+// Boom serial (TTL). Boom RX differs by hardware variant:
+//   V4P (Phil's Gen2v4): GPIO 9 (RS-232 transceiver channel 2 — the pin
+//     matrix labels it T2_IN, but the boom probe data lands on GPIO 9 on
+//     this board). GPIO 9 is free on V4P because the V4P EFIS RX is GPIO 11.
+//   V4B (Bob's box): GPIO 3. On V4B the EFIS RX is GPIO 9, so boom cannot
+//     share it; V4B routes boom to GPIO 3 (and OAT to GPIO 14).
+// Either way Serial1 also drives the display on GPIO 10 (kDisplayTx).
 //
-// DB-15 pin 13 → ESP32 GPIO 3, direct TTL, no transceiver, no switch.
-// Same on V4P and V4B.
+// On V4P the OAT pin is GPIO 3, which is the ESP32-S3's UART0 RX (RXD0) at
+// boot and a strapping pin. With ARDUINO_USB_CDC_ON_BOOT=0 +
+// ARDUINO_USB_MODE=1 (set in platformio.ini), `Serial` is USB-CDC (HWCDC
+// over native USB-OTG), not UART0, so UART0 does not hold GPIO 3 at runtime
+// and the 1-Wire driver can drive it freely.
 //
-// Note: GPIO 3 is the ESP32-S3's UART0 RX (RXD0) at boot. With
-// ARDUINO_USB_CDC_ON_BOOT=0 + ARDUINO_USB_MODE=1 (set in platformio.ini),
-// the framework's `Serial` object is USB-CDC (HWCDC over native USB-OTG),
-// not UART0. UART0 / GPIO 3 is therefore free for Serial1's RX pin. If a
-// future framework upgrade changes that default and Serial1 stops
-// receiving boom bytes, the most likely cause is UART0 silently
-// re-claiming GPIO 3 before Serial1.begin runs.
-//
-// DO NOT "fix" that by calling Serial.end() — on this hardware Serial is
-// HWCDC, and HWCDC::end() deletes its internal tx_lock synchronously
-// without waiting for in-flight HWCDC::write callers, producing a
-// use-after-free that wedges the chip with no recovery path. See
-// software/sketch_common/src/util/Helpers.cpp::_softRestart for the
-// full explanation (PR #647 bench-bisected this on the reboot path).
-//
-// Correct resolutions if the re-claim ever fires: use Serial0.end()
-// (which is the real UART0 handle, not HWCDC) or detach UART0 from
-// GPIO 3 explicitly via the GPIO matrix.
+// DO NOT call Serial.end() on this hardware: Serial is HWCDC, and
+// HWCDC::end() deletes its internal tx_lock synchronously without waiting
+// for in-flight HWCDC::write callers, producing a use-after-free that
+// wedges the chip with no recovery path. See
+// software/sketch_common/src/util/Helpers.cpp::_softRestart (PR #647
+// bench-bisected this on the reboot path).
 // ---------------------------------------------------------------------------
+#ifdef HW_V4P
+constexpr int kBoomRx = 9;    // RS-232 ch.2 (T2 net); EFIS RX is GPIO 11 on V4P
+#else  // HW_V4B
 constexpr int kBoomRx = 3;
+#endif
 constexpr int kBoomTx = -1;   // never transmit to the boom
 
 // ---------------------------------------------------------------------------
