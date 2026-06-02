@@ -12,7 +12,7 @@
   "flapsMaxDeg": 33,
   "coeffP": 0.0,
   "dataMark": 0,
-  "kalmanVSI": -50,
+  "vsiFpm": -50,
   "flightPath": 1.1,
   "PitchRate": 0.0,
   "DecelRate": 0.1,

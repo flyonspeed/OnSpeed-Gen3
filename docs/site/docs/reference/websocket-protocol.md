@@ -10,7 +10,7 @@ The WebSocket is the LiveView's data path, paralleling the [display serial proto
 
 The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is `JSON.parse()`, and adding a field is a soft change because old consumers ignore unknown keys.
 
-The WebSocket carries a few fields the display serial does not: body-angle `AOA` (degrees) and `DerivedAOA` for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (`kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate`, `flapIndex`). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.
+The WebSocket carries a few fields the display serial does not: body-angle `AOA` (degrees) and `DerivedAOA` for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (`vsiFpm`, `coeffP`, `PitchRate`, `DecelRate`, `flapIndex`). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.
 
 ## Physical layer
 
@@ -69,7 +69,7 @@ Example payload (formatted; on the wire it's compact, no whitespace). Values are
   "flapIndex": 0,
   "coeffP": 0.85,
   "dataMark": 12,
-  "kalmanVSI": -50.30,
+  "vsiFpm": -50.30,
   "flightPath": -0.40,
   "PitchRate": 0.10,
   "DecelRate": -0.15,
@@ -115,7 +115,7 @@ The per-field tables below note source variations where they apply.
 | --- | --- | --- | --- |
 | `IAS` | float \| null | knots | Indicated airspeed. From the EFIS (`g_EfisSerial.suEfis.IAS`) **only** in non-VN-300 EFIS mode. VN-300 EFIS mode and internal mode both use OnSpeed pitot-derived `g_Sensors.IAS` — VN-300 itself does not provide IAS. Emits JSON `null` when `bIasAlive` is false (air data invalid). Consumers should check `typeof === 'number'` before using. |
 | `PAlt` | float | feet | Pressure altitude. From `g_AHRS.KalmanAlt` (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode. |
-| `kalmanVSI` | float | feet/min | Vertical speed. **Despite the name**, this is `g_AHRS.KalmanVSI` in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's `-VelNedDown` (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here. |
+| `vsiFpm` | float | feet/min | Vertical speed. Source-selected per `CALWIZ_SOURCE`: VN-300 mode uses VN-300's `-VelNedDown` (NED-down velocity, sign-inverted so positive = climb); non-VN-300 EFIS mode uses the EFIS's VSI (`g_EfisSerial.suEfis.VSI`); internal mode uses the OnSpeed Kalman filter (`g_AHRS.KalmanVSI`). |
 | `OAT` | float | °C | Outside air temperature. From the EFIS in any EFIS mode (including VN-300) via `g_EfisSerial.suEfis.OAT`; from `g_Sensors.OatC` if `OATSENSOR = true` in config; otherwise `0.0`. |
 | `DecelRate` | float | knots/s | IAS-decel rate, `g_Sensors.fDecelRate` — the raw output of a 15-tap Savitzky-Golay first-derivative filter on smoothed IAS, scaled to kt/s. **Not** additionally EMA-smoothed; consumers smooth per-surface. The M5 hardware decel gauge applies an EMA at α=0.04 (~1.25 s τ at 20 Hz; see `software/OnSpeed-M5-Display/src/SerialRead.cpp`); `/indexer` Mode 3 mirrors the same α=0.04 to match the M5's time-constant during normal continuous operation; `/calwiz`'s decel step exposes a SMOOTH ↔ RESPONSIVE slider (α range 0.02–0.50, default 0.05) for the gauge needle only — recorded samples remain raw. Negative = decelerating. Always from OnSpeed sensors. |
 
@@ -170,7 +170,7 @@ The producer never emits `nan`, `inf`, or other invalid JSON tokens. Every float
 | Field | Fallback when source is invalid | Why |
 | --- | --- | --- |
 | `AOA`, `DerivedAOA`, `IAS`, `percentLift` | JSON `null` when `bIasAlive=false` | Air-data fields the producer can't honestly emit when the pitot-side validity flag (`bIasAlive`, hysteresis 20 kt rising / 15 kt falling) is false. Consumers `typeof === 'number'` before reading; null falls through to N/A renderings. |
-| `Pitch`, `Roll`, `kalmanVSI`, `flightPath`, `verticalGLoad`, `OAT`, `coeffP`, `PitchRate`, `DecelRate`, `lateralGLoad`, `PAlt` | `0.0f` fallback on NaN (still numeric) | 0 is a physically meaningful reading for these fields (level pitch, no roll, no climb, etc.), so the fallback won't be confused with real data the way a numeric AOA fallback would be. |
+| `Pitch`, `Roll`, `vsiFpm`, `flightPath`, `verticalGLoad`, `OAT`, `coeffP`, `PitchRate`, `DecelRate`, `lateralGLoad`, `PAlt` | `0.0f` fallback on NaN (still numeric) | 0 is a physically meaningful reading for these fields (level pitch, no roll, no climb, etc.), so the fallback won't be confused with real data the way a numeric AOA fallback would be. |
 
 There is no top-level "validity" flag; the protocol is best-effort 20 Hz. Consumers should detect staleness by tracking the elapsed time since the last frame.
 
@@ -226,7 +226,7 @@ This streams compact JSON lines at 20 Hz; pipe through `jq -c '{AOA, percentLift
 | Adding a field | Hard protocol change — both ends must flash together | Soft change — old consumers ignore unknown keys |
 | Body-angle `AOA` (degrees) | not on wire | yes in JSON (`AOA`) — used for the numeric corner readout |
 | Body-angle `DerivedAOA` (degrees) | not on wire | yes in JSON (`DerivedAOA`) — for advanced overlays / debug |
-| `kalmanVSI`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes in JSON — LiveView-specific instrumentation |
+| `vsiFpm`, `coeffP`, `PitchRate`, `DecelRate` | not on wire | yes in JSON — LiveView-specific instrumentation |
 | `flapIndex` (which detent is active) | not on wire | yes in JSON |
 
 The asymmetry is by design: the panel displays render *the indexer*, so the wire ships percent anchors. The LiveView additionally shows numeric body-angle AOA so a pilot can compare it to DerivedAOA — those degrees-units fields stay on the JSON path but never on the `#1` wire.

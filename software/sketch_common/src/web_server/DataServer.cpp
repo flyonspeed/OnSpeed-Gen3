@@ -351,7 +351,7 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"verticalGLoad\":%.2f,\"lateralGLoad\":%.2f,"
         "\"flapsPos\":%i,\"flapIndex\":%i,"
         "\"flapsMinDeg\":%i,\"flapsMaxDeg\":%i,"
-        "\"coeffP\":%.2f,\"dataMark\":%i,\"kalmanVSI\":%.2f,\"flightPath\":%.2f,"
+        "\"coeffP\":%.2f,\"dataMark\":%i,\"vsiFpm\":%.2f,\"flightPath\":%.2f,"
         "\"PitchRate\":%.2f,\"DecelRate\":%s,\"OAT\":%.2f,\"DerivedAOA\":%s,"
         "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%s,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"

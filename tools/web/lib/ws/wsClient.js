@@ -68,7 +68,7 @@ export function frameToRecord(o) {
     iasKt:         o.IAS,
     paltFt:        o.PAlt,
     oatC:          o.OAT,
-    vsiFpm:        o.kalmanVSI,
+    vsiFpm:        o.vsiFpm,
     flightPathDeg: o.flightPath,
     decelRate:     parseFloat(o.DecelRate) || 0,
     percentLift:        parseFloatOr0(o.percentLift),
