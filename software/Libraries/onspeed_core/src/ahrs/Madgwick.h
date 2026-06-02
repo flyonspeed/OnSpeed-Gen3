@@ -112,8 +112,8 @@ public:
         /// Vertical channel published from the internal KalmanFilter
         /// (baro + earth-vert-G).  Uniform with EkfqPipeline::Outputs:
         /// each algorithm owns its own vertical channel.
-        float kalmanAltMeters = 0.0f;
-        float kalmanVsiMps    = 0.0f;
+        float altMeters = 0.0f;
+        float vsiMps    = 0.0f;
     };
 
     Madgwick();

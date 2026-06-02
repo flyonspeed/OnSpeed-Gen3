@@ -180,7 +180,7 @@ void DisplaySerial::Write()
     else
         ahrsSnap = s_ahrsLast;
 
-    const float fPAltFt = m2ft(ahrsSnap.kalmanAltMeters);
+    const float fPAltFt = m2ft(ahrsSnap.altMeters);
 
     const float fAccelVert = ahrsSnap.accelVertFilteredG;
     if (IsFiniteFloat(fAccelVert))
@@ -440,7 +440,7 @@ void DisplaySerial::Write()
         inputs.verticalGScaled10  = static_cast<float>(iDisplayVerticalG);
         inputs.percentLiftPct     = fPercentLiftPct;     // 0.0..99.9, encoder scales ×10 to tenths
         inputs.vsiFpm10           = ClampInt(
-                                        (int)floorf(mps2fpm(ahrsSnap.kalmanVsiMps) / 10.0f),
+                                        (int)floorf(mps2fpm(ahrsSnap.vsiMps) / 10.0f),
                                         -999, 999);
         inputs.oatC               = iOATc;
         inputs.flightPathDeg      = ahrsSnap.flightPathDeg;

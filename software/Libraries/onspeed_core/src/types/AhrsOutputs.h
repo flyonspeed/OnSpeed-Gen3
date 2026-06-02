@@ -29,9 +29,11 @@ struct AhrsOutputs {
                                 // then converted to g via mps2g() for the
                                 // accelerometer correction term.
 
-    // Kalman-filtered altitude and vertical speed.
-    float kalmanAltFt  = 0.0f;   // altitude (feet)
-    float kalmanVsiFpm = 0.0f;   // vertical speed (feet/minute)
+    // Filtered altitude and vertical speed (sourced from EKFQ vertical
+    // states when AHRS is EKFQ, from Madgwick's internal Kalman filter
+    // when AHRS is Madgwick).
+    float altFt  = 0.0f;   // altitude (feet)
+    float vsiFpm = 0.0f;   // vertical speed (feet/minute)
 
     // Earth-frame vertical G (g).
     float earthVertG = 0.0f;

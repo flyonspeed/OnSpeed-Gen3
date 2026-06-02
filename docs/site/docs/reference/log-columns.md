@@ -39,8 +39,8 @@ Appended after any optional Boom/EFIS columns.
 |--------|-------|-------------|
 | `EarthVerticalG` | G | Vertical acceleration in Earth frame |
 | `FlightPath` | degrees | Flight path angle = arcsin(VSI/TAS) |
-| `VSI` | fpm | Vertical speed (Kalman filtered) |
-| `Altitude` | ft | Pressure altitude, Kalman-filtered. Same quantity as `Palt`, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction. |
+| `VSI` | fpm | Vertical speed, smoothed by the active AHRS algorithm's vertical channel |
+| `Altitude` | ft | Pressure altitude, smoothed by the active AHRS algorithm's vertical channel. Same quantity as `Palt`, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction. |
 | `DerivedAOA` | degrees | SmoothedPitch − FlightPath |
 | `CoeffP` | — | Pressure coefficient (P45/Pfwd) |
 

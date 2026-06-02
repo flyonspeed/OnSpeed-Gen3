@@ -96,8 +96,8 @@ gps_fix_seen=1
 |--------|-------|-------------|
 | `EarthVerticalG` | G | Vertical G in earth frame |
 | `FlightPath` | degrees | Flight path angle = arcsin(VSI/TAS) |
-| `VSI` | fpm | Vertical speed (Kalman filtered) |
-| `Altitude` | ft | Pressure altitude, Kalman-filtered. Same quantity as `Palt` (column 7), smoothed with vertical accel. |
+| `VSI` | fpm | Vertical speed, smoothed by the active AHRS algorithm's vertical channel |
+| `Altitude` | ft | Pressure altitude smoothed by the active AHRS algorithm's vertical channel. Same quantity as `Palt` (column 7), smoothed with vertical accel. |
 
 ### EFIS Data (when connected)
 

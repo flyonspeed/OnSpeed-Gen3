@@ -14,9 +14,9 @@
 // for parity with the Madgwick diagnostic surface.
 //
 // EKFQ owns its own vertical channel (states z, vz, b_az) and
-// publishes altitude/VSI directly via kalmanAltMeters /
-// kalmanVsiMps on Outputs.  The standalone KalmanFilter in Ahrs is
-// bypassed when EKFQ is the active algorithm.
+// publishes altitude/VSI directly via altMeters / vsiMps on Outputs.
+// The standalone KalmanFilter in Ahrs is bypassed when EKFQ is the
+// active algorithm.
 
 #ifndef ONSPEED_CORE_AHRS_EKFQ_PIPELINE_H
 #define ONSPEED_CORE_AHRS_EKFQ_PIPELINE_H
@@ -86,9 +86,9 @@ public:
 
     /// Per-frame outputs.  Mirrors Madgwick::Outputs shape with
     /// derivedAoaDeg added (EKFQ exposes a kinematic AOA derived from
-    /// state + TAS) and kalmanAltMeters / kalmanVsiMps added (EKFQ
-    /// owns the vertical channel — Ahrs::Step publishes these
-    /// directly instead of running the standalone KalmanFilter).
+    /// state + TAS) and altMeters / vsiMps added (EKFQ owns the
+    /// vertical channel — Ahrs::Step publishes these directly instead
+    /// of running the standalone KalmanFilter).
     struct Outputs {
         float pitchDeg      = 0.0f;
         float rollDeg       = 0.0f;
@@ -104,14 +104,13 @@ public:
         float accelVertCompG = 0.0f;
 
         /// Vertical channel published from the filter's z / vz states.
-        /// Ahrs::Step routes these to outputs_.kalmanAltFt /
-        /// outputs_.kalmanVsiFpm via unit conversions.  vz is
-        /// NED-down internally; the value here is already flipped to
-        /// the firmware's +climb convention.  Uniform with
-        /// Madgwick::Outputs: each algorithm owns its own vertical
-        /// channel.
-        float kalmanAltMeters     = 0.0f;
-        float kalmanVsiMps        = 0.0f;
+        /// Ahrs::Step routes these to outputs_.altFt / outputs_.vsiFpm
+        /// via unit conversions.  vz is NED-down internally; the value
+        /// here is already flipped to the firmware's +climb convention.
+        /// Uniform with Madgwick::Outputs: each algorithm owns its own
+        /// vertical channel.
+        float altMeters     = 0.0f;
+        float vsiMps        = 0.0f;
 
         float compFadeIn = 0.0f;
         bool iasGate     = false;

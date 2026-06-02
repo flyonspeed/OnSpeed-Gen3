@@ -203,8 +203,8 @@ ReplayStepResult LogReplayEngine::ComputeBase_(const onspeed::LogRow& row)
     // --- Data mark ---
     out.dataMark = row.dataMark;
 
-    // --- Kalman VSI: convert fpm from log to m/s for g_AHRS.KalmanVSI ---
-    out.kalmanVSI = fpm2mps(row.vsiFpm);
+    // --- VSI: convert fpm from log to m/s for g_AHRS.VsiMps ---
+    out.vsiMps = fpm2mps(row.vsiFpm);
 
     // --- IMU state ---
     out.imuForwardG     = row.imuForwardG;

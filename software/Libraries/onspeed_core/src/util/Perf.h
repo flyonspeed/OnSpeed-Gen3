@@ -96,7 +96,7 @@ enum class ScopeId : uint8_t {
     EkfqCorrect,
     EkfqAlpha,
     Madgwick,
-    Kalman,
+    Vertical,
     TasCompute,
     ImuRead,
     PressureRead,

@@ -105,7 +105,7 @@ inline float mapfloat(float x, float in_min, float in_max,
 // ============================================================================
 
 /// Clamped asin: clamps input to [-1, 1] to prevent NaN from rounding errors
-/// or ratios that slightly exceed unity (e.g., KalmanVSI/TAS at low airspeed).
+/// or ratios that slightly exceed unity (e.g., VSI/TAS at low airspeed).
 inline float safeAsin(float x) {
     if (x > 1.0f) x = 1.0f;
     else if (x < -1.0f) x = -1.0f;

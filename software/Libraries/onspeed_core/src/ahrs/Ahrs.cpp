@@ -276,8 +276,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     // altitude/VSI on its Outputs struct.  EKFQ tracks z/vz/b_az as
     // filter states; Madgwick runs an internal standalone 3-state
     // Kalman on baro + earth-vert-G.
-    float  algoKalmanAltMeters     = 0.0f;
-    float  algoKalmanVsiMps        = 0.0f;
+    float  algoAltMeters     = 0.0f;
+    float  algoVsiMps        = 0.0f;
 
     if (cfg_.algorithm == Algorithm::Ekfq) {
         // EKFQ computes its own TASdot internally at IMU rate to
@@ -305,8 +305,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         algoCompLatG_          = ekfqOut.accelLatCompG;
         algoCompVertG_         = ekfqOut.accelVertCompG;
         algoCompFadeIn_        = ekfqOut.compFadeIn;
-        algoKalmanAltMeters    = ekfqOut.kalmanAltMeters;
-        algoKalmanVsiMps       = ekfqOut.kalmanVsiMps;
+        algoAltMeters          = ekfqOut.altMeters;
+        algoVsiMps             = ekfqOut.vsiMps;
     } else {
         const Madgwick::Inputs madIn = {
             /* accelFwdCorrG    */ accelFwdCorr_,
@@ -334,8 +334,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
         algoCompLatG_       = madOut.accelLatCompG;
         algoCompVertG_      = madOut.accelVertCompG;
         algoCompFadeIn_     = madOut.compFadeIn;
-        algoKalmanAltMeters = madOut.kalmanAltMeters;
-        algoKalmanVsiMps    = madOut.kalmanVsiMps;
+        algoAltMeters       = madOut.altMeters;
+        algoVsiMps          = madOut.vsiMps;
         // Madgwick doesn't track alpha; DerivedAOA is computed from
         // SmoothedPitch and FlightPath in the output stage below.
     }
@@ -361,8 +361,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     // 3c. Altitude / VSI.  Each algorithm publishes its own vertical
     //     channel: EKFQ from its z / vz filter states, Madgwick from
     //     an internal standalone 3-state Kalman on baro + earth-vert-G.
-    const float kalmanAltMeters = algoKalmanAltMeters;
-    const float kalmanVsiMps    = algoKalmanVsiMps;
+    const float altMeters = algoAltMeters;
+    const float vsiMps    = algoVsiMps;
 
     // ================================================================
     // Stage 4 — Outputs.
@@ -372,9 +372,9 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     //     user-facing display gate — so VSI/FlightPath share visibility
     //     state with the IAS readout. (Algorithm-internal gating is
     //     separately handled inside each algorithm's IAS gate.)
-    float kalVsiMpsForFlightPath = static_cast<float>(kalmanVsiMps);
+    float vsiMpsForFlightPath = static_cast<float>(vsiMps);
     if (!in.sensors.iasAlive) {
-        kalVsiMpsForFlightPath = 0.0f;
+        vsiMpsForFlightPath = 0.0f;
     }
 
     // 4b. FlightPath = asin(VSI / TAS), in degrees.  When the display
@@ -383,7 +383,7 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     //     trivial case.
     float FlightPath;
     if (in.sensors.iasAlive) {
-        FlightPath = onspeed::rad2deg(onspeed::safeAsin(kalVsiMpsForFlightPath / tas_));
+        FlightPath = onspeed::rad2deg(onspeed::safeAsin(vsiMpsForFlightPath / tas_));
     } else {
         FlightPath = 0.0f;
     }
@@ -398,8 +398,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     }
 
     // 4d. Publish.
-    kalmanAltMeters_ = static_cast<float>(kalmanAltMeters);
-    kalmanVsiMps_    = kalVsiMpsForFlightPath;
+    altMeters_ = static_cast<float>(altMeters);
+    vsiMps_    = vsiMpsForFlightPath;
 
     outputs_.pitchDeg         = SmoothedPitch;
     outputs_.rollDeg          = SmoothedRoll;
@@ -407,8 +407,8 @@ AhrsOutputs Ahrs::Step(const AhrsInputs& in, float dtSec)
     outputs_.derivedAoaDeg    = DerivedAOA;
     outputs_.tasMps           = tas_;
     outputs_.tasDotMps2       = tasDotSmoothed_;
-    outputs_.kalmanAltFt      = onspeed::m2ft(kalmanAltMeters_);
-    outputs_.kalmanVsiFpm     = onspeed::mps2fpm(kalmanVsiMps_);
+    outputs_.altFt            = onspeed::m2ft(altMeters_);
+    outputs_.vsiFpm           = onspeed::mps2fpm(vsiMps_);
     outputs_.earthVertG       = EarthVertG;
     outputs_.gyroRollFiltDps  = gRoll;
     outputs_.gyroPitchFiltDps = gPitch;

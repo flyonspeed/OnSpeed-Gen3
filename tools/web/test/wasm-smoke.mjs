@@ -489,7 +489,7 @@ if (stepResult === null) {
 for (const field of [
     'iasKt', 'paltFt', 'iasValid', 'aoaDeg', 'coeffP',
     'flapsPos', 'flapsIndex', 'flapsRawAdc', 'flapsRawAdcPresent',
-    'pitchDeg', 'rollDeg', 'flightPathDeg', 'kalmanVsiMps',
+    'pitchDeg', 'rollDeg', 'flightPathDeg', 'vsiMps',
     'imuForwardG', 'imuLateralG', 'imuVerticalG',
     'imuRollRateDps', 'imuPitchRateDps', 'imuYawRateDps',
     'accelLatSmoothed', 'accelVertSmoothed', 'accelFwdSmoothed',

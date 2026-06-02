@@ -88,7 +88,7 @@ namespace onspeed::replay {
 // | lateralG                 | engine-populated        | `out.accelLatSmoothed` (via RateAdjustedAccelEma) |
 // | verticalG (×10)          | engine-populated        | `out.accelVertSmoothed` (via RateAdjustedAccelEma) |
 // | percentLiftPct           | wireBridge-supplied     | computed from `out.aoa` + cfg flap setpoints    |
-// | vsiFpm                   | engine-populated        | from `out.kalmanVSI` (m/s -> fpm) at PR-2 time  |
+// | vsiFpm                   | engine-populated        | from `out.vsiMps` (m/s -> fpm) at PR-2 time     |
 // | oatC                     | engine-populated        | `out.oatC = round(row.oatCelsius)`              |
 // | flightPathDeg            | engine-populated        | `out.flightPathDeg = row.flightPathDeg`         |
 // | flapsDeg                 | wireBridge-supplied     | `cfg.aFlaps[out.flapsIndex].iDegrees`           |
@@ -149,7 +149,7 @@ struct ReplayStepResult {
     float pitchDeg      = 0.0f;
     float rollDeg       = 0.0f;
     float flightPathDeg = 0.0f;
-    float kalmanVSI     = 0.0f;   // m/s (g_AHRS.KalmanVSI convention)
+    float vsiMps        = 0.0f;   // m/s
 
     // --- IMU state (fed to g_pIMU->*) ---
     float imuForwardG      = 0.0f;   // Ax -> g_pIMU->Ax

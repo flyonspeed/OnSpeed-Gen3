@@ -184,14 +184,18 @@ struct LogRow {
     // Earth-frame vertical G-load (g).
     float earthVerticalG = 0.0f;
 
-    // Flight-path angle (degrees) and Kalman-filtered VSI (feet/minute).
+    // Flight-path angle (degrees) and smoothed vertical speed (fpm) from
+    // the active AHRS algorithm's vertical channel.
     float flightPathDeg = 0.0f;
     float vsiFpm        = 0.0f;
 
-    // Kalman-filtered pressure altitude (feet).  Same quantity as paltFt
-    // (raw 50 Hz reading), smoothed with vertical accel by KalmanFilter.
-    // ISA 1013.25 hPa reference; no Kollsman/QNH correction.  Emitted as
-    // the CSV `Altitude` column (see LogCsv.cpp).
+    // Smoothed pressure altitude (feet) from the active AHRS algorithm's
+    // vertical channel.  Same quantity as paltFt (raw 50 Hz reading),
+    // smoothed with vertical accel — by EKFQ's z/vz/b_az states when
+    // iAhrsAlgorithm=EKFQ, by Madgwick's internal 3-state KalmanFilter
+    // when iAhrsAlgorithm=Madgwick.  ISA 1013.25 hPa reference; no
+    // Kollsman/QNH correction.  Emitted as the CSV `Altitude` column
+    // (see LogCsv.cpp).
     float altitudeFt = 0.0f;
 
     // Derived angle of attack (degrees) and pressure coefficient.

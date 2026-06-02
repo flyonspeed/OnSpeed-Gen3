@@ -32,7 +32,7 @@ inline constexpr const char* kLiveDataJsonKeys[] = {
     "flapsMaxDeg",
     "coeffP",
     "dataMark",
-    "kalmanVSI",
+    "vsiFpm",
     "flightPath",
     "PitchRate",
     "DecelRate",

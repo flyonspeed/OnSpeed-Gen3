@@ -43,7 +43,7 @@ const ScopeId spiScopeIds[] = {
 
 constexpr ScopeId kTimingScopes[] = {
     ScopeId::EkfqPredict, ScopeId::EkfqCorrect, ScopeId::EkfqAlpha,
-    ScopeId::Madgwick,    ScopeId::Kalman,      ScopeId::TasCompute,
+    ScopeId::Madgwick,    ScopeId::Vertical,    ScopeId::TasCompute,
     ScopeId::ImuRead,     ScopeId::PressureRead,
     ScopeId::DisplaySerial, ScopeId::WebSocketFrame,
     ScopeId::LogWrite,    ScopeId::LogSync,

@@ -642,7 +642,7 @@ function recordToFrame(r) {
     IAS:               r.iasKt ?? null,
     PAlt:              r.paltFt ?? 0,
     OAT:               r.oatC ?? 20,
-    kalmanVSI:         r.vsiFpm ?? 0,
+    vsiFpm:            r.vsiFpm ?? 0,
     flightPath:        r.flightPathDeg ?? 0,
     DecelRate:         r.decelRate ?? 0,
     percentLift:        r.percentLift ?? 0,
