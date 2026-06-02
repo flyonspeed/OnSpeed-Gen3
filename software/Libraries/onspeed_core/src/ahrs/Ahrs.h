@@ -39,7 +39,6 @@
 #include <cstdint>
 
 #include <ahrs/EkfqPipeline.h>
-#include <ahrs/KalmanFilter.h>
 #include <ahrs/Madgwick.h>
 #include <filters/EMAFilter.h>
 #include <filters/RunningMean.h>
@@ -198,12 +197,10 @@ private:
 
     // AHRS algorithms (stage 2).  We hold both so Reconfigure() can
     // route to either without re-allocating.  Each owns its internal
-    // pre-filtering, gating, and fusion state.
+    // pre-filtering, gating, and fusion state — including its own
+    // vertical channel (altitude/VSI), published on its Outputs struct.
     Madgwick     madgwick_;
     EkfqPipeline ekfq_;
-
-    // Altitude/VSI Kalman (stage 3 — smoothing on baro + earth-vert-G).
-    KalmanFilter kalman_;
 
     // Cached algorithm-internal diagnostics published per frame from
     // the active algorithm's Outputs struct. See accelFwdCompG() /

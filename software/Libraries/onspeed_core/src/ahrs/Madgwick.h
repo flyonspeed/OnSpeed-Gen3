@@ -23,6 +23,7 @@
 #ifndef ONSPEED_CORE_AHRS_MADGWICK_H
 #define ONSPEED_CORE_AHRS_MADGWICK_H
 
+#include <ahrs/KalmanFilter.h>
 #include <ahrs/MadgwickFusion.h>
 
 #include <filters/EMAFilter.h>
@@ -39,6 +40,13 @@ public:
     static constexpr float kAccelEmaAlpha    = 0.060899f;
     /// Comp-fade ramp time constant (seconds).
     static constexpr float kCompFadeTauSec   = 0.5f;
+    /// Standalone baro+accel KalmanFilter tuning for the vertical
+    /// channel (altitude/VSI).  Madgwick doesn't track altitude as a
+    /// fusion state, so a separate 3-state Kalman runs on baro + the
+    /// fusion's earth-vertical-G.
+    static constexpr float kKalZVariance     = 0.79078f;
+    static constexpr float kKalAccelVariance = 1.0f;
+    static constexpr float kKalAccelBiasVar  = 1e-11f;
     /// IAS rising-edge / falling-edge thresholds for the algorithm's
     /// internal centripetal-comp gate.  Below the rising threshold,
     /// tas and tasDot are dominated by pitot noise — applying comp
@@ -73,6 +81,11 @@ public:
         // gate. Independent of any display threshold.
         float iasKt = 0.0f;
 
+        // Baro altitude (meters, +up).  Fed to the internal Kalman
+        // filter for altitude/VSI smoothing.  Ahrs::Step converts from
+        // the firmware's paltFt before passing.
+        float baroAltMeters = 0.0f;
+
         // Per-frame timestep (seconds).
         float dtSec = 1.0f / 208.0f;
     };
@@ -96,21 +109,22 @@ public:
         float compFadeIn = 0.0f;
         /// Internal IAS gate state at end-of-frame. Exposed for tests.
         bool iasGate = false;
-        /// Madgwick does not track altitude or VSI — the standalone
-        /// KalmanFilter in Ahrs::Step's stage 3c handles those.  This
-        /// field mirrors the same name on EkfqPipeline::Outputs for a
-        /// uniform AHRS-stage seam (Ahrs::Step branches on it instead
-        /// of on the algorithm enum).
-        bool ownsVerticalChannel = false;
+        /// Vertical channel published from the internal KalmanFilter
+        /// (baro + earth-vert-G).  Uniform with EkfqPipeline::Outputs:
+        /// each algorithm owns its own vertical channel.
+        float kalmanAltMeters = 0.0f;
+        float kalmanVsiMps    = 0.0f;
     };
 
     Madgwick();
 
-    /// Seed the fusion algorithm with the supplied initial attitude.
+    /// Seed the fusion algorithm with the supplied initial attitude
+    /// and the vertical-channel Kalman with the supplied baro altitude.
     /// Caller is responsible for installation-bias correction of the
-    /// seed values (i.e. seedPitchDeg and seedRollDeg are already in
+    /// seed angles (i.e. seedPitchDeg and seedRollDeg are already in
     /// the published, bias-applied frame).
-    void Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg);
+    void Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg,
+              float seedAltMeters);
 
     /// Run one AHRS-stage frame. Returns the algorithm's outputs for
     /// this frame.
@@ -129,6 +143,12 @@ private:
 
     // Internal hysteretic IAS gate. Independent of any display gate.
     bool iasGate_ = false;
+
+    // Standalone altitude/VSI Kalman (baro + earth-vert-G).  Madgwick
+    // doesn't track altitude in its fusion state, so this 3-state
+    // Kalman fills the same role for Madgwick that EKFQ's z/vz/b_az
+    // states fill for that algorithm.
+    ::onspeed::KalmanFilter kalman_;
 };
 
 }   // namespace onspeed::ahrs

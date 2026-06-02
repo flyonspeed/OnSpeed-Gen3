@@ -3,6 +3,7 @@
 #include <ahrs/Madgwick.h>
 
 #include <util/OnSpeedTypes.h>
+#include <util/Perf.h>
 
 namespace onspeed::ahrs {
 
@@ -20,12 +21,20 @@ Madgwick::Madgwick()
     accelVertFilter_.seed(+1.0f);
 }
 
-void Madgwick::Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg)
+void Madgwick::Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg,
+                    float seedAltMeters)
 {
     // Madgwick convention: begin() takes (sampleFreq, -pitch, roll). The
     // output negation in Step() (-fusion_.getPitch() / -fusion_.getRoll())
     // is the matching half of the same convention.
     fusion_.begin(sampleRateHz, -seedPitchDeg, seedRollDeg);
+
+    // Seed the standalone altitude/VSI Kalman with the supplied baro
+    // altitude.  Madgwick doesn't track altitude in its fusion state,
+    // so this 3-state Kalman (baro + earth-vert-G) fills the vertical
+    // channel role.
+    kalman_.Configure(kKalZVariance, kKalAccelVariance, kKalAccelBiasVar,
+                      seedAltMeters, 0.0f, 0.0f);
 
     // Do NOT reset compFadeIn_, iasGate_, or the accel EMA state here.
     // Init() is called on every web UI config save; zeroing those
@@ -116,6 +125,21 @@ Madgwick::Outputs Madgwick::Step(const Inputs& in)
 
     out.compFadeIn = compFadeIn_;
     out.iasGate    = iasGate_;
+
+    // 4) Standalone altitude/VSI Kalman on baro + earth-vert-G.  Same
+    //    role for Madgwick that EKFQ's z/vz/b_az states fill for that
+    //    algorithm.  PerfScope here preserves the same Kalman
+    //    attribution the old standalone-Kalman site in Ahrs::Step had.
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::Kalman);
+        kalman_.Update(in.baroAltMeters,
+                       onspeed::g2mps(out.earthVertG),
+                       in.dtSec,
+                       &out.kalmanAltMeters,
+                       &out.kalmanVsiMps);
+    }
+
     return out;
 }
 
