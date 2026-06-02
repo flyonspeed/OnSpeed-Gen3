@@ -117,6 +117,65 @@ void test_ekfq_quaternion_stays_unit(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 1.0f, n2);
 }
 
+// Exact exponential-map propagation: integrating a pure constant body rate
+// reproduces the closed-form rotation angle. Feed a fixed yaw rate with
+// gravity held self-consistent (accel reads level), then read the integrated
+// heading back from the quaternion's z-rotation.
+void test_ekfq_exp_map_constant_rate_angle(void) {
+    EKFQ ekfq;
+    ekfq.init();  // identity quaternion
+
+    // 30 deg/s yaw for exactly 1 second across 208 substeps.
+    const float rate_rad_s = 30.0f * DEG2RAD;
+    const int   steps      = 208;
+    EKFQ::Measurements m = {};
+    m.az = -G;             // level gravity so accel updates don't fight the yaw
+    m.r  = rate_rad_s;     // pure yaw
+    m.updateBaro = true;
+
+    for (int i = 0; i < steps; ++i) ekfq.update(m, DT);
+
+    // Recover yaw from the quaternion (z-axis rotation):
+    //   ψ = atan2(2(q0 q3 + q1 q2), 1 − 2(q2² + q3²)).
+    // 208 substeps × (1/208 s) at 30°/s integrates to 30°. The β/bias unit
+    // priors and accel updates damp this slightly toward level, so allow a
+    // generous band — the point is the exact step holds the geometric angle a
+    // coarse linear-step + renormalise would shed over the revolution.
+    const EKFQ::State s = ekfq.getState();
+    const float psi = std::atan2(2.0f * (s.q0 * s.q3 + s.q1 * s.q2),
+                                 1.0f - 2.0f * (s.q2 * s.q2 + s.q3 * s.q3));
+    TEST_ASSERT_FLOAT_WITHIN(2.0f, 30.0f, psi / DEG2RAD);
+    const float n2 = s.q0*s.q0 + s.q1*s.q1 + s.q2*s.q2 + s.q3*s.q3;
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 1.0f, n2);
+}
+
+// Zero rate must be an identity step: ω = 0 → Δq = [1,0,0,0], quaternion
+// untouched. Guards the sinc small-angle branch against divide-by-zero or a
+// spurious nudge at ω = 0.
+void test_ekfq_exp_map_zero_rate_identity(void) {
+    const float roll0  = 8.0f * DEG2RAD;
+    const float pitch0 = -3.0f * DEG2RAD;
+    EKFQ ekfq;
+    ekfq.init(roll0, pitch0, 500.0f);
+    const EKFQ::State before = ekfq.getState();
+
+    // Specific force consistent with the seed attitude (NED-body convention),
+    // so the accel updates have nothing to correct and only the zero-rate
+    // propagation is exercised.
+    EKFQ::Measurements m = {};
+    m.ax = +G * std::sin(pitch0);
+    m.ay = -G * std::cos(pitch0) * std::sin(roll0);
+    m.az = -G * std::cos(pitch0) * std::cos(roll0);
+    m.p = m.q = m.r = 0.0f;  // zero body rate
+    m.baroAltMeters = 500.0f;
+    m.updateBaro = true;
+
+    ekfq.update(m, DT);
+    const EKFQ::State after = ekfq.getState();
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, before.roll_deg(),  after.roll_deg());
+    TEST_ASSERT_FLOAT_WITHIN(0.02f, before.pitch_deg(), after.pitch_deg());
+}
+
 void test_ekfq_defaults_finite(void) {
     EKFQ::Config c = EKFQ::Config::defaults();
     TEST_ASSERT_TRUE(c.q_quat > 0.0f && std::isfinite(c.q_quat));
@@ -157,6 +216,8 @@ int main(int, char**) {
     RUN_TEST(test_ekfq_level_flight);
     RUN_TEST(test_ekfq_pitched_static);
     RUN_TEST(test_ekfq_quaternion_stays_unit);
+    RUN_TEST(test_ekfq_exp_map_constant_rate_angle);
+    RUN_TEST(test_ekfq_exp_map_zero_rate_identity);
     RUN_TEST(test_ekfq_defaults_finite);
     RUN_TEST(test_ekfq_pipeline_config_override);
     return UNITY_END();
