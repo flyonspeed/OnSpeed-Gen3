@@ -3,6 +3,7 @@
 #include <ahrs/Madgwick.h>
 
 #include <util/OnSpeedTypes.h>
+#include <util/Perf.h>
 
 namespace onspeed::ahrs {
 
@@ -20,12 +21,20 @@ Madgwick::Madgwick()
     accelVertFilter_.seed(+1.0f);
 }
 
-void Madgwick::Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg)
+void Madgwick::Init(float sampleRateHz, float seedPitchDeg, float seedRollDeg,
+                    float seedAltMeters)
 {
     // Madgwick convention: begin() takes (sampleFreq, -pitch, roll). The
     // output negation in Step() (-fusion_.getPitch() / -fusion_.getRoll())
     // is the matching half of the same convention.
     fusion_.begin(sampleRateHz, -seedPitchDeg, seedRollDeg);
+
+    // Seed the standalone altitude/VSI Kalman with the supplied baro
+    // altitude.  Madgwick doesn't track altitude in its fusion state,
+    // so this 3-state Kalman (baro + earth-vert-G) fills the vertical
+    // channel role.
+    kalman_.Configure(kKalZVariance, kKalAccelVariance, kKalAccelBiasVar,
+                      seedAltMeters, 0.0f, 0.0f);
 
     // Do NOT reset compFadeIn_, iasGate_, or the accel EMA state here.
     // Init() is called on every web UI config save; zeroing those
@@ -116,6 +125,28 @@ Madgwick::Outputs Madgwick::Step(const Inputs& in)
 
     out.compFadeIn = compFadeIn_;
     out.iasGate    = iasGate_;
+
+    // 4) Standalone altitude/VSI Kalman on baro + earth-vert-G.  Same
+    //    role for Madgwick that EKFQ's z/vz/b_az states fill for that
+    //    algorithm.  The PerfScope(Kalman) here still produces a clean,
+    //    Kalman-only `kalman` histogram.  Note, though, that this scope
+    //    is NESTED inside the PerfScope(Madgwick) that wraps the whole
+    //    Madgwick::Step call in Ahrs::Step, so the `madgwick` histogram
+    //    is INCLUSIVE of this Kalman time (it was exclusive when the
+    //    Kalman ran as a sibling scope in Ahrs::Step stage 3c).  Read
+    //    `madgwick` as Madgwick+Kalman and don't add the two scope
+    //    totals when summing a CPU budget — that double-counts Kalman.
+    //    Perf-build-only (ONSPEED_PERF_ENABLED); no effect on flight.
+    {
+        onspeed::util::perf::PerfScope guard(
+            onspeed::util::perf::ScopeId::Kalman);
+        kalman_.Update(in.baroAltMeters,
+                       onspeed::g2mps(out.earthVertG),
+                       in.dtSec,
+                       &out.kalmanAltMeters,
+                       &out.kalmanVsiMps);
+    }
+
     return out;
 }
 
