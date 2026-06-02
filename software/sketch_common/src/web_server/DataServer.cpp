@@ -236,22 +236,26 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
             fWifiRoll  = ef.Roll;
             if (ef.TAS > 0)
             {
-                // Use EFIS VSI (matches the EFIS pitch/roll above) instead of
-                // KalmanVSI to avoid mixing data sources in the same JSON payload.
+                // EFIS-side TAS available — derive flightPath and VSI from
+                // the same EFIS frame so the two JSON fields agree on the
+                // vertical-speed source. Closes #347.
                 const float fEfisVsiMps = fpm2mps(ef.VSI);
                 fWifiFlightpath = rad2deg(safeAsin(fEfisVsiMps / kts2mps(ef.TAS)));
+                fWifiVSI        = ef.VSI;
+            }
+            else if (ahrsSnap.tasMps > 0)
+            {
+                // Fall back to the OnSpeed-internal vertical channel when
+                // the EFIS frame's TAS isn't usable.
+                fWifiFlightpath = rad2deg(safeAsin(ahrsSnap.kalmanVsiMps/ahrsSnap.tasMps));
+                fWifiVSI        = mps2fpm(ahrsSnap.kalmanVsiMps);
+            }
+            else
+            {
+                fWifiFlightpath = 0;
+                fWifiVSI        = 0;
             }
 
-            else
-                if (ahrsSnap.tasMps > 0)
-                {
-                    fWifiFlightpath = rad2deg(safeAsin(ahrsSnap.kalmanVsiMps/ahrsSnap.tasMps)); // convert efiVSI from fpm to m/s
-                }
-                else
-                    fWifiFlightpath=0;
-
-            // kalmanVSI is being updated in an interrupt
-            fWifiVSI = mps2fpm(ahrsSnap.kalmanVsiMps);
             fWifiIAS = ef.IAS;
         } // end if enType != EnVN300
 
