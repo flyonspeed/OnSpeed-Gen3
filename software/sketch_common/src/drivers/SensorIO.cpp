@@ -61,6 +61,31 @@ static_assert(std::is_trivially_copyable_v<FOSConfig::SuFlaps>,
 
 // ----------------------------------------------------------------------------
 
+// Publish this object's derived-sensor fields to the lock-free
+// g_SensorSnapshot.  Single-writer per mode: Read() calls this only for a
+// full-frame read (not TestPot/RangeSweep, which the synth tasks own); the
+// replay write-back and the synth ticks call it after writing AOA/IAS.
+void SensorIO::PublishSnapshot()
+{
+    onspeed::ahrs::SensorSnapshotPayload p;
+    p.iasKt        = IAS;
+    p.aoaDeg       = AOA;
+    p.paltFt       = Palt;
+    p.oatC         = OatC;
+    p.pStaticMbar  = PStatic;
+    p.fDecelRate   = fDecelRate;
+    p.pfwdSmoothed = PfwdSmoothed;
+    p.p45Smoothed  = P45Smoothed;
+    p.iPfwd        = iPfwd;
+    p.iP45         = iP45;
+    p.uIasUpdateUs = uIasUpdateUs;
+    p.bIasAlive    = bIasAlive;
+    p.bValid       = true;
+    onspeed::ahrs::g_SensorSnapshot.publish(p);
+}
+
+// ----------------------------------------------------------------------------
+
 ActiveFlapSnapshot SnapshotActiveFlap()
 {
     ActiveFlapSnapshot snap{};
@@ -570,6 +595,16 @@ void SensorIO::Read()
     }
 
     g_AudioPlay.UpdateTones(snap);
+
+    // Publish the coherent derived-sensor frame. Gated to the modes where
+    // Read() owns the full AOA/IAS frame: in TestPot/RangeSweep the synth
+    // task writes AOA/IAS and publishes instead, so Read() must not also
+    // publish (that would be a second writer on g_SensorSnapshot).
+    if ((g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) &&
+        (g_Config.suDataSrc.enSrc != SuDataSource::EnRangeSweep))
+    {
+        PublishSnapshot();
+    }
 
     if (g_Log.Test(MsgLog::EnSensors, MsgLog::EnDebug) == true)
     {
