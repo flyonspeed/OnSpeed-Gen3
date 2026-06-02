@@ -6,6 +6,7 @@
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/FlapSnapshot.h"
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
 #include <efis/OatSelect.h>
@@ -155,6 +156,12 @@ void DisplaySerial::Write()
     // is mid-publish, the bounded retry budget would rather bail than
     // spin.  On a (rare) bailout, hold the previous frame's AHRS values
     // for this 50 ms tick — the M5 already tolerates a held frame.
+    //
+    // SINGLE THREAD OF CONTROL: the hold-last-frame `static` locals here
+    // (s_ahrsLast and s_flapLast below) are safe only because Write() is
+    // called from exactly one task — WriteDisplayDataTask. If a second
+    // caller is ever added, these statics race; make them thread_local or
+    // move them to instance members at that point.
     static onspeed::ahrs::AhrsSnapshotPayload s_ahrsLast;
     onspeed::ahrs::AhrsSnapshotPayload ahrsSnap;
     if (onspeed::ahrs::g_AhrsSnapshot.tryRead(ahrsSnap))
@@ -213,13 +220,28 @@ void DisplaySerial::Write()
     size_t  nFlapsSnapshot = 0;
     size_t  iActiveFlapIdx = 0;
     uint16_t uFlapsRawAdc  = 0;
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
+    // Active detent degrees from the same coherent frame, for the
+    // uncalibrated (nFlaps == 0) flapsDeg fallback below.
+    int      iFlapsPosUncal = -1;
         {
-        const size_t nFlaps = g_Config.aFlaps.size();
-        const int    iIdx   = g_Flaps.iIndex;
-        if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+        // Lock-free read of the coherent flap frame (published by
+        // Flaps::Update / HandleConfigSave).  One coherent read gives the
+        // whole vector + active index + raw ADC from a single revision, so
+        // the producer can't see the vector shrink mid-frame.  No xAhrsMutex.
+        // WriteDisplayDataTask is hard-deadline at 20 Hz, so use tryRead()
+        // and hold the previous frame on a (rare) bailout — same pattern as
+        // the AHRS snapshot read above; the M5 tolerates a held frame.
+        static onspeed::ahrs::FlapSnapshotPayload s_flapLast;
+        onspeed::ahrs::FlapSnapshotPayload fs;
+        if (onspeed::ahrs::g_FlapSnapshot.tryRead(fs))
+            s_flapLast = fs;
+        else
+            fs = s_flapLast;
+        const size_t nFlaps = fs.nFlaps;
+        const int    iIdx   = fs.iIndex;
+        if (fs.bValid && iIdx >= 0 && (size_t)iIdx < nFlaps)
             {
-            flapSnapshot       = g_Config.aFlaps[iIdx];
+            flapSnapshot       = fs.aFlaps[iIdx];
             bFlapSnapshotValid = true;
             iActiveFlapIdx     = static_cast<size_t>(iIdx);
             }
@@ -229,11 +251,11 @@ void DisplaySerial::Write()
         // first/last entries are min/max; do not assume otherwise here.
         if (nFlaps > 0)
             {
-            int iMin = g_Config.aFlaps[0].iDegrees;
+            int iMin = fs.aFlaps[0].iDegrees;
             int iMax = iMin;
             for (size_t i = 1; i < nFlaps; ++i)
                 {
-                const int d = g_Config.aFlaps[i].iDegrees;
+                const int d = fs.aFlaps[i].iDegrees;
                 if (d < iMin) iMin = d;
                 if (d > iMax) iMax = d;
                 }
@@ -248,17 +270,13 @@ void DisplaySerial::Write()
         const size_t nCopy = std::min<size_t>(nFlaps,
                                               static_cast<size_t>(onspeed::MAX_AOA_CURVES));
         for (size_t i = 0; i < nCopy; ++i)
-            aFlapsSnapshot[i] = g_Config.aFlaps[i];
+            aFlapsSnapshot[i] = fs.aFlaps[i];
         nFlapsSnapshot = nCopy;
 
-        // Raw flap-lever ADC reading for the interpolation.  g_Flaps.uValue
-        // is a uint16_t written outside this mutex by Flaps::Update() at
-        // 1 Hz from SensorIO; aligned 16-bit stores are atomic on the
-        // ESP32-S3 so a torn read is impossible regardless of mutex state.
-        // Reading inside this window is for consistency with the rest of
-        // the snapshot rather than for synchronization.
-        uFlapsRawAdc = g_Flaps.uValue;
-        xSemaphoreGive(xAhrsMutex);
+        // Raw flap-lever ADC reading for the interpolation, from the same
+        // coherent frame.
+        uFlapsRawAdc = fs.uValue;
+        iFlapsPosUncal = fs.iPosition;
         }
 
     // PercentLift in whole-percent float (0.0..99.9). The wire encoder
@@ -424,7 +442,7 @@ void DisplaySerial::Write()
         // "uncalibrated" display shape.
         inputs.flapsDeg           = (nFlapsSnapshot > 0)
                                         ? anchors.flapsDeg
-                                        : (int)g_Flaps.iPosition;
+                                        : iFlapsPosUncal;
         // Per-flap band-edge percents — the consumer's calibrated
         // indexer anchors.  tonesOnPctLift and the band edges all snap
         // to the active detent (they drive audio cues and the donut /

@@ -12,6 +12,7 @@
 
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
+#include "src/ahrs/FlapSnapshot.h"
 
 #include <aoa/DisplayPctAnchors.h>
 #include <aoa/PercentLift.h>
@@ -390,15 +391,20 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
     FOSConfig::SuFlaps aFlapsSnapshot[onspeed::MAX_AOA_CURVES]{};
     size_t   nFlapsSnapshot = 0;
     uint16_t uFlapsRawAdc   = 0;
-    if (xSemaphoreTake(xAhrsMutex, pdMS_TO_TICKS(10)) == pdTRUE)
         {
-        const size_t nFlaps = g_Config.aFlaps.size();
-        const int    iIdx   = g_Flaps.iIndex;
-        if (iIdx >= 0 && (size_t)iIdx < nFlaps)
+        // Lock-free read of the coherent flap frame (published by
+        // Flaps::Update / HandleConfigSave).  One read() gives the whole
+        // vector + active index/position + raw ADC from a single revision.
+        // No xAhrsMutex.
+        const onspeed::ahrs::FlapSnapshotPayload fs =
+            onspeed::ahrs::g_FlapSnapshot.read();
+        const size_t nFlaps = fs.nFlaps;
+        const int    iIdx   = fs.iIndex;
+        if (fs.bValid && iIdx >= 0 && (size_t)iIdx < nFlaps)
             {
-            flapSnapshot = g_Config.aFlaps[iIdx];
+            flapSnapshot = fs.aFlaps[iIdx];
             iSnapFlapIdx = iIdx;
-            iSnapFlapPos = g_Flaps.iPosition;
+            iSnapFlapPos = fs.iPosition;
             bSnapValid   = true;
             }
 
@@ -408,16 +414,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         const size_t nCopy = std::min<size_t>(nFlaps,
                                               static_cast<size_t>(onspeed::MAX_AOA_CURVES));
         for (size_t i = 0; i < nCopy; ++i)
-            aFlapsSnapshot[i] = g_Config.aFlaps[i];
+            aFlapsSnapshot[i] = fs.aFlaps[i];
         nFlapsSnapshot = nCopy;
-        // g_Flaps.uValue is a uint16_t written outside this mutex by
-        // Flaps::Update() at 1 Hz from SensorIO; aligned 16-bit stores
-        // are atomic on the ESP32-S3 so a torn read is impossible
-        // regardless of mutex state.  Reading inside this window is for
-        // snapshot consistency, not synchronization.
-        uFlapsRawAdc   = g_Flaps.uValue;
-
-        xSemaphoreGive(xAhrsMutex);
+        uFlapsRawAdc   = fs.uValue;
         }
 
     // Snapshot the live AOA / IAS once.  Without this snapshot we'd

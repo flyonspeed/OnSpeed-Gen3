@@ -333,6 +333,14 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
     // and ImuReadTask never run concurrently (replay replaces the live IMU
     // loop), so the single-writer invariant holds.
     g_AHRS.PublishSnapshot();
+
+    // Publish the flap snapshot from the g_Flaps members written above
+    // (iPosition/uValue/iIndex), so replay-mode consumers (audio tone,
+    // DisplaySerial, DataServer) read the replayed flap state from
+    // g_FlapSnapshot rather than a stale prior frame. LogReplayTask is the
+    // sole flap-state writer in replay mode (SensorReadTask/Flaps::Update
+    // do not run), so this publish is single-writer.
+    g_Flaps.PublishSnapshot();
     }
 
 // ----------------------------------------------------------------------------
@@ -424,8 +432,12 @@ void ReadTestPot()
     // Smooth potentiometer AOA (using flap pot input)
     g_Sensors.AOA = sTestPotAoaFilter.update(fReadAOA);
 
-    // Just make sure g_Flaps.iIndex is set and good things will happen
-    g_Flaps.iIndex = 0; // flaps up
+    // Just make sure g_Flaps.iIndex is set and good things will happen.
+    // Route through Update(0) (not a raw iIndex write) so it takes xAhrsMutex
+    // and publishes g_FlapSnapshot: in TestPot mode SensorReadTask also runs
+    // Flaps::Update concurrently, so both flap-state writers must go through
+    // the same locked+publishing path to keep the snapshot single-writer.
+    g_Flaps.Update(0); // flaps up
 
     g_Sensors.IAS = 50; // to turn on the tones
 

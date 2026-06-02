@@ -18,23 +18,22 @@ using onspeed::RunningMean;
 using onspeed::RunningMedian;
 
 // One-shot snapshot of the active flap entry's setpoints + AOA polynomial.
-// Built under xAhrsMutex with a bounds check on g_Flaps.iIndex; passed by
-// value to consumers (AOA calc, tone calc) so they never index aFlaps[]
-// directly during a HandleConfigSave swap.
+// Extracted from the lock-free g_FlapSnapshot (published by Flaps::Update and
+// HandleConfigSave); passed by value to consumers (AOA calc, tone calc) so
+// they never index aFlaps[] directly.
 //
-// bValid is false when the snapshot could not be built (mutex timeout or
-// out-of-bounds iIndex).  Consumers treat invalid as fail-silent: zero
-// AOA, no tone -- strictly safer than acting on torn or freed memory.
+// bValid is false when the active index is out of range or no flap state has
+// been published yet.  Consumers treat invalid as fail-silent: zero AOA, no
+// tone -- strictly safer than acting on stale or out-of-range data.
 struct ActiveFlapSnapshot {
     onspeed::SuCalibrationCurve curve;
     onspeed::ToneThresholds     th;
     bool                        bValid;
 };
 
-// Snapshot the AOA polynomial curve and the four tone setpoints from
-// g_Config.aFlaps[g_Flaps.iIndex] under xAhrsMutex.  Returns bValid=false
-// on mutex timeout or if g_Flaps.iIndex is out of bounds for the current
-// vector size.
+// Extract the active flap's AOA curve + four tone setpoints from the
+// lock-free g_FlapSnapshot.  Returns bValid=false if no valid flap state has
+// been published or the active index is out of range.  No xAhrsMutex.
 ActiveFlapSnapshot SnapshotActiveFlap();
 
 // FreeRTOS task for reading sensors
