@@ -57,7 +57,14 @@ unsigned long   lNextMillis = 0;
 
 void DataServerPoll()
     {
-    char            szLiveDataJson[512];
+    // Sized for the worst-case compacted LiveView JSON frame.  Today's
+    // emit set (incl. the EKFQ-diagnostic fields added in PR #678) hits
+    // ~590 bytes when every numeric field renders at its maximum width,
+    // ~559 bytes on the Madgwick path where the EKFQ-diag fields emit
+    // `null`.  Typical cruise frames are ~430-460 bytes; the headroom
+    // keeps us from emitting `{}` on edge-case ticks.  See websocket-
+    // protocol.md for the per-field width breakdown.
+    char            szLiveDataJson[1024];
 
     DataServer.loop();
 

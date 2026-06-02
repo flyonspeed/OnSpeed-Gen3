@@ -86,6 +86,15 @@ struct AhrsSnapshotPayload {
     // legacy convention to match; SI is the engineering frame). The
     // conversion happens in AHRS::PublishSnapshot from the filter's raw
     // SI state.
+    //
+    // Ranges for the consumer:
+    //   - bp, bq, br: typically <1 deg/s in steady cruise (gyro bias)
+    //   - b_az: typically <1 m/s² (accel bias)
+    //   - β: ±90° in principle; <±5° in coordinated flight
+    //   - yaw: [-180°, 180°] (atan2 range, no wrap-around to [0, 360]).
+    //     No magnetometer in OnSpeed → this is uncalibrated heading that
+    //     drifts over time; treat as a relative-yaw signal for tuning,
+    //     not a compass-heading reading.
     float ekfBpDps          = std::numeric_limits<float>::quiet_NaN();
     float ekfBqDps          = std::numeric_limits<float>::quiet_NaN();
     float ekfBrDps          = std::numeric_limits<float>::quiet_NaN();
