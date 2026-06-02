@@ -1231,6 +1231,17 @@ void LogSensor::Write()
     row.derivedAoaDeg  = ahrsDerivedAoaDeg;
     row.coeffP         = g_fCoeffP;
 
+    // EKFQ-diagnostic columns (format version 6+).  NaN under Madgwick;
+    // finite under EKFQ.  AHRS::PublishSnapshot fills these from the
+    // 11-state filter; if Madgwick is active the snapshot defaults
+    // already carry NaN.
+    row.ekfBpDps   = ahrsSnap.ekfBpDps;
+    row.ekfBqDps   = ahrsSnap.ekfBqDps;
+    row.ekfBrDps   = ahrsSnap.ekfBrDps;
+    row.ekfBAzMps2 = ahrsSnap.ekfBAzMps2;
+    row.ekfBetaDeg = ahrsSnap.ekfBetaDeg;
+    row.ekfYawDeg  = ahrsSnap.ekfYawDeg;
+
     // Sidecar accumulator: feed time-of-day if available. The VN-300
     // wire-format change (issue #637) dropped the GNSS1.UTC string in
     // favor of per-sample ns timestamps (vnTimeGpsNs); the sidecar's

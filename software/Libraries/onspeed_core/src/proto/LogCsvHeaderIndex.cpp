@@ -62,6 +62,15 @@ bool BindKnownColumn(std::string_view name, int ordinal, HeaderIndex& out)
     if (name == "DerivedAOA")       { out.idxDerivedAoa = ordinal; return true; }
     if (name == "CoeffP")           { out.idxCoeffP = ordinal; return true; }
 
+    // EKFQ-diagnostic (format version 6+).  Optional — older logs lack
+    // these columns and the LogRow defaults to NaN.
+    if (name == "ekfBpDps")         { out.idxEkfBpDps = ordinal; return true; }
+    if (name == "ekfBqDps")         { out.idxEkfBqDps = ordinal; return true; }
+    if (name == "ekfBrDps")         { out.idxEkfBrDps = ordinal; return true; }
+    if (name == "ekfBAzMps2")       { out.idxEkfBAzMps2 = ordinal; return true; }
+    if (name == "ekfBetaDeg")       { out.idxEkfBetaDeg = ordinal; return true; }
+    if (name == "ekfYawDeg")        { out.idxEkfYawDeg = ordinal; return true; }
+
     // Tail-optional (format version 2). Older logs lack this column.
     if (name == "flapsRawADC")      { out.idxFlapsRawAdc = ordinal; return true; }
 
@@ -673,6 +682,17 @@ bool ParseRowByIndex(std::string_view line,
         (void)derivedValid;
     }
     if (!TakeFloat(tokens, tokenCount, idx.idxCoeffP,         row.coeffP))          return false;
+
+    // EKFQ-diagnostic columns (format version 6+).  TakeFloat tolerates
+    // absence (idx == -1 leaves the destination at the LogRow default,
+    // which is NaN).  Present values parse as floats; "nan" emitted by
+    // FormatRow under Madgwick round-trips back to NaN via strtof.
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfBpDps,   row.ekfBpDps))   return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfBqDps,   row.ekfBqDps))   return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfBrDps,   row.ekfBrDps))   return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfBAzMps2, row.ekfBAzMps2)) return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfBetaDeg, row.ekfBetaDeg)) return false;
+    if (!TakeFloat(tokens, tokenCount, idx.idxEkfYawDeg,  row.ekfYawDeg))  return false;
 
     // Tail-optional flapsRawADC (format version 2). Reflect presence into the
     // LogRow so downstream consumers can tell "absent / unknown" from "0".

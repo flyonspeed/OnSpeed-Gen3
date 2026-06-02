@@ -135,6 +135,16 @@ struct HeaderIndex {
     int idxDerivedAoa          = -1;
     int idxCoeffP              = -1;
 
+    // EKFQ-diagnostic columns (format version 6+).  Optional — absent in
+    // pre-v6 logs, in which case ParseRowByIndex leaves the matching
+    // LogRow fields at their NaN default.
+    int idxEkfBpDps            = -1;
+    int idxEkfBqDps            = -1;
+    int idxEkfBrDps            = -1;
+    int idxEkfBAzMps2          = -1;
+    int idxEkfBetaDeg          = -1;
+    int idxEkfYawDeg           = -1;
+
     // Tail-optional raw flap-pot ADC reading (format version 2). Absent in
     // older logs, in which case ParseRowByIndex leaves row.flapsRawAdc at
     // its default and clears row.flapsRawAdcPresent.

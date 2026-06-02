@@ -9,6 +9,8 @@
 
 #include <math.h>
 
+#include <util/OnSpeedTypes.h>
+
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/drivers/IMU330.h"
@@ -173,6 +175,23 @@ void AHRS::PublishSnapshot()
     snap.gRollDps           = gRoll;
     snap.gYawDps            = gYaw;
     snap.gOnsetRate         = gOnsetRate;
+
+    // EKFQ-only diagnostic states. Surface gyro biases, vertical-accel
+    // bias, sideslip, and yaw from the 11-state filter when EKFQ is the
+    // active algorithm. Under Madgwick the fields stay at their NaN
+    // defaults — Madgwick doesn't estimate these states, and NaN is the
+    // unambiguous "no reading" sentinel that the CSV / JSON layers
+    // already know how to surface (empty or `null` respectively).
+    if (core_.algorithm() == onspeed::ahrs::Algorithm::Ekfq) {
+        const onspeed::EKFQ::State s = core_.GetEkfqPipeline().getEkfq().getState();
+        snap.ekfBpDps    = onspeed::rad2deg(s.bp);
+        snap.ekfBqDps    = onspeed::rad2deg(s.bq);
+        snap.ekfBrDps    = onspeed::rad2deg(s.br);
+        snap.ekfBAzMps2  = s.b_az;
+        snap.ekfBetaDeg  = s.beta_deg();
+        snap.ekfYawDeg   = s.yaw_deg();
+    }
+
     onspeed::ahrs::g_AhrsSnapshot.publish(snap);
 }
 

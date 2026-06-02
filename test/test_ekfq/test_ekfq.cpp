@@ -209,6 +209,44 @@ void test_ekfq_pipeline_config_override(void) {
     TEST_ASSERT_EQUAL_FLOAT(custom.tasdotEmaAlpha,  got.tasdotEmaAlpha);
 }
 
+// After a few steps of level flight, the diagnostic states the snapshot
+// layer surfaces (bp/bq/br, b_az, β, yaw) must be finite and within sane
+// engineering ranges.  Guards against a getState() regression that
+// returns NaN/Inf, or sign-convention drift that would push the biases
+// to absurd magnitudes.
+void test_ekfq_diagnostic_states_finite_in_level_flight(void) {
+    EKFQ ekfq;
+    ekfq.init(0.0f, 0.0f, 100.0f);
+
+    EKFQ::Measurements m = {};
+    m.ax = 0.0f;
+    m.ay = 0.0f;
+    m.az = -G;
+    m.p = m.q = m.r = 0.0f;
+    m.baroAltMeters = 100.0f;
+    m.tasMps = 0.0f;
+    m.tasDotMps2 = 0.0f;
+    m.updateBaro = true;
+    for (int i = 0; i < 416; ++i) ekfq.update(m, DT);
+
+    const EKFQ::State s = ekfq.getState();
+    TEST_ASSERT_TRUE(std::isfinite(s.bp));
+    TEST_ASSERT_TRUE(std::isfinite(s.bq));
+    TEST_ASSERT_TRUE(std::isfinite(s.br));
+    TEST_ASSERT_TRUE(std::isfinite(s.b_az));
+    TEST_ASSERT_TRUE(std::isfinite(s.beta));
+    TEST_ASSERT_TRUE(std::isfinite(s.yaw_deg()));
+
+    // Sanity: biases driven by zero-rate priors should stay small
+    // (< a few deg/s), β small in level flight (<2°), b_az bounded by
+    // the prior covariance.  Loose bounds — the goal is "no garbage."
+    TEST_ASSERT_TRUE(std::fabs(s.bp)   < 0.1f);   // rad/s ≈ 5.7 deg/s
+    TEST_ASSERT_TRUE(std::fabs(s.bq)   < 0.1f);
+    TEST_ASSERT_TRUE(std::fabs(s.br)   < 0.1f);
+    TEST_ASSERT_TRUE(std::fabs(s.b_az) < 2.0f);   // m/s²
+    TEST_ASSERT_TRUE(std::fabs(s.beta_deg()) < 5.0f);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_ekfq_init_default);
@@ -220,5 +258,6 @@ int main(int, char**) {
     RUN_TEST(test_ekfq_exp_map_zero_rate_identity);
     RUN_TEST(test_ekfq_defaults_finite);
     RUN_TEST(test_ekfq_pipeline_config_override);
+    RUN_TEST(test_ekfq_diagnostic_states_finite_in_level_flight);
     return UNITY_END();
 }

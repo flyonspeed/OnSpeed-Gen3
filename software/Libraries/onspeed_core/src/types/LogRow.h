@@ -202,6 +202,21 @@ struct LogRow {
     float derivedAoaDeg = 0.0f;
     float coeffP        = 0.0f;
 
+    // --- EKFQ diagnostic columns (always present in format version 6+) ---
+    //
+    // Surface the EKFQ 11-state filter's gyro biases, vertical-accel bias,
+    // sideslip, and yaw for offline tuning + correlation with flight
+    // artifacts.  Finite when iAhrsAlgorithm=EKFQ; NaN under Madgwick
+    // (which does not estimate these states).  FormatRow emits "nan" for
+    // NaN; the header-index parser tolerates absence in pre-v6 logs and
+    // leaves these at NaN.
+    float ekfBpDps   = std::nanf("");   // roll-rate gyro bias (deg/s)
+    float ekfBqDps   = std::nanf("");   // pitch-rate gyro bias (deg/s)
+    float ekfBrDps   = std::nanf("");   // yaw-rate gyro bias (deg/s)
+    float ekfBAzMps2 = std::nanf("");   // earth-vert accel bias (m/s²)
+    float ekfBetaDeg = std::nanf("");   // sideslip (deg)
+    float ekfYawDeg  = std::nanf("");   // yaw (deg)
+
     // --- Feature-presence flags (not logged; used by FormatRow to decide ---
     // --- which optional column groups to emit)                           ---
 
