@@ -4,7 +4,7 @@ This document is a **contract** for how OnSpeed firmware should be structured as
 
 It is not a reorganization plan. Migration sequencing belongs in its own document; this one defines what we are reorganizing toward.
 
-> **Last reconciled with master:** 2026-05-31, against tip `0ea6fa6e`. Four more days, and the architectural payoff arrived — **not via the seqcount primitive (PR #653) but via PR #656's dedicated-per-stream-mutex + atomic-memcpy pattern at the EFIS and boom seams.** Producer builds a struct on the stack; atomic publish via memcpy into the canonical instance under a dedicated mutex; consumers call `SnapshotEfis(out)` / `SnapshotVn300(out)` / `Snapshot(out)` and get a coherent copy. Bench-validated at 416 Hz IMU + 400 Hz VN-300 for 21 minutes: **zero tears across 528,180 rows, zero drops, zero reboots.** PR #648 captured bench-stress lessons from the cycle. PR #653 (seqcount primitive) is *still open* — the merged design used dedicated per-stream mutexes instead. **AHRS-output side is unchanged** (DataServer still reads `g_AHRS.SmoothedPitch` directly, no atomic publish). See **"What landed and what didn't (PR #656, 2026-05-31)"** below for the close read, and **"Next priority"** at the bottom for the migration call.
+> **Last reconciled with master:** 2026-06-02, against tip `bd650a7d`. Two more days, and the snapshot architecture is **deployed across four of six flight-state surfaces**: PR #653 merged the seqcount primitive (`SnapshotPublisher<T>`), PR #660 unified EFIS+boom onto it (replacing the dedicated-mutex pattern from PR #656), PR #662 migrated AHRS output, PR #665 moved M5+Housekeeping to Core 0 (validated at 416 Hz: display 0→19.9 Hz, heartbeat 0→10.0 Hz, IMU lateMax 4166→784 µs), PR #666 corrected the multi-writer comment, PRs #667/#668 fixed hardware pins and replaced bit-bang OneWire with RMT-backed OAT (eliminates 18-20 ms preemption window). **Plus:** a `feat/imu-snapshot` worktree with 17 commits adds `g_FlapSnapshot`, `g_SensorSnapshot`, `g_ImuSnapshot` — the remaining three flight-state publishers — with all consumers migrated and a coherence-review audit done yesterday confirming the four-snapshot architecture is one coherent pattern. **No bench validation of the worktree yet.** See **"Six snapshot surfaces, four-and-a-half landed (2026-06-02)"** below for the close read, and **"Next priority"** for the load-bearing-next-step.
 
 ## The model
 
@@ -162,9 +162,40 @@ The user's question turned the abstraction into something concrete. The composed
 
 The struct doesn't grow with each new consumer. The set of *projections* grows, and the set of *writer tasks* grows. **The pre-condition for this design to pay off is the snapshot itself: until LiveDataFrame exists, every new logging path has to invent its own snapshot.** This is precisely the architectural argument for step 1, restated for the user's specific upcoming work.
 
-## What landed and what didn't (PR #656, 2026-05-31)
+## Six snapshot surfaces, four-and-a-half landed (2026-06-02)
 
-PR #656 ("VN-300 at 400 Hz + atomic-publish architecture for EFIS / boom") landed the atomic-snapshot pattern at two upstream seams. **The pattern is right, the bench-validation is rigorous, but it's not the design PR #653 proposed and the AHRS-output side is unchanged.** This section is a close read of what landed against what the plan called for.
+In the past two days, the snapshot architecture has gone from "EFIS/boom + uncertain about AHRS" to **four flight-state surfaces on the seqcount primitive in production, three more staged in a worktree, with a coherence-review audit confirming the architecture is one coherent pattern**. This is the architectural milestone the doc has been pointing at for two months.
+
+### Current state map
+
+| Surface | Primitive | Status | Producer | Consumers migrated |
+|---|---|---|---|---|
+| EFIS (suEfis, suVN300) | `SnapshotPublisher<T>` member | ✓ master (PR #656 → #660) | EfisReadTask | LogSensor, AHRS, DataServer |
+| Boom (suBoomData) | `SnapshotPublisher<T>` member | ✓ master (PR #656 → #660) | BoomReadTask | LogSensor |
+| AHRS output (18 fields) | `SnapshotPublisher<T>` global | ✓ master (PR #662) | ImuReadTask::Process(), Init(), LogReplay (exclusive) | DataServer, DisplaySerial, LogSensor, Housekeeping, ApiHandlers, ConsoleSerial |
+| Flap state (15 fields) | `SnapshotPublisher<T>` global | ⧗ worktree `feat/imu-snapshot` | Flaps::Update on SensorReadTask + HandleConfigSave flap swap | DisplaySerial, DataServer, calwiz API, SnapshotActiveFlap audio path |
+| Sensor state (13 fields) | `SnapshotPublisher<T>` global | ⧗ worktree | SensorIO::Read + LogReplay/synth | LogSensor, DataServer, M5 wire builder, /api/sample |
+| Raw IMU (ImuSample) | `SnapshotPublisher<T>` global | ⧗ worktree | ImuReadTask + LogReplay | LogSensor (coherent accel+gyro triplet) |
+
+**Six independent flight-state publishers, all on the canonical seqcount primitive, all single-writer-per-stream.** This is exactly the architecture the doc has been describing. The worktree closes the remaining three.
+
+### What the past two days proved
+
+PR #660's migration from PR #656's dedicated-mutex to PR #653's seqcount **collapsed ~85 lines of per-class mutex boilerplate** while keeping the same external API (`Snapshot(out)`). Result: one concurrency primitive, one pattern, two-pattern-merge complete.
+
+PR #662 is the data-integrity payoff: DataServer's pitch/roll/VSI/altitude reads were *unsynchronized* before (relied on aligned-32-bit-load atomicity); now they read an atomically coherent multi-field frame. The PR was honest that it addressed data-integrity, not contention stalls — that's deferred.
+
+PR #665 is the cross-core payoff: moving M5+Housekeeping to Core 0 was *enabled* by PR #662 (the AHRS snapshot makes cross-core reads coherent), and the bench data validates the architecture: display 0→19.9 Hz, heartbeat 0→10.0 Hz, IMU lateMax 4166→784 µs, **zero log drops, zero VN-300 tears across 455k rows.** The "everything is a stream" thesis is now bench-validated production.
+
+The worktree (`feat/imu-snapshot`, 17 commits) closes Flap + Sensor + IMU. Yesterday's coherence-review audit (`local-plans/2026-06-02-snapshot-coherence-review.md`) explicitly verified one consistent pattern across all four flight-state surfaces and named three intentional inconsistencies (publisher-hosting convention, publish-idiom, payload-naming) — each judged "better local choice, document don't change." Three pre-existing leftover raw-global reads (not introduced by this work) named honestly and classified as safe-scalar follow-ups.
+
+### What the past two days revealed about the plan
+
+Two updates to standing positions:
+
+**The composed `LiveDataFrame` view layer is now optional.** The doc has been pushing for it since the very first version. With six per-stream publishers landed/landing, every consumer calls `g_<Stream>Snapshot.read()` for the streams it needs. The composed view layer has no required consumer right now. MAVLink emit will be the first plausible consumer where multi-stream coherence at one tick matters (one MAVLink frame must carry ATTITUDE + AIRSPEED + AOA simultaneously consistent with each other). Defer composed-view work until then.
+
+**`xAhrsMutex` narrowing is complete enough that the mutex's role has changed.** Yesterday's coherence-review confirmed: no flight-data reader takes it. Its remaining responsibilities are (1) AHRS filter state during Process()/Init() — serialized between ImuReadTask and config-save handlers, and (2) flap-state writer-ordering between Flaps::Update and config-save flap-vector swap. The contract has narrowed from "the big mutex that guards everything flight-related" to "the mutex that serializes writers." That contract should be stated in a public header comment so future authors don't reach for the wrong mutex by reflex.
 
 ### The actual landed architecture (EFIS + boom)
 
@@ -751,77 +782,50 @@ Each step is independently reviewable and shippable. None require a top-down rew
 
 The point of this document is to make the discipline explicit so that the *next* PR — whoever writes it — pulls in the direction of the model rather than against it, and reaches for an existing protocol before inventing one.
 
-## Next priority (as of 2026-05-31)
+## Next priority (as of 2026-06-02)
 
-**EFIS and boom shipped the pattern (PR #656). AHRS-output is next.** The May 27 sequence assumed PR #653 would land first as the seqcount foundation, then consumers would migrate. Reality reordered: PR #656 used a different primitive (dedicated per-stream mutex + atomic memcpy) and bench-validated it under production load before any seqcount work shipped. **The migration order shifts; the destination doesn't.**
+**The worktree is structurally complete; the missing piece is bench validation, not more code.** Six flight-state surfaces now have publishers (four on master, three in worktree — one overlap). The architecture the doc has been describing for two months is **substantially done**. The next moves are about validation, cleanup, and the deferred work that becomes mechanically reachable once the worktree merges.
 
-### Step 1 — AHRS-output snapshot, the load-bearing migration
+### Immediate (this week) — the worktree merge sequence
 
-**The 18-20 ms IMU stalls measured in PR #647 bench data are still real and unfixed.** EFIS and boom contention with the IMU task is gone (PR #656). AHRS-output contention is unchanged — DataServer, LogSensor, DisplaySerial, and 4 web API handlers all still read `g_AHRS.SmoothedPitch`, `g_AHRS.SmoothedRoll`, `g_AHRS.KalmanVSI`, `g_AHRS.fTAS`, `g_AHRS.AccelVertFilter.get()` directly. Multi-field reads still take `xAhrsMutex` (now bounded to 100-1000ms per PR #646, but still contended).
+**1. Bench-validate the worktree.** The 17 commits land Flap + Sensor + IMU snapshots but no perf capture exists for the stack. The existing reports in `docs/perf-reports/` are pre-this-work. Run the standard PERF capture at 416 Hz IMU + 400 Hz VN-300 + `stress_web_handlers.py --aggressive` for 15+ minutes against the worktree tip. **Two specific numbers to compare against PR #665's bench:**
+- IMU `lateMaxUs` — must not regress from 784 µs (data-integrity goal: snapshot reads shouldn't slow IMU)
+- `/api/calwiz/state` p95 latency — should improve materially (contention goal: calwiz used to take `xAhrsMutex` for the flap read; now lock-free)
 
-This is the next migration target.
+That measurement is the load-bearing check. Without it, the merge is structural-only and we don't know if PR #647's 18-20 ms IMU stalls actually closed.
 
-### Why this one needs a different design than EFIS/boom
+**2. Add `tasMps` to the AHRS snapshot payload.** Closes inconsistency A from the coherence-review. EfisSerialPort's wind-triangle currently reads `g_AHRS.fTAS` raw because the snapshot doesn't carry it. Three lines of code; eliminates the one AHRS-output consumer that bypasses the snapshot. Free win.
 
-The EFIS/boom pattern works because each has a *single* writer (EfisReadTask, BoomReadTask) — adding a dedicated per-stream mutex is clean. **AHRS-output has three writers**:
-- `ImuReadTask::Process()` writes during AHRS step (~208/416 Hz, the hot path)
-- `HandleConfigSave` writes during flap-vector swap (rare, but holds the mutex for ms)
-- `ConfigWebServer` writes during AHRS::Init on config change (rare)
+**3. Stack the worktree as three PRs, not one.** Flap → Sensor → IMU. The 17 commits already decompose this way. Three stacked PRs gives three independent bench validations and distributes review load. Each PR is an architectural increment with its own success criterion.
 
-A dedicated `xAhrsOutputMutex` doesn't solve the IMU-stall problem because the *writers themselves* can block each other and the readers. The pattern that solves this cleanly is single-publisher seqcount (PR #653) — multi-writer would need coordination, but if `Process()` is the only hot-path writer and the others are rare-enough that brief contention with them is acceptable, the seqcount primitive is the right tool.
+**4. Commit the narrowed `xAhrsMutex` contract to a header comment.** Yesterday's coherence-review documented the contract in `local-plans/` (local-only). The narrowed responsibility — writer-side AHRS filter state + flap writer-ordering, NO flight-data readers — needs to be stated where future code-modifiers will see it (top of `SensorIO.cpp` or a public design note). Otherwise the next refactor will reach for the wrong mutex by reflex.
 
-**Two viable paths:**
+### Near-term (next two weeks) — what becomes mechanically reachable after the worktree lands
 
-**Path A: Use PR #653's `SnapshotPublisher<T>` for AHRS-output.**
-- Resurrect PR #653 from open-but-stale. It's still the right primitive for this use case.
-- `ImuReadTask::Process()` publishes after AHRS::Process completes.
-- Rare config-change writers either acquire a brief lock around their write (defeating part of the seqcount benefit but only at config-save time) or coordinate via a higher-level mechanism.
-- Readers (DataServer, LogSensor, DisplaySerial, web handlers) read lock-free.
-- Validates against the 18-20 ms IMU stall measurement.
+**5. PR #647's deferred IMU-stall measurement re-run.** With flap reads off `xAhrsMutex` (the worktree's flap-state migration), calwiz API stress should no longer block ImuReadTask. The 18-20 ms IMU stall measurement from PR #647's bench data either closes (and we should mark it closed with a fresh perf report) or reveals a residual contention source we haven't named yet.
 
-**Path B: Use the EFIS/boom pattern (dedicated mutex + atomic memcpy) for AHRS-output.**
-- Pattern is bench-validated and we now know it works.
-- Dedicated `xAhrsOutputMutex` separate from the existing `xAhrsMutex` (which keeps protecting the writer-writer cases).
-- Two-level mutex pattern: writers hold `xAhrsMutex` while computing, then briefly hold `xAhrsOutputMutex` for the publish memcpy.
-- Readers take only `xAhrsOutputMutex` — never the writer-mutex.
-- Less elegant than seqcount but follows the proven pattern.
+**6. The architecture's §3 gap (replay-as-true-flight-reproduction) closes naturally.** The worktree commits include `LogReplay::PublishReplayResult` which publishes all four snapshots together. Once it lands, **a replayed log produces the exact same snapshot stream a live flight produces**. Every downstream consumer is unchanged — the system can't tell the difference. The doc's §3 "OAT and boom not re-injected" complaint becomes obsolete; the worktree already addresses it.
 
-**Recommendation: Path A.** PR #656 surfaced exactly the case (multi-writer state, hot-path producer, many readers) where seqcount's invariants pay off. PR #653 was written to solve this; its 9 race tests cover the safety properties. The EFIS/boom pattern works for those streams because they're single-writer; for AHRS-output, the seqcount design is the right structural match. Also: it lets us validate the seqcount primitive against the motivating measurement rather than leaving #653 stale on the shelf.
+**7. `AoaEstimates` parallel estimators (the doc's planning step #7) becomes mechanically reachable.** With six publishers in production, adding parallel AOA estimators is a matter of new publishers, not a structural change. EKFQ kinematic AOA, pressure-polynomial AOA, IAS-to-AOA fit residual: three new snapshots, each ~40 lines of producer code, consumer-side is whichever monitor wants to flag drift. The "estimators aren't parallel yet" complaint from §6 of the audit converts from "needs structural work" to "needs three small publishers."
 
-### Concrete sequence
+### Deferred (acknowledge but don't rush) — what no longer needs immediate attention
 
-**Commit A — Land PR #653.** Re-validate against current master. Address the single-writer-constraint concern from the #653 review (the local plan's commit 6 still needs to be revised, but that's a future commit; commit 6 itself isn't this PR).
+**8. Composed `LiveDataFrame` view layer.** The doc has been pushing this for months. With six per-stream publishers in production, every consumer reads its own snapshots. The composed view layer has no required consumer right now. **Defer until the first multi-stream-coherent consumer (likely MAVLink emit) needs it.** When that consumer arrives, the composed view is one helper function (`BuildLiveDataFrame()` reads N snapshots and assembles a single struct). Not blocking anything.
 
-**Commit B — Publish `g_AhrsOutputSnap` using #653's primitive.** Define `AhrsOutputSnapshot` payload (~17 fields: SmoothedPitch, SmoothedRoll, KalmanVSI, KalmanAlt, FlightPath, DerivedAOA, fTAS, AccelVertFiltered, AccelLatFiltered, gPitch, gRoll, gYaw, gOnsetRate, EarthVertG, plus timestamps). `ImuReadTask::Process()` publishes after AHRS step. **Migrate one consumer first** — Housekeeping (4 fields, 10 Hz, smallest blast radius) — to validate before fanning out.
+**9. EKFQ predict/correct schedule split.** Still the right path for the high-rate IMU win. Still gated on bench validation of the snapshot stack working at 416 Hz under load — which is step 1 above. Sequence unchanged from prior reconciliation.
 
-**Commit C — Migrate every read-only AHRS-output consumer.** DataServer's `UpdateLiveDataJson` (the load-bearing change — this is where the 18-20 ms stall measurement validates the design). LogSensor::Write (replaces PR #634's narrow snapshot). DisplaySerial::Write. The 4 web API handlers that take `xAhrsMutex`. **Bench-validate against PR #647's stress harness** that the IMU stalls under aggressive web load actually disappear. The validation rig from PR #656 (offline tear detector, stim dongle) maps directly to this work.
+**10. `LogProducerTask` at configurable rate.** Still the architectural payoff for PR #647's "always-on 416 Hz" promise. Still requires the snapshot stack landed first. Sequence unchanged.
 
-**Commit D — Publish `g_FlapSnapshot` and migrate flap readers.** Same shape as B/C. After this lands, `xAhrsMutex` is held only by writer-writer cases, no readers. Renames in order.
+**11. MAVLink emit / BLE GATT / GDL90.** All consume per-stream snapshots; each is a new writer task that reads N snapshots and emits. **The infrastructure for all three is now in place.** Each is a deliberate product decision, not a prerequisite.
 
-### After AHRS-output migration
+### Recommendation — what the implementing agent needs from this reconciliation
 
-The remaining sequence from the May 27 plan still applies, but with the upstream half now genuinely done:
+**(1) Bench before merge.** The work is structurally complete; the validation is what's missing. Use the `perf-testing` skill's standardized capture procedure. Compare against `master-2026-05-20.md` and `refactor-with-stim-400hz.md`. The worktree merge should ship with a fresh perf report demonstrating that the snapshot stack does what we hoped: zero data-integrity tears, IMU jitter unchanged or improved, web handler latency improved.
 
-- **EKFQ predict/correct schedule split** — the high-rate IMU win materializes. Predict at IMU rate, correct at 50 Hz.
-- **Move AHRS update from `ImuReadTask` to `SensorReadTask`** — needs the seqcount commit-6 revision worked out (split publishers or single-task ownership).
-- **`LogProducerTask` at configurable rate** — `iLogRate` becomes a true rate selector. PR #647's "once 416 validates in flight we expect to flip IMU to always-416" lands here.
-- **Composed `LiveDataFrame` view layer** — optional consolidation; the per-stream snapshots are individually testable and individually consumable. Lower urgency than before now that two streams already have the pattern.
-- **MAVLink emit, BLE GATT, parallel estimators** — all consume the per-stream snapshots; each is a new writer task that reads N snapshots and emits.
+**(2) Stack the merge as three PRs.** Flap first, sensor second, IMU third. Each independently bench-validated. The decomposition is already in the commits.
 
-### Where the user's upcoming binary + pilot-tuning logs fit
+**(3) Address inconsistency A inline.** `tasMps` to AHRS payload is free. Inconsistency B (ApiHandlers PitchAC under xSensorMutex) and the leftover read C (AHRS::Init seed) can be deferred to follow-up issues.
 
-Unchanged from May 27: after the per-stream snapshots are in place and `LogProducerTask` lands, each new log stream is ~80 lines (read snapshots, project to format, push to ring).
+**(4) Surface the `xAhrsMutex` narrowed contract in firmware code.** Header comment in `SensorIO.cpp` or equivalent. Otherwise the next refactor will reach for it incorrectly.
 
-PR #656's offline analyzer pattern (`check-atomic-publish.py`) generalizes: any new log can have its own offline validation rig that proves coherence under stress.
-
-### Recommendation — what to do next
-
-**(1) Re-validate and merge PR #653.** It's been open since May 25 while the rest of the codebase moved. Rebase, re-bench, address the single-writer-constraint review concern, merge. Bench against current master rather than its branch point.
-
-**(2) Build commit B (AHRS-output snapshot + Housekeeping migration) on the merged #653 primitive.** Smallest possible blast radius for the first hot-path use. Validates the primitive against the high-stakes consumer (the IMU task is the writer).
-
-**(3) Build commit C (full consumer migration) with the PR #656 bench validation rig adapted.** This is the load-bearing change. Stress-test the same way: stim dongle, offline analyzer for AHRS-state coherence, web-handler concurrency from `stress_web_handlers.py`. **Success criterion: 18-20 ms IMU stalls measurably disappear under aggressive web load.**
-
-**(4) In parallel, draft the commit-6 revision** addressing the single-writer constraint for the eventual `Process() splits across ImuReadTask + SensorReadTask` change. Don't let this block commit C.
-
-**Honest framing:** PR #656 validated the architecture at the EFIS and boom seams. The remaining open question (does seqcount work for the AHRS-output case where writer is a high-priority hot-path task and we have rare multi-writer state?) is exactly what PR #653 + Path A above tests. The migration is incremental; each step is bench-validated; the production architecture the user has been sketching is increasingly visible in production code.
+**Honest framing:** the architectural arc the doc has been tracking is **substantially complete**. Six flight-state surfaces on a single concurrency primitive, all single-writer-per-stream, all lock-free reads, all consumers migrated off `xAhrsMutex` for the flight-data path. The worktree closes the remaining three (Flap, Sensor, IMU). What's left is empirical: prove on bench that the architecture actually delivers the contention reduction we predicted, and the major decoupling work is done. After the worktree lands, every remaining doc-planning item (composed view, MAVLink, parallel estimators, replay-as-source) is an additive new-consumer pattern, not a structural change.
