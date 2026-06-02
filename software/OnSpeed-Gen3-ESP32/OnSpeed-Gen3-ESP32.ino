@@ -73,6 +73,41 @@ void WebServerTask(void * pvParams)
     }
 }
 
+// Console serial parser on Core 0.  Finishes the PR #609 migration: EFIS and
+// boom UART drains already moved off the Arduino loop() task to Core 0; the
+// console parser was the last reader left on loop().  loop() runs on Core 1
+// (ARDUINO_RUNNING_CORE=1) at the lowest priority, so at high IMU rates
+// (416 Hz) ImuReadTask saturates Core 1 and starves loop() — the console then
+// never drains its UART RX and appears dead.  Running the parser on Core 0
+// (idle headroom even at 416 Hz) makes the console responsive at every IMU
+// rate.  Drain all buffered bytes each wake so a paste/burst isn't rate-
+// limited by the poll cadence.
+void ConsoleReadTask(void * pvParams)
+{
+    (void)pvParams;
+    for(;;)
+    {
+        vTaskDelay(pdMS_TO_TICKS(10));   // 100 Hz poll; UART RX FIFO buffers bursts
+
+        // ArduinoLoop is the historical PERF id for the console-read work
+        // (it ran on loop() pre-this-change); keep it so the attribution
+        // still reads as "console parser CPU".
+        onspeed::util::perf::PerfLoop perfGuard(
+            onspeed::util::perf::TaskId::ArduinoLoop,
+            uxTaskGetStackHighWaterMark(nullptr));
+
+        // Read() consumes one char per call (guarded by available()).  Drain
+        // up to a bounded number of bytes per wake, then yield: a paste or a
+        // continuous stream can never spin this task indefinitely (it just
+        // drains over several wakes).  64 bytes / 10 ms = ~6.4 kB/s, far above
+        // any human typing rate; the UART RX FIFO buffers the rest.  Bounding
+        // here keeps a flood from holding the CPU or any command-side mutex
+        // longer than one short burst.
+        for (int i = 0; i < 64 && Serial.available() > 0; ++i)
+            g_ConsoleSerial.Read();
+    }
+}
+
 // Task to handle websocket polling on Core 0
 void DataServerTask(void * pvParams)
 {
@@ -505,6 +540,20 @@ void setup()
         0                   // Core ID (0)
     );
 
+    // Console parser on Core 0, priority 1.  loop() (Core 1, lowest prio) is
+    // starved by ImuReadTask at high IMU rates, which made the console
+    // unresponsive at 416 Hz; running it on Core 0 keeps it responsive at
+    // every rate.  Stack 5000 covers the SD-backed PRINT/LIST handlers.
+    xTaskCreatePinnedToCore(
+        ConsoleReadTask,    // Function to call
+        "Console Read",     // Name of task
+        5000,               // Stack size
+        NULL,               // Parameter
+        1,                  // Priority
+        NULL,               // Task handle
+        0                   // Core ID (0)
+    );
+
     g_ConsoleSerial.DisplayConsoleHelp();
 
     // ImuReadTask is deferred to the END of setup() (after CfgWebServerInit,
@@ -546,16 +595,11 @@ void loop()
     // function, again doing nothing. So do serial I/O the old fashioned way.
     // That is, in line with everything else that needs a chance to run.
 
-    // Post-PR #609, loop() drives only g_ConsoleSerial.Read().  EFIS
-    // and boom UART drains moved to EfisReadTask / BoomReadTask on
-    // Core 0.  No PerfScope is opened from here today; the ring binding
-    // that the prior version installed is dropped (it served only to
-    // make the EFIS/Boom PerfScopes attributable, and those scopes
-    // moved with the work).  If a future caller opens a PerfScope from
-    // loop(), restore the bindCurrentTaskToRing(TaskId::ArduinoLoop)
-    // call here.
-
-    g_ConsoleSerial.Read();
+    // The console parser moved off loop() to ConsoleReadTask on Core 0
+    // (loop() runs on Core 1 at the lowest priority and is starved by
+    // ImuReadTask at high IMU rates, which made the console unresponsive at
+    // 416 Hz).  EFIS and boom UART drains had already moved to Core 0 in
+    // PR #609.  loop() now drives nothing; the vTaskDelay below yields it.
 
 #if 0
 
