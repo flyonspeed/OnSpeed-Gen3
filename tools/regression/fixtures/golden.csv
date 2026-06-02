@@ -1,4 +1,4 @@
-ias_kt,palt_ft,oat_c,pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,tone_freq_hz,tone_level
+ias_kt,palt_ft,oat_c,pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,tas_mps,alt_ft,vsi_fpm,earth_vert_g,tone_freq_hz,tone_level
 5.4000,5242.1201,0.0000,-3.1103,0.6021,0.0000,-3.1103,3.0692,5242.1201,0.0000,0.0150,0.0000,0
 6.5000,5249.9102,0.0000,-3.1043,0.6004,0.0000,-3.1043,3.0692,5244.9126,0.0000,0.0226,0.0000,0
 6.9800,5249.9102,0.0000,-3.0961,0.5998,0.0000,-3.0961,3.0692,5246.2349,0.0000,0.0303,0.0000,0

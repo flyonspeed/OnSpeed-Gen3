@@ -288,7 +288,7 @@ enum class OutputFormat { Csv, Jsonl };
 // Output CSV columns (kAhrsToneOutputHeader):
 //   ias_kt,palt_ft,oat_c,
 //   pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,
-//   tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,
+//   tas_mps,alt_ft,vsi_fpm,earth_vert_g,
 //   tone_freq_hz,tone_level
 // ============================================================================
 
@@ -296,7 +296,7 @@ constexpr char kAhrsToneInputHeader[]  = "ias_kt,palt_ft,oat_c,ax,ay,az,gx,gy,gz
 constexpr char kAhrsToneOutputHeader[] =
     "ias_kt,palt_ft,oat_c,"
     "pitch_deg,roll_deg,flight_path_deg,derived_aoa_deg,"
-    "tas_mps,kalman_alt_ft,kalman_vsi_fpm,earth_vert_g,"
+    "tas_mps,alt_ft,vsi_fpm,earth_vert_g,"
     "tone_freq_hz,tone_level";
 
 constexpr onspeed::ToneThresholds kCleanThresholds {
@@ -565,8 +565,8 @@ static int RunAhrsToneSdlog(std::istream& in,
             (double)out.flightPathDeg,
             (double)out.derivedAoaDeg,
             (double)out.tasMps,
-            (double)out.kalmanAltFt,
-            (double)out.kalmanVsiFpm,
+            (double)out.altFt,
+            (double)out.vsiFpm,
             (double)out.earthVertG,
             (double)tone_freq_hz,
             tone_level);
@@ -791,7 +791,7 @@ int CmdAhrsTone(int argc, const char* const* argv)
                 "%.4f,%d\n",
                 r.ias_kt, r.palt_ft, r.oat_c,
                 out.pitchDeg, out.rollDeg, out.flightPathDeg, out.derivedAoaDeg,
-                out.tasMps, out.kalmanAltFt, out.kalmanVsiFpm, out.earthVertG,
+                out.tasMps, out.altFt, out.vsiFpm, out.earthVertG,
                 tone_freq_hz, tone_level);
         } else {
             // JSONL: one JSON object per row. Non-finite floats emit
@@ -805,8 +805,10 @@ int CmdAhrsTone(int argc, const char* const* argv)
             JsonlField("flight_path_deg", out.flightPathDeg, "%.4f");
             JsonlField("derived_aoa_deg", out.derivedAoaDeg, "%.4f");
             JsonlField("tas_mps",         out.tasMps,        "%.4f");
-            JsonlField("kalman_alt_ft",   out.kalmanAltFt,   "%.4f");
-            JsonlField("kalman_vsi_fpm",  out.kalmanVsiFpm,  "%.4f");
+            JsonlField("kalman_alt_ft",   out.altFt,         "%.4f");   // DEPRECATED: emitted for one release, will be removed
+            JsonlField("alt_ft",          out.altFt,         "%.4f");
+            JsonlField("kalman_vsi_fpm",  out.vsiFpm,        "%.4f");   // DEPRECATED: emitted for one release, will be removed
+            JsonlField("vsi_fpm",         out.vsiFpm,        "%.4f");
             JsonlField("earth_vert_g",    out.earthVertG,    "%.4f");
             JsonlField("tone_freq_hz",    tone_freq_hz,      "%.4f");
             std::printf("\"tone_level\":%d}\n", tone_level);
@@ -836,7 +838,7 @@ int CmdAhrsTone(int argc, const char* const* argv)
 //   ias_kt, palt_ft, ias_valid,
 //   aoa_deg, coeff_p,
 //   flaps_pos, flaps_index, flaps_raw_adc, flaps_raw_adc_present,
-//   pitch_deg, roll_deg, flight_path_deg, kalman_vsi_mps,
+//   pitch_deg, roll_deg, flight_path_deg, vsi_mps,
 //   imu_fwd_g, imu_lat_g, imu_vert_g,       (raw IMU passthrough)
 //   imu_roll_dps, imu_pitch_dps, imu_yaw_dps,
 //   accel_lat_smoothed, accel_vert_smoothed, accel_fwd_smoothed,  (EMA-smoothed, wire-shaped)
@@ -867,7 +869,7 @@ constexpr char kReplayEngineOutputHeader[] =
     "ias_kt,palt_ft,ias_valid,"
     "aoa_deg,coeff_p,"
     "flaps_pos,flaps_index,flaps_raw_adc,flaps_raw_adc_present,"
-    "pitch_deg,roll_deg,flight_path_deg,kalman_vsi_mps,"
+    "pitch_deg,roll_deg,flight_path_deg,vsi_mps,"
     "imu_fwd_g,imu_lat_g,imu_vert_g,"
     "imu_roll_dps,imu_pitch_dps,imu_yaw_dps,"
     "accel_lat_smoothed,accel_vert_smoothed,accel_fwd_smoothed,"
@@ -897,7 +899,7 @@ static void EmitCsvRow(const onspeed::replay::ReplayStepResult& r)
         static_cast<double>(r.pitchDeg),
         static_cast<double>(r.rollDeg),
         static_cast<double>(r.flightPathDeg),
-        static_cast<double>(r.kalmanVSI),
+        static_cast<double>(r.vsiMps),
         static_cast<double>(r.imuForwardG),
         static_cast<double>(r.imuLateralG),
         static_cast<double>(r.imuVerticalG),
@@ -928,7 +930,8 @@ static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
     JsonlField("pitch_deg",             r.pitchDeg,          "%.4f");
     JsonlField("roll_deg",              r.rollDeg,           "%.4f");
     JsonlField("flight_path_deg",       r.flightPathDeg,     "%.4f");
-    JsonlField("kalman_vsi_mps",        r.kalmanVSI,         "%.6f");
+    JsonlField("kalman_vsi_mps",        r.vsiMps,            "%.6f");   // DEPRECATED: emitted for one release, will be removed
+    JsonlField("vsi_mps",               r.vsiMps,            "%.6f");
     JsonlField("imu_fwd_g",             r.imuForwardG,       "%.4f");
     JsonlField("imu_lat_g",             r.imuLateralG,       "%.4f");
     JsonlField("imu_vert_g",            r.imuVerticalG,      "%.4f");
