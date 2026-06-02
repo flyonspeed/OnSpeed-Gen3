@@ -332,6 +332,16 @@ void ImuReadTask(void *pvParams)
         g_pIMU->Read();
         xSemaphoreGive(xSensorMutex);
 
+        // Publish the coherent IMU frame so cross-task readers (the SD log
+        // row at low log rates) read a whole accel/gyro frame from this read,
+        // not a triplet torn across the next read. Stamp the read time the
+        // IMU driver doesn't track. ImuReadTask is the sole live IMU writer.
+        {
+            onspeed::ImuSample imuFrame = g_pIMU->Snapshot();
+            imuFrame.timestampUs = uImuReadUs;
+            onspeed::ahrs::g_ImuSnapshot.publish(imuFrame);
+        }
+
         const uint32_t uDtUs = uImuReadUs - uLastImuReadUs;
         uLastImuReadUs = uImuReadUs;
         const float fDtSeconds = (uDtUs > 0) ? (float(uDtUs) * 1.0e-6f) : (1.0f / iSampleRateHz);

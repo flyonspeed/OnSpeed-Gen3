@@ -16,6 +16,7 @@
 
 #include <sensors/IasAlive.h>
 #include "src/drivers/SensorIO.h"
+#include "src/ahrs/ImuSnapshot.h"
 #include <filters/EMAFilter.h>
 #include <proto/LogCsv.h>
 #include <proto/LogCsvHeaderIndex.h>
@@ -347,6 +348,11 @@ static void PublishReplayResult(const onspeed::replay::ReplayStepResult& res)
     // rather than a stale prior frame. LogReplayTask is the sole sensor
     // writer in replay mode, so this publish is single-writer.
     g_Sensors.PublishSnapshot();
+
+    // Publish the raw IMU frame (g_pIMU->Ax..Gz written above) so the SD log
+    // row reads the replayed IMU from g_ImuSnapshot. Same single-writer
+    // reasoning — LogReplayTask is the sole IMU writer in replay mode.
+    onspeed::ahrs::g_ImuSnapshot.publish(g_pIMU->Snapshot());
     }
 
 // ----------------------------------------------------------------------------
