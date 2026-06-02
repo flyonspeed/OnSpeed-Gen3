@@ -805,9 +805,7 @@ int CmdAhrsTone(int argc, const char* const* argv)
             JsonlField("flight_path_deg", out.flightPathDeg, "%.4f");
             JsonlField("derived_aoa_deg", out.derivedAoaDeg, "%.4f");
             JsonlField("tas_mps",         out.tasMps,        "%.4f");
-            JsonlField("kalman_alt_ft",   out.altFt,         "%.4f");   // DEPRECATED: emitted for one release, will be removed
             JsonlField("alt_ft",          out.altFt,         "%.4f");
-            JsonlField("kalman_vsi_fpm",  out.vsiFpm,        "%.4f");   // DEPRECATED: emitted for one release, will be removed
             JsonlField("vsi_fpm",         out.vsiFpm,        "%.4f");
             JsonlField("earth_vert_g",    out.earthVertG,    "%.4f");
             JsonlField("tone_freq_hz",    tone_freq_hz,      "%.4f");
@@ -930,7 +928,6 @@ static void EmitJsonlRow(const onspeed::replay::ReplayStepResult& r)
     JsonlField("pitch_deg",             r.pitchDeg,          "%.4f");
     JsonlField("roll_deg",              r.rollDeg,           "%.4f");
     JsonlField("flight_path_deg",       r.flightPathDeg,     "%.4f");
-    JsonlField("kalman_vsi_mps",        r.vsiMps,            "%.6f");   // DEPRECATED: emitted for one release, will be removed
     JsonlField("vsi_mps",               r.vsiMps,            "%.6f");
     JsonlField("imu_fwd_g",             r.imuForwardG,       "%.4f");
     JsonlField("imu_lat_g",             r.imuLateralG,       "%.4f");

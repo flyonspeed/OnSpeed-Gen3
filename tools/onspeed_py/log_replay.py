@@ -209,12 +209,8 @@ def _to_live_snapshot(raw: dict, *,
         lat_g  = float(raw.get('imu_lat_g', 0.0))
         vert_g = float(raw.get('imu_vert_g', 1.0))
 
-    # vsi_mps → fpm (1 m/s = 196.8504 fpm); fall back to legacy
-    # `kalman_vsi_mps` key while host_main still emits the alias.
-    vsi_mps_raw = raw.get('vsi_mps')
-    if vsi_mps_raw is None:
-        vsi_mps_raw = raw.get('kalman_vsi_mps', 0.0)
-    vsi_fpm = float(vsi_mps_raw) * 196.8504
+    # vsi_mps → fpm (1 m/s = 196.8504 fpm)
+    vsi_fpm = float(raw.get('vsi_mps', 0.0)) * 196.8504
 
     return LiveSnapshot(
         t           = t,

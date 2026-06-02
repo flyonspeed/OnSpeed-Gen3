@@ -391,48 +391,6 @@ def test_ahrs_tone_jsonl_output():
         assert "tone_level" in obj
 
 
-def test_ahrs_tone_jsonl_emits_deprecated_kalman_aliases():
-    """Pin the one-release deprecation aliases on the alt/vsi JSONL fields.
-
-    host_main.cpp emits both the new (`alt_ft`, `vsi_fpm`) and the legacy
-    (`kalman_alt_ft`, `kalman_vsi_fpm`) keys so downstream consumers
-    (notably tools/onspeed_py/log_replay.py) can migrate without breaking.
-
-    REMOVE THIS TEST when the deprecated `kalman_*` emissions are dropped.
-    The companion fallback in tools/onspeed_py/log_replay.py
-    (`raw.get('vsi_mps') or raw.get('kalman_vsi_mps')`) should be deleted
-    at the same time. Tracked in the deprecation-removal issue filed
-    alongside the rename PR.
-    """
-    if not SHORT_REPLAY.exists():
-        pytest.skip(f"short_replay.csv not found: {SHORT_REPLAY}")
-    r = run([
-        "ahrs_tone",
-        "--input", str(SHORT_REPLAY),
-        "--output-format", "jsonl",
-    ])
-    assert r.returncode == 0
-    lines = r.stdout.strip().splitlines()
-    assert len(lines) > 0
-    obj = json.loads(lines[0])
-    # New names — these are the long-term keys.
-    assert "alt_ft" in obj
-    assert "vsi_fpm" in obj
-    # Deprecated aliases — must remain until the one-release migration
-    # window closes. If you delete these emissions in host_main.cpp,
-    # delete this test in the same PR.
-    assert "kalman_alt_ft" in obj, (
-        "deprecated alias kalman_alt_ft is missing — if intentional, "
-        "delete this test and the Python fallback in log_replay.py"
-    )
-    assert "kalman_vsi_fpm" in obj, (
-        "deprecated alias kalman_vsi_fpm is missing — see test docstring"
-    )
-    # Values must match — the alias points at the same float.
-    assert obj["alt_ft"] == obj["kalman_alt_ft"]
-    assert obj["vsi_fpm"] == obj["kalman_vsi_fpm"]
-
-
 def test_ahrs_tone_jsonl_same_row_count_as_csv():
     """JSONL mode must produce the same number of rows as CSV mode."""
     if not SHORT_REPLAY.exists():
@@ -592,34 +550,6 @@ def test_replay_log_rate_cli_validation():
             f"error message for --log-rate {invalid!r} should mention valid values; "
             f"stderr={r.stderr!r}"
         )
-
-
-def test_replay_jsonl_emits_deprecated_kalman_vsi_mps_alias():
-    """Pin the one-release `kalman_vsi_mps` deprecation alias on the replay
-    subcommand's JSONL output.
-
-    REMOVE THIS TEST when the deprecated `kalman_vsi_mps` emission is dropped
-    from `EmitJsonlRow` in tools/regression/host_main.cpp. Companion changes
-    at that time: delete the fallback in tools/onspeed_py/log_replay.py
-    (`raw.get('vsi_mps') or raw.get('kalman_vsi_mps')`).
-    """
-    if not REPLAY_ENGINE_INPUT.exists():
-        pytest.skip(f"replay_engine_input.csv not found: {REPLAY_ENGINE_INPUT}")
-    r = run([
-        "replay",
-        "--input", str(REPLAY_ENGINE_INPUT),
-        "--output-format", "jsonl",
-    ])
-    assert r.returncode == 0, f"replay --output-format jsonl rc={r.returncode}, stderr={r.stderr!r}"
-    lines = r.stdout.strip().splitlines()
-    assert len(lines) > 0
-    obj = json.loads(lines[0])
-    assert "vsi_mps" in obj
-    assert "kalman_vsi_mps" in obj, (
-        "deprecated alias kalman_vsi_mps is missing — if intentional, "
-        "delete this test and the Python fallback in log_replay.py"
-    )
-    assert obj["vsi_mps"] == obj["kalman_vsi_mps"]
 
 
 if __name__ == "__main__":

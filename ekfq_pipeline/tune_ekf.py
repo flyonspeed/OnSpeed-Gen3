@@ -560,11 +560,11 @@ def make_objective_host_main(
         ones  = np.ones(n_out,  dtype=np.float32)
         ones_bool = np.ones(n_out, dtype=bool)
 
-        # +climb is convention in PipelineQuat; +down in NED; kalman_vsi_fpm
+        # +climb is convention in PipelineQuat; +down in NED; vsi_fpm
         # is +climb (firmware convention). Convert fpm→m/s and flip to +down.
-        vsi_fpm = df_out["kalman_vsi_fpm"].to_numpy(dtype=np.float32)
+        vsi_fpm = df_out["vsi_fpm"].to_numpy(dtype=np.float32)
         vz_mps_arr = -vsi_fpm * 0.00508    # fpm→m/s = *0.3048/60 = *0.00508
-        z_m_arr = df_out["kalman_alt_ft"].to_numpy(dtype=np.float32) * 0.3048
+        z_m_arr = df_out["alt_ft"].to_numpy(dtype=np.float32) * 0.3048
 
         history = {
             "pitch_deg":  df_out["pitch_deg"].to_numpy(dtype=np.float32),
