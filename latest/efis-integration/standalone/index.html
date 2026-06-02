@@ -3700,7 +3700,7 @@
 <ul>
 <li><strong>AOA measurement</strong> — the pressure sensors and IMU provide AOA data independently</li>
 <li><strong>IAS computation</strong> — from the onboard pitot pressure sensor</li>
-<li><strong>Pressure altitude</strong> — from the static pressure sensor, ISA 1013.25 hPa reference, Kalman-filtered. (No Kollsman/QNH correction; this is not panel-altimeter altitude.)</li>
+<li><strong>Pressure altitude</strong> — from the static pressure sensor, ISA 1013.25 hPa reference, smoothed by the AHRS algorithm's vertical channel. (No Kollsman/QNH correction; this is not panel-altimeter altitude.)</li>
 <li><strong>Audio tones</strong> — fully functional</li>
 <li><strong>SD card logging</strong> — all OnSpeed sensor data is logged</li>
 <li><strong>WiFi configuration</strong> — fully functional</li>

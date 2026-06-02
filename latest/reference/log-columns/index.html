@@ -3865,12 +3865,12 @@
 <tr>
 <td><code>VSI</code></td>
 <td>fpm</td>
-<td>Vertical speed (Kalman filtered)</td>
+<td>Vertical speed, smoothed by the active AHRS algorithm's vertical channel</td>
 </tr>
 <tr>
 <td><code>Altitude</code></td>
 <td>ft</td>
-<td>Pressure altitude, Kalman-filtered. Same quantity as <code>Palt</code>, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction.</td>
+<td>Pressure altitude, smoothed by the active AHRS algorithm's vertical channel. Same quantity as <code>Palt</code>, smoothed with vertical accel. Not MSL — ISA reference, no Kollsman/QNH correction.</td>
 </tr>
 <tr>
 <td><code>DerivedAOA</code></td>

@@ -3976,7 +3976,7 @@
 <h2 id="design-intent">Design intent<a class="headerlink" href="#design-intent" title="Permanent link">&para;</a></h2>
 <p>The WebSocket is the LiveView's data path, paralleling the <a href="../serial-protocol/">display serial protocol</a> that feeds the M5 secondary display. The two paths share the same <code>percent-lift</code> contract — <code>percentLift</code>, <code>tonesOnPctLift</code>, <code>onSpeedFastPctLift</code>, <code>onSpeedSlowPctLift</code>, <code>stallWarnPctLift</code>, <code>pipPctLift</code> are computed by the same firmware code (<code>onspeed_core::ComputePercentLift</code> + <code>ComputeDisplayPctAnchors</code>). The JSON formats <code>percentLift</code> as <code>%.1f</code> (rounded to one decimal); the wire encodes <code>int(pct × 10)</code> in <code>%03u</code> (truncated to one decimal). Consumers reading either transport reconstruct a whole-percent float; the two reconstructions agree to within 0.1% — the wire's tenths-of-a-percent quantization is the resolution limit, and the truncate-vs-round encoding choice at each boundary can produce a sub-tenth difference on the same source AOA. The four band-edge anchors stay integer-percent on both paths. A shared indexer renderer can run identically off either transport at the granularity that matters for visual rendering.</p>
 <p>The encodings differ deliberately. The display serial path is a fixed-offset ASCII frame designed for a low-bandwidth UART to a hardware panel display; bandwidth and parsing simplicity matter, and adding a field is a hard protocol change that requires re-flashing both ends. The WebSocket path is JSON over TCP/WebSocket text frames, designed for browser and software consumers; bandwidth is plentiful, parsing is <code>JSON.parse()</code>, and adding a field is a soft change because old consumers ignore unknown keys.</p>
-<p>The WebSocket carries a few fields the display serial does not: body-angle <code>AOA</code> (degrees) and <code>DerivedAOA</code> for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (<code>kalmanVSI</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>flapIndex</code>). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.</p>
+<p>The WebSocket carries a few fields the display serial does not: body-angle <code>AOA</code> (degrees) and <code>DerivedAOA</code> for the LiveView's numeric corner readouts, plus LiveView-specific instrumentation (<code>vsiFpm</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>flapIndex</code>). These have no place on a hardware panel render but are useful for browser overlays, debugging consumers, and any future tool that wants to compare body angle to its derived counterparts.</p>
 <h2 id="physical-layer">Physical layer<a class="headerlink" href="#physical-layer" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -4071,7 +4071,7 @@
 <a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span><span class="nt">&quot;flapIndex&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
 <a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span><span class="nt">&quot;coeffP&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.85</span><span class="p">,</span>
 <a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span><span class="nt">&quot;dataMark&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">12</span><span class="p">,</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="nt">&quot;kalmanVSI&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-50.30</span><span class="p">,</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span><span class="nt">&quot;vsiFpm&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-50.30</span><span class="p">,</span>
 <a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">  </span><span class="nt">&quot;flightPath&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.40</span><span class="p">,</span>
 <a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">  </span><span class="nt">&quot;PitchRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.10</span><span class="p">,</span>
 <a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">  </span><span class="nt">&quot;DecelRate&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">-0.15</span><span class="p">,</span>
@@ -4154,13 +4154,13 @@
 <td><code>PAlt</code></td>
 <td>float</td>
 <td>feet</td>
-<td>Pressure altitude. From <code>g_AHRS.KalmanAlt</code> (Kalman-filtered, in metres) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode.</td>
+<td>Pressure altitude. From <code>g_AHRS.AltMeters</code> (smoothed by the active AHRS algorithm's vertical channel) converted to feet. Always sourced from OnSpeed regardless of calibration-source mode.</td>
 </tr>
 <tr>
-<td><code>kalmanVSI</code></td>
+<td><code>vsiFpm</code></td>
 <td>float</td>
 <td>feet/min</td>
-<td>Vertical speed. <strong>Despite the name</strong>, this is <code>g_AHRS.KalmanVSI</code> in both internal mode and non-VN-300 EFIS mode; only in VN-300 mode does it become VN-300's <code>-VelNedDown</code> (NED-down velocity, sign-inverted to make positive = climb). The non-VN-300 EFIS mode does not use the EFIS's own VSI here.</td>
+<td>Vertical speed. Source-selected per <code>CALWIZ_SOURCE</code>: VN-300 mode uses VN-300's <code>-VelNedDown</code> (NED-down velocity, sign-inverted so positive = climb); non-VN-300 EFIS mode uses the EFIS's VSI (<code>g_EfisSerial.suEfis.VSI</code>); internal mode uses <code>g_AHRS.VsiMps</code> (smoothed by the active AHRS algorithm's vertical channel).</td>
 </tr>
 <tr>
 <td><code>OAT</code></td>
@@ -4361,7 +4361,7 @@
 <td>Air-data fields the producer can't honestly emit when the pitot-side validity flag (<code>bIasAlive</code>, hysteresis 20 kt rising / 15 kt falling) is false. Consumers <code>typeof === 'number'</code> before reading; null falls through to N/A renderings.</td>
 </tr>
 <tr>
-<td><code>Pitch</code>, <code>Roll</code>, <code>kalmanVSI</code>, <code>flightPath</code>, <code>verticalGLoad</code>, <code>OAT</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>lateralGLoad</code>, <code>PAlt</code></td>
+<td><code>Pitch</code>, <code>Roll</code>, <code>vsiFpm</code>, <code>flightPath</code>, <code>verticalGLoad</code>, <code>OAT</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code>, <code>lateralGLoad</code>, <code>PAlt</code></td>
 <td><code>0.0f</code> fallback on NaN (still numeric)</td>
 <td>0 is a physically meaningful reading for these fields (level pitch, no roll, no climb, etc.), so the fallback won't be confused with real data the way a numeric AOA fallback would be.</td>
 </tr>
@@ -4440,7 +4440,7 @@
 <td>yes in JSON (<code>DerivedAOA</code>) — for advanced overlays / debug</td>
 </tr>
 <tr>
-<td><code>kalmanVSI</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
+<td><code>vsiFpm</code>, <code>coeffP</code>, <code>PitchRate</code>, <code>DecelRate</code></td>
 <td>not on wire</td>
 <td>yes in JSON — LiveView-specific instrumentation</td>
 </tr>
