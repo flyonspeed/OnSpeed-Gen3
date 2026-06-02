@@ -1,9 +1,6 @@
 
 #pragma once
 
-// For OAT OneWire
-#include <OneWire.h>            //https://github.com/PaulStoffregen/OneWire
-
 #include "src/Globals.h"
 #include "src/drivers/Ds18b20.h"
 
@@ -70,7 +67,6 @@ public:
 
     AOACalculator       AoaCalc;        // AOA calculation with smoothing
 
-    OneWire             OneWireBus;
     Ds18b20             OatSensor;
 
     float               PStatic;        // Static pressure in millibars

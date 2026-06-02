@@ -1,65 +1,58 @@
-// Ds18b20.h — minimal sketch-side driver for a single DS18B20 on a
-// shared OneWire bus.
-//
-// Replaces the 240K Arduino-Temperature-Control-Library for the one
-// thing OnSpeed actually needs: one OAT sensor, no ROM addressing
-// (skip-ROM is fine on a single-device bus), 12-bit resolution,
-// non-blocking conversion.
-//
-// The pure scratchpad-to-Celsius decode lives in
-// onspeed_core/src/sensors/Ds18b20Decode.h and is natively tested.
-// This class only owns the on-the-wire protocol:
-//
-//   * Begin(bits)       — program the resolution configuration byte.
-//   * RequestConversion — non-blocking kick of a temperature measurement.
-//   * ReadCelsius       — read the 9-byte scratchpad and decode.
-//
-// Single-sensor assumption: every command uses skip-ROM (0xCC). A bus
-// with two DS18B20s would garble — add ROM addressing if you ever
-// need that (OnSpeed Gen3 has exactly one).
-//
-// External-power assumption: the OAT sensor is wired with an external
-// VDD supply, not parasite power. The Convert-T kick in
-// RequestConversion() does NOT assert a strong pullup during the
-// 750 ms conversion window, which a parasite-powered sensor would
-// require. If a future hardware variant ever switches to parasite
-// power, RequestConversion must pass `power=1` on the Convert-T
-// write and drive the bus high for the conversion window.
-
 #pragma once
 
 #include <cstdint>
 
-class OneWire;
+#include <onewire_bus.h>
+#include <ds18b20.h>
+
+// Minimal sketch-side driver for a single externally-powered DS18B20
+// on its own 1-Wire bus, backed by the ESP-IDF RMT onewire_bus +
+// ds18b20 managed components. The RMT peripheral times every 1-Wire
+// slot in hardware, so the transaction is immune to scheduler
+// preemption — unlike the prior bit-bang driver, whose inter-bit
+// delays ran at task priority and let the equal-priority IMU task
+// stretch slots until clone sensors faulted.
+//
+// Single-device assumption: Begin() searches the bus and binds to the
+// first DS18B20 found. A second device on the bus is ignored.
+//
+// External-power assumption: the OAT sensor has its own VDD; the
+// Convert-T kick does not assert a strong pullup for the conversion
+// window. Parasite power would require additional bus-hold handling.
+//
+// The pure scratchpad-to-Celsius decode and CRC validation still live
+// in onspeed_core/src/sensors/Ds18b20Decode.h (natively tested) but
+// are no longer on the device read path — the ds18b20 component owns
+// the on-wire CRC. Any component error maps to
+// onspeed::sensors::kDs18b20DisconnectedC (-127.0f), preserving the
+// downstream FilterOat / hold-last-good behavior byte-for-byte.
 
 class Ds18b20
 {
 public:
-    explicit Ds18b20(OneWire& bus) : bus_(bus) {}
+    explicit Ds18b20(int gpioPin) : pin_(gpioPin) {}
 
-    // Program the scratchpad's configuration byte for the requested
-    // bit-resolution (9..12). Returns true when the bus reset
-    // acknowledged (a device was present); false when the bus is open.
+    // Install the RMT 1-Wire bus, search for the DS18B20, and program
+    // the requested bit-resolution (9..12). Returns true when a
+    // DS18B20 was found and configured; false on any failure.
     bool Begin(int bits);
 
     // Start a temperature conversion. Non-blocking — returns as soon
-    // as the convert-T command has been written. The caller waits
-    // ~750 ms (12-bit) before calling ReadCelsius().
-    // Returns true when the bus reset acknowledged.
+    // as the convert command is issued. Returns true on success.
     bool RequestConversion();
 
-    // Read the scratchpad and decode. Returns Celsius on success,
-    // or onspeed::sensors::kDs18b20DisconnectedC (-127.0f) when the
-    // scratchpad is all-zero or fails CRC.
+    // Read the most-recent conversion result. Returns Celsius on
+    // success, or onspeed::sensors::kDs18b20DisconnectedC (-127.0f)
+    // on any component error (timeout, CRC, not initialized).
     float ReadCelsius();
 
-    // One-shot synchronous read: RequestConversion, delay 750ms for
-    // 12-bit, ReadCelsius. Only safe to call before the FreeRTOS
-    // scheduler starts or when blocking the caller for 750ms is
-    // acceptable (e.g. startup priming). Async operation uses
-    // RequestConversion + timed ReadCelsius instead.
+    // One-shot synchronous read: RequestConversion, delay 750 ms for
+    // 12-bit, ReadCelsius. Only safe before the FreeRTOS scheduler
+    // starts or when blocking 750 ms is acceptable (startup priming).
     float BlockingReadCelsius();
 
 private:
-    OneWire& bus_;
+    int                      pin_;
+    onewire_bus_handle_t     bus_ = nullptr;
+    ds18b20_device_handle_t  dev_ = nullptr;
 };
