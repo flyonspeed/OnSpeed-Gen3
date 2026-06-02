@@ -24,5 +24,11 @@
   "onSpeedFastPctLift": 36,
   "onSpeedSlowPctLift": 58,
   "stallWarnPctLift": 85,
-  "pipPctLift": 24
+  "pipPctLift": 24,
+  "ekfBpDps": 0.0012,
+  "ekfBqDps": -0.0008,
+  "ekfBrDps": 0.0021,
+  "ekfBAzMps2": -0.0345,
+  "ekfBetaDeg": 0.12,
+  "ekfYawDeg": 287.45
 }

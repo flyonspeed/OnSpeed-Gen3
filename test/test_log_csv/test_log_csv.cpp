@@ -172,6 +172,17 @@ static LogRow MakeTestRow(bool boom = false, bool efis = false, bool vn300 = fal
     r.derivedAoaDeg  = 5.1234f;
     r.coeffP         = 0.3456f;
 
+    // EKFQ-diagnostic columns: distinct finite values so the round-trip
+    // catches column-order regressions.  Negative values exercise the
+    // sign path.  NaN-handling is covered by a dedicated test below
+    // (test_ekfq_diag_nan_roundtrip).
+    r.ekfBpDps   =  0.0123f;
+    r.ekfBqDps   = -0.0456f;
+    r.ekfBrDps   =  0.0789f;
+    r.ekfBAzMps2 = -0.1234f;
+    r.ekfBetaDeg =  0.45f;
+    r.ekfYawDeg  = 123.45f;
+
     return r;
 }
 
@@ -304,6 +315,18 @@ static void AssertRoundTrip(const LogRow& original)
     TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.altitudeFt,     parsed.altitudeFt);
     TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.derivedAoaDeg,  parsed.derivedAoaDeg);
     TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.coeffP,         parsed.coeffP);
+
+    // EKFQ-diagnostic columns (always present in format v6).  Finite
+    // values must round-trip; the dedicated NaN test covers the
+    // Madgwick-path branch.
+    if (std::isfinite(original.ekfBpDps)) {
+        TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.ekfBpDps,   parsed.ekfBpDps);
+        TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.ekfBqDps,   parsed.ekfBqDps);
+        TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.ekfBrDps,   parsed.ekfBrDps);
+        TEST_ASSERT_FLOAT_WITHIN(kTolAoa, original.ekfBAzMps2, parsed.ekfBAzMps2);
+        TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.ekfBetaDeg, parsed.ekfBetaDeg);
+        TEST_ASSERT_FLOAT_WITHIN(kTolLow, original.ekfYawDeg,  parsed.ekfYawDeg);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -530,6 +553,85 @@ void test_roundtrip_boom_and_efis(void)
 {
     LogRow original = MakeTestRow(true, true, false);
     AssertRoundTrip(original);
+}
+
+// ============================================================================
+// Test: EKFQ-diagnostic columns
+// ============================================================================
+
+void test_header_ekfq_diag_columns_present(void)
+{
+    // Format-v6 EKFQ-diagnostic columns are always-present, regardless of
+    // active algorithm — the row carries NaN under Madgwick.
+    LogRow r;
+    size_t len = csv::WriteHeader(r, s_hdrBuf, sizeof(s_hdrBuf));
+    TEST_ASSERT_GREATER_THAN(0u, len);
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfBpDps"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfBqDps"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfBrDps"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfBAzMps2"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfBetaDeg"));
+    TEST_ASSERT_NOT_NULL(strstr(s_hdrBuf, "ekfYawDeg"));
+}
+
+void test_ekfq_diag_nan_roundtrip(void)
+{
+    // Madgwick path: AHRS::PublishSnapshot leaves the EKFQ-diagnostic
+    // fields at their NaN defaults; LogSensor copies them as-is; FormatRow
+    // emits "nan"; the parser strtof("nan") -> NaN; the parsed LogRow's
+    // matching fields must compare as NaN at the end of the round trip.
+    LogRow original;   // defaults: ekfBpDps etc. = NaN
+    original.efisEnabled = false;
+    original.boomEnabled = false;
+    original.flapsRawAdcPresent = false;
+
+    size_t hdrLen = csv::WriteHeader(original, s_hdrBuf, sizeof(s_hdrBuf));
+    TEST_ASSERT_GREATER_THAN(0u, hdrLen);
+    size_t fmtLen = csv::FormatRow(original, s_rowBuf, sizeof(s_rowBuf));
+    TEST_ASSERT_GREATER_THAN(0u, fmtLen);
+
+    // The formatted row must end with six "nan" tokens (the EKFQ-diag
+    // columns).  Search backwards from end of row.
+    s_rowBuf[fmtLen] = '\0';
+    TEST_ASSERT_NOT_NULL(strstr(s_rowBuf, "nan,nan,nan,nan,nan,nan"));
+
+    LogRow parsed;
+    bool ok = ParseRowViaIndex(std::string_view(s_hdrBuf, hdrLen),
+                               std::string_view(s_rowBuf, fmtLen), parsed);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBpDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBqDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBrDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBAzMps2));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBetaDeg));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfYawDeg));
+}
+
+void test_ekfq_diag_old_log_without_columns_defaults_to_nan(void)
+{
+    // Pre-v6 logs lack the ekf* columns.  Build a header that omits
+    // them, feed a row body the parser must still accept, and verify
+    // the LogRow's ekf* fields stay at their NaN default (TakeFloat
+    // returns true when idx == -1 and leaves the destination unchanged).
+    const char* hdr =
+        "timeStamp,timeStampUs,Pfwd,PfwdSmoothed,P45,P45Smoothed,PStatic,Palt,"
+        "IAS,AngleofAttack,flapsPos,DataMark,OAT,TAS,imuTemp,VerticalG,LateralG,"
+        "ForwardG,RollRate,PitchRate,YawRate,Pitch,Roll,"
+        "EarthVerticalG,FlightPath,VSI,Altitude,DerivedAOA,CoeffP";
+    const char* rowLine =
+        "1000,1000000,0,0.00,2,2.00,900.00,1000.00,80.00,5.00,0,0,15.00,90.00,"
+        "30.00,1.0,0.0,0.0,0.0,0.0,0.0,2.5,-1.25,"
+        "0.98,-1.50,-300.00,1000.00,5.1234,0.3456";
+
+    LogRow parsed;
+    bool ok = ParseRowViaIndex(std::string_view(hdr), std::string_view(rowLine), parsed);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBpDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBqDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBrDps));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBAzMps2));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfBetaDeg));
+    TEST_ASSERT_TRUE(std::isnan(parsed.ekfYawDeg));
 }
 
 // ============================================================================
@@ -1050,12 +1152,16 @@ void test_trailing_crlf_tolerated(void)
 // Fixture rows regenerated for the `timeStampUs` column (issue #551).
 // The synthetic µs values here are `timeStampMs * 1000` for each row;
 // real-firmware rows will have independent µs from esp_timer_get_time().
+// Each fixture row ends with the format-v6 EKFQ-diagnostic tail
+// (`,nan,nan,nan,nan,nan,nan` — the Madgwick path produces NaN there;
+// the parser round-trips NaN; FormatRow emits "nan" for NaN; byte-for-byte
+// match preserved).
 static const char* kFixtureRows[] = {
-    "2094,2094000,0,0.00,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,0.00,11.57,1.017090,0.009033,-0.049561,0.054282,-0.307396,-0.183381,1.09,-0.32,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2092,2,0.02,0.00,0.00,5235.73,1.0939,0.0000",
-    "2115,2115000,2,0.50,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,3.45,11.57,1.019531,0.009766,-0.048584,0.091666,-0.157860,-0.101136,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2113,2,0.02,0.00,0.00,5235.54,1.1150,4.0000",
-    "2134,2134000,2,1.00,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,3.45,11.57,1.019531,0.011475,-0.049561,0.061758,-0.217675,0.063353,1.14,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2132,2,0.02,0.00,0.00,5240.78,1.1434,2.0000",
-    "2153,2153000,2,1.25,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,4.45,11.57,1.026855,0.009277,-0.052002,0.039328,-0.210198,0.025969,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2152,2,0.03,0.00,0.00,5242.81,1.1152,1.6000",
-    "2174,2174000,2,1.40,5,2.00,834.76,5234.33,4.03,-20.00,0,0,0.00,4.45,11.57,1.025635,0.009033,-0.052734,0.001944,-0.180291,0.085784,1.09,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2172,2,0.03,0.00,0.00,5240.60,1.0866,1.4286",
+    "2094,2094000,0,0.00,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,0.00,11.57,1.017090,0.009033,-0.049561,0.054282,-0.307396,-0.183381,1.09,-0.32,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2092,2,0.02,0.00,0.00,5235.73,1.0939,0.0000,nan,nan,nan,nan,nan,nan",
+    "2115,2115000,2,0.50,2,2.00,834.51,5242.12,3.12,-20.00,0,0,0.00,3.45,11.57,1.019531,0.009766,-0.048584,0.091666,-0.157860,-0.101136,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2113,2,0.02,0.00,0.00,5235.54,1.1150,4.0000,nan,nan,nan,nan,nan,nan",
+    "2134,2134000,2,1.00,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,3.45,11.57,1.019531,0.011475,-0.049561,0.061758,-0.217675,0.063353,1.14,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2132,2,0.02,0.00,0.00,5240.78,1.1434,2.0000,nan,nan,nan,nan,nan,nan",
+    "2153,2153000,2,1.25,2,2.00,834.51,5242.12,4.03,-20.00,0,0,0.00,4.45,11.57,1.026855,0.009277,-0.052002,0.039328,-0.210198,0.025969,1.12,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2152,2,0.03,0.00,0.00,5242.81,1.1152,1.6000,nan,nan,nan,nan,nan,nan",
+    "2174,2174000,2,1.40,5,2.00,834.76,5234.33,4.03,-20.00,0,0,0.00,4.45,11.57,1.025635,0.009033,-0.052734,0.001944,-0.180291,0.085784,1.09,-0.33,0.00,0.00,0.00,0.00,0.00,0,0,0,0.00,0.00,0.00,0.00,0.00,0,0,-1,2172,2,0.03,0.00,0.00,5240.60,1.0866,1.4286,nan,nan,nan,nan,nan,nan",
 };
 
 static constexpr int kFixtureRowCount = 5;
@@ -1245,6 +1351,9 @@ int main(int, char**)
     RUN_TEST(test_flaps_raw_adc_overflow_returns_false);
 
     // Issue #182: sign flip
+    RUN_TEST(test_header_ekfq_diag_columns_present);
+    RUN_TEST(test_ekfq_diag_nan_roundtrip);
+    RUN_TEST(test_ekfq_diag_old_log_without_columns_defaults_to_nan);
     RUN_TEST(test_pitch_rate_sign_flip_in_format_row);
     RUN_TEST(test_pitch_rate_roundtrip_preserves_raw_value);
 

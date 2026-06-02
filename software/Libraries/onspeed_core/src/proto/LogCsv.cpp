@@ -338,6 +338,13 @@ size_t WriteHeader(const onspeed::LogRow& row, char* out, size_t outCapacity)
     ok &= Appendf(out, outCapacity, &len, ",EarthVerticalG,FlightPath,VSI,Altitude");
     ok &= Appendf(out, outCapacity, &len, ",DerivedAOA,CoeffP");
 
+    // EKFQ-diagnostic columns (format version 6+).  Always emitted; the
+    // values are NaN-as-"nan" under Madgwick (which doesn't estimate these
+    // states) and finite under EKFQ.  Placed before flapsRawADC so the
+    // tail-optional column stays last.
+    ok &= Appendf(out, outCapacity, &len,
+        ",ekfBpDps,ekfBqDps,ekfBrDps,ekfBAzMps2,ekfBetaDeg,ekfYawDeg");
+
     // Tail-optional: emit only when this session captures the raw flap-pot
     // ADC.  Placed last so older logs (without the column) parse byte-for-byte
     // identically against the same FormatRow output.
@@ -488,6 +495,20 @@ size_t FormatRow(const onspeed::LogRow& row, char* out, size_t outCapacity)
     // DerivedAOA, CoeffP — 4 decimal places.
     ok &= CommaFloat(out, outCapacity, &len, row.derivedAoaDeg, 4);
     ok &= CommaFloat(out, outCapacity, &len, row.coeffP,        4);
+
+    // EKFQ-diagnostic columns (format version 6+).  AppendFloatFixed
+    // emits "nan" for NaN values, which is what the Madgwick path
+    // produces (LogRow defaults to NaN; nothing overwrites it).
+    //   gyro biases @ %.4f deg/s — typical magnitudes <0.5 deg/s, want
+    //     subdegree-per-minute resolution
+    //   b_az @ %.4f m/s²        — same precision rationale
+    //   beta/yaw @ %.2f deg     — match other angular columns
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfBpDps,   4);
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfBqDps,   4);
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfBrDps,   4);
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfBAzMps2, 4);
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfBetaDeg, 2);
+    ok &= CommaFloat(out, outCapacity, &len, row.ekfYawDeg,  2);
 
     if (row.flapsRawAdcPresent)
         ok &= CommaUInt32(out, outCapacity, &len, row.flapsRawAdc);

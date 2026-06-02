@@ -41,6 +41,9 @@
 //   EarthVerticalG, FlightPath, VSI, Altitude,
 //   DerivedAOA, CoeffP,
 //
+//   ekfBpDps, ekfBqDps, ekfBrDps, ekfBAzMps2, ekfBetaDeg, ekfYawDeg,
+//     (EKFQ-diagnostic columns; finite under EKFQ, "nan" under Madgwick)
+//
 //   [if flapsRawAdcPresent]
 //   flapsRawADC      (raw flap-pot ADC counts; uint16)
 //
@@ -88,7 +91,13 @@ namespace onspeed::proto::log_csv {
 // VN-300 column group (wind triangle derived from GnssVelNed + VN-300 yaw +
 // ownship TAS).  All three columns are optional within the VN-300 group;
 // the header-index parser tolerates absence in older logs.
-inline constexpr int kFormatVersion = 5;
+// Version 6: added `ekfBpDps`, `ekfBqDps`, `ekfBrDps`, `ekfBAzMps2`,
+// `ekfBetaDeg`, `ekfYawDeg` — EKFQ-diagnostic columns (gyro biases,
+// vertical accel bias, sideslip, yaw). Finite when iAhrsAlgorithm=EKFQ;
+// NaN-emitted-as-"nan" when iAhrsAlgorithm=Madgwick. The header-index
+// parser tolerates absence in older logs (the fields stay at their NaN
+// default on the LogRow).
+inline constexpr int kFormatVersion = 6;
 
 // Conservative upper bounds for the two output buffers.
 // Both are sized to accommodate the VN-300 variant, which is the widest row.

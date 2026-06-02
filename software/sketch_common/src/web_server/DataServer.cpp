@@ -57,7 +57,14 @@ unsigned long   lNextMillis = 0;
 
 void DataServerPoll()
     {
-    char            szLiveDataJson[512];
+    // Sized for the worst-case compacted LiveView JSON frame.  Today's
+    // emit set (incl. the EKFQ-diagnostic fields added in PR #678) hits
+    // ~590 bytes when every numeric field renders at its maximum width,
+    // ~559 bytes on the Madgwick path where the EKFQ-diag fields emit
+    // `null`.  Typical cruise frames are ~430-460 bytes; the headroom
+    // keeps us from emitting `{}` on edge-case ticks.  See websocket-
+    // protocol.md for the per-field width breakdown.
+    char            szLiveDataJson[1024];
 
     DataServer.loop();
 
@@ -355,7 +362,9 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         "\"PitchRate\":%.2f,\"DecelRate\":%s,\"OAT\":%.2f,\"DerivedAOA\":%s,"
         "\"gOnsetRate\":%.2f,"
         "\"percentLift\":%s,\"tonesOnPctLift\":%i,\"onSpeedFastPctLift\":%i,"
-        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i}";
+        "\"onSpeedSlowPctLift\":%i,\"stallWarnPctLift\":%i,\"pipPctLift\":%i,"
+        "\"ekfBpDps\":%s,\"ekfBqDps\":%s,\"ekfBrDps\":%s,"
+        "\"ekfBAzMps2\":%s,\"ekfBetaDeg\":%s,\"ekfYawDeg\":%s}";
 
     // Ensure JSON never contains invalid numeric tokens like "nan"/"inf".
     fWifiPitch      = SafeJsonFloat(fWifiPitch, 0.0f);
@@ -555,6 +564,29 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         std::strcpy(szDecelRate,  "null");
         }
 
+    // EKFQ-diagnostic fields.  Emit JSON `null` when the source value is
+    // non-finite (Madgwick path: AHRS::PublishSnapshot leaves these at
+    // NaN since Madgwick doesn't estimate gyro biases / b_az / β / yaw).
+    // Matches the AOA / DerivedAOA / IAS null convention above.
+    auto fmtFiniteOrNull = [](char* dst, size_t cap, float v, const char* fmt) {
+        if (IsFiniteFloat(v))
+            snprintf(dst, cap, fmt, v);
+        else
+            std::strcpy(dst, "null");
+    };
+    char szEkfBp[16];
+    char szEkfBq[16];
+    char szEkfBr[16];
+    char szEkfBAz[16];
+    char szEkfBeta[16];
+    char szEkfYaw[16];
+    fmtFiniteOrNull(szEkfBp,   sizeof(szEkfBp),   ahrsSnap.ekfBpDps,   "%.4f");
+    fmtFiniteOrNull(szEkfBq,   sizeof(szEkfBq),   ahrsSnap.ekfBqDps,   "%.4f");
+    fmtFiniteOrNull(szEkfBr,   sizeof(szEkfBr),   ahrsSnap.ekfBrDps,   "%.4f");
+    fmtFiniteOrNull(szEkfBAz,  sizeof(szEkfBAz),  ahrsSnap.ekfBAzMps2, "%.4f");
+    fmtFiniteOrNull(szEkfBeta, sizeof(szEkfBeta), ahrsSnap.ekfBetaDeg, "%.2f");
+    fmtFiniteOrNull(szEkfYaw,  sizeof(szEkfYaw),  ahrsSnap.ekfYawDeg,  "%.2f");
+
     // szFormat is a compile-time constant split across lines for readability.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
@@ -587,7 +619,13 @@ size_t UpdateLiveDataJson(char * pOut, size_t uOutSize)
         iJsonFastPct,
         iJsonSlowPct,
         iJsonStallWarnPct,
-        iJsonPipPct);
+        iJsonPipPct,
+        szEkfBp,
+        szEkfBq,
+        szEkfBr,
+        szEkfBAz,
+        szEkfBeta,
+        szEkfYaw);
 #pragma GCC diagnostic pop
 
     if (iChars < 0)

@@ -45,6 +45,15 @@ inline constexpr const char* kLiveDataJsonKeys[] = {
     "onSpeedSlowPctLift",
     "stallWarnPctLift",
     "pipPctLift",
+    // EKFQ-diagnostic states.  Emit `null` under Madgwick (which does
+    // not estimate these); finite under EKFQ.  Surface gyro biases (deg/s),
+    // vertical-accel bias (m/s²), sideslip (deg), yaw (deg).
+    "ekfBpDps",
+    "ekfBqDps",
+    "ekfBrDps",
+    "ekfBAzMps2",
+    "ekfBetaDeg",
+    "ekfYawDeg",
 };
 
 inline constexpr size_t kLiveDataJsonKeyCount =
