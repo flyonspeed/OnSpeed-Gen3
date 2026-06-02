@@ -8,6 +8,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/SensorSnapshot.h"
+#include "src/ahrs/ImuSnapshot.h"
 #include <buildinfo.h>
 #include <log/ConsumeAlignedWrite.h>
 #include <log/LogMetaBuilder.h>
@@ -1080,6 +1081,12 @@ void LogSensor::Write()
     // sensor row instead of unguarded g_Sensors fields from mid-update.
     const onspeed::ahrs::SensorSnapshotPayload sensSnap =
         onspeed::ahrs::g_SensorSnapshot.read();
+    // Coherent raw IMU frame. On the 50 Hz log path (SensorReadTask) this is
+    // a cross-task read of IMU data written by ImuReadTask, so the snapshot
+    // keeps an accel/gyro triplet from tearing across an IMU update; on the
+    // 208 Hz path (ImuReadTask) it returns the frame this task just published.
+    const onspeed::ImuSample imuSnap =
+        onspeed::ahrs::g_ImuSnapshot.read();
     const float ahrsTasMps          = ahrsSnap.tasMps;
     const float ahrsPitchDeg        = ahrsSnap.pitchDeg;
     const float ahrsRollDeg         = ahrsSnap.rollDeg;
@@ -1119,13 +1126,13 @@ void LogSensor::Write()
 
     // IMU — imuPitchRateDps holds the raw (un-negated) gyro value.
     // FormatRow applies the sign flip when writing the PitchRate column (issue #182).
-    row.imuTempCelsius   = g_pIMU->fTempC;
-    row.imuVerticalG     = g_pIMU->Az;
-    row.imuLateralG      = g_pIMU->Ay;
-    row.imuForwardG      = g_pIMU->Ax;
-    row.imuRollRateDps   = g_pIMU->Gx;
-    row.imuPitchRateDps  = g_pIMU->Gy;   // un-negated; FormatRow emits -imuPitchRateDps
-    row.imuYawRateDps    = g_pIMU->Gz;
+    row.imuTempCelsius   = imuSnap.tempCelsius;
+    row.imuVerticalG     = imuSnap.accelZG;
+    row.imuLateralG      = imuSnap.accelYG;
+    row.imuForwardG      = imuSnap.accelXG;
+    row.imuRollRateDps   = imuSnap.gyroRollDps;
+    row.imuPitchRateDps  = imuSnap.gyroPitchDps;   // un-negated; FormatRow emits -imuPitchRateDps
+    row.imuYawRateDps    = imuSnap.gyroYawDps;
     row.pitchDeg         = ahrsPitchDeg;
     row.rollDeg          = ahrsRollDeg;
 
