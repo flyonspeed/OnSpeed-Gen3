@@ -6,7 +6,7 @@ OnSpeed works without an EFIS connection. In standalone mode, the system relies 
 
 - **AOA measurement** — the pressure sensors and IMU provide AOA data independently
 - **IAS computation** — from the onboard pitot pressure sensor
-- **Pressure altitude** — from the static pressure sensor, ISA 1013.25 hPa reference, Kalman-filtered. (No Kollsman/QNH correction; this is not panel-altimeter altitude.)
+- **Pressure altitude** — from the static pressure sensor, ISA 1013.25 hPa reference, smoothed by the AHRS algorithm's vertical channel. (No Kollsman/QNH correction; this is not panel-altimeter altitude.)
 - **Audio tones** — fully functional
 - **SD card logging** — all OnSpeed sensor data is logged
 - **WiFi configuration** — fully functional
