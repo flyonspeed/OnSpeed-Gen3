@@ -1,3 +1,10 @@
+// Scope of this suite: PAYLOAD WIRING for g_SensorSnapshot — round-trip
+// through publish()/read(), sensible default state, trivially-copyable
+// (the memcpy precondition). The seqcount RACE semantics (no torn reads
+// under concurrent publish, latest-publish-wins, cross-core ordering) are
+// covered exhaustively and payload-agnostically in test_snapshot_publisher,
+// so they are NOT re-tested per payload here. The static_assert in
+// SensorSnapshot.h is the compile-time half of the contract.
 #include <unity.h>
 #include <cstring>
 #include <type_traits>

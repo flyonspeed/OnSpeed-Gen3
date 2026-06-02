@@ -600,6 +600,16 @@ void SensorIO::Read()
     // Read() owns the full AOA/IAS frame: in TestPot/RangeSweep the synth
     // task writes AOA/IAS and publishes instead, so Read() must not also
     // publish (that would be a second writer on g_SensorSnapshot).
+    //
+    // Tripwire: this exclusion gate assumes the four known data-source modes
+    // (EnSensors, EnReplay, EnTestPot, EnRangeSweep). A new mode would fall
+    // into the publish branch by default — fine UNLESS it also runs its own
+    // synth task that publishes, which would create a second writer. The
+    // static_assert forces whoever adds a fifth SuDataSource value to revisit
+    // this gate (EnUnknown is the count sentinel, so it grows to 5).
+    static_assert(static_cast<int>(SuDataSource::EnUnknown) == 4,
+                  "SuDataSource gained a value — re-check the g_SensorSnapshot "
+                  "publish gate below: does the new mode have its own publisher?");
     if ((g_Config.suDataSrc.enSrc != SuDataSource::EnTestPot) &&
         (g_Config.suDataSrc.enSrc != SuDataSource::EnRangeSweep))
     {
