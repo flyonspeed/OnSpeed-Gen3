@@ -17,6 +17,15 @@ physical bound AND revert immediately (the torn-read shape), per column group:
   - sensor:     IAS, AngleofAttack, Palt       (g_SensorSnapshot)
   - ahrs:       Pitch, Roll, DerivedAOA, VSI   (g_AhrsSnapshot)
 
+KNOWN BLIND SPOT: this catches only tears that REVERT within one sample
+(value spikes out, then the next row is back to normal). A tear that lands
+on a genuine step change — where the new value persists for several rows —
+shows as a single non-reverting step and is NOT flagged. So a CLEAN result
+is evidence-of-absence for the common reverting case, not a proof of no
+tears. Treat it as a cheap tripwire, not a verdict; the authoritative
+coherence guarantee is the seqcount itself (tested in test_snapshot_publisher)
+plus the EFIS counter-diff in check-atomic-publish.py.
+
 Header-driven: finds columns by name, tolerates reorder/absence.
 
 Usage:  uv run tools/bench/check_snapshot_sanity.py path/to/log_NNN.csv
@@ -31,7 +40,7 @@ GROUPS = {
     "IMU accel (g)":   {"ForwardG": 4.0, "LateralG": 4.0, "VerticalG": 6.0},
     "IMU gyro (dps)":  {"RollRate": 400.0, "PitchRate": 400.0, "YawRate": 400.0},
     "sensor":          {"IAS": 50.0, "AngleofAttack": 30.0, "Palt": 2000.0},
-    "ahrs":            {"Pitch": 45.0, "Roll": 60.0, "DerivedAOA": 30.0},
+    "ahrs":            {"Pitch": 45.0, "Roll": 60.0, "DerivedAOA": 30.0, "VSI": 3000.0},
 }
 
 def main(path):
