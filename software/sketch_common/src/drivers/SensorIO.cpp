@@ -6,6 +6,7 @@
 #include "src/Globals.h"
 #include "src/ahrs/AhrsSnapshot.h"
 #include "src/ahrs/FlapSnapshot.h"
+#include "src/ahrs/SensorSnapshot.h"
 #include "src/drivers/Ds18b20.h"
 #include "src/config/Config.h"
 #include "src/tasks/Flaps.h"
@@ -38,6 +39,13 @@
 using onspeed::SuCalibrationCurve;
 using onspeed::AOACalculatorResult;
 using onspeed::CurveCalc;
+
+// Lock-free snapshot of derived sensor state. Owned here; published by
+// SensorIO::PublishSnapshot() at the end of SensorIO::Read() (live,
+// SensorReadTask) and by LogReplay's per-row write-back (replay). See
+// src/ahrs/SensorSnapshot.h for the payload and the producer/consumer contract.
+onspeed::util::SnapshotPublisher<onspeed::ahrs::SensorSnapshotPayload>
+    onspeed::ahrs::g_SensorSnapshot;
 
 // Snapshotting the active flap entry assumes a trivial copy is sound.
 // SuCalibrationCurve is a POD; SuFlaps is a small aggregate of scalars and
